@@ -83,7 +83,14 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+// A person's answer on Your call is posted through the ordinary comment action: here it only records what it was given.
+vi.mock("@/app/actions/issues", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/app/actions/issues")>()), addCommentAction: vi.fn(async () => ({ ok: true })) }));
+// Your call (#your-call) asks the database for the split issues on every view (for its step's count): the layout tests below read the list's own queries, so it gets an empty answer here.
+vi.mock("@/lib/your-call", async (importOriginal) => ({ ...(await importOriginal<typeof import("@/lib/your-call")>()), loadYourCall: vi.fn(async () => []) }));
 import { IssuesList } from "@/app/(app)/[project]/issues/_list/issues-list";
+import { urgencyOf, yardsticksFor, type UrgencySignals } from "@/lib/your-call";
+import { addCommentAction } from "@/app/actions/issues";
+import { answerYourCallAction } from "@/app/actions/your-call";
 
 const BUG = {
   id: "bug-1",
@@ -240,4 +247,53 @@ describe("issue list layout", () => {
     expect(counted(statusList(html))).toEqual({ Open: 13, "In progress": 2, Closed: 3, "Possibly delivered": 1 });
   });
 
+});
+
+/** Your call (#your-call): how urgent an issue the agents split on is, and why. */
+describe("Your call urgency", () => {
+  const NOW = new Date("2026-11-03T12:00:00Z").getTime();
+  const days = (n: number) => new Date(NOW + n * 24 * 60 * 60 * 1000);
+  const open = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((importance) => ({ importance, reward: importance }));
+  const yardsticks = yardsticksFor(open);
+  const issue = (over: Partial<UrgencySignals>): UrgencySignals => ({ isBoosted: false, importance: 0, reward: 1, milestone: null, since: days(-1), ...over });
+
+  it("is Critical when boosted, due soon or overdue, or among the most important, and says why", () => {
+    expect(urgencyOf(issue({ isBoosted: true }), yardsticks, NOW)).toEqual({ urgency: "critical", reasons: ["Boosted"] });
+    expect(urgencyOf(issue({ milestone: { title: "Beta", dueDate: days(3) } }), yardsticks, NOW).reasons).toEqual(["Milestone Beta due in 3 days"]);
+    expect(urgencyOf(issue({ milestone: { title: "Beta", dueDate: days(-2) } }), yardsticks, NOW).reasons).toEqual(["Milestone Beta overdue"]);
+    expect(urgencyOf(issue({ milestone: { title: "Beta", dueDate: days(30) } }), yardsticks, NOW).urgency).toBe("low");
+    expect(urgencyOf(issue({ importance: 10 }), yardsticks, NOW).urgency).toBe("critical");
+  });
+
+  it("is High for high importance or a long split, Medium for any marks, and Low otherwise", () => {
+    expect(urgencyOf(issue({ importance: 8 }), yardsticks, NOW).urgency).toBe("high");
+    expect(urgencyOf(issue({ since: days(-9) }), yardsticks, NOW)).toEqual({ urgency: "high", reasons: ["Split for 9 days"] });
+    expect(urgencyOf(issue({ importance: 2 }), yardsticks, NOW).urgency).toBe("medium");
+    expect(urgencyOf(issue({}), yardsticks, NOW).urgency).toBe("low");
+  });
+
+  it("judges against the project's own work, so a project with nothing marked has no Critical issue", () => {
+    expect(urgencyOf(issue({ importance: 5 }), yardsticksFor([]), NOW).urgency).toBe("medium");
+  });
+});
+
+/** Your call (#your-call): what a person's plain answer sends to the agents. */
+describe("Your call answers", () => {
+  const posted = () => (vi.mocked(addCommentAction).mock.calls.at(-1)![1] as FormData).get("body") as string;
+
+  it("posts a yes or a no as a comment that starts with the decision line, with the note after it", async () => {
+    vi.mocked(addCommentAction).mockClear();
+    expect(await answerYourCallAction("bug-1", "confirm", "yes", "  Keep it simple.  ")).toEqual({ ok: true });
+    expect(posted()).toBe("**Decision from the owner:** Yes, this is a real problem. Please go ahead and fix it.\n\nKeep it simple.");
+    await answerYourCallAction("bug-1", "merge", "no", "");
+    expect(posted()).toBe("**Decision from the owner:** No, the fix is not ready yet. Please do not merge it.");
+  });
+
+  it("refuses anything but yes or no, and tells the person if the comment could not be posted", async () => {
+    vi.mocked(addCommentAction).mockClear();
+    expect(await answerYourCallAction("bug-1", "confirm", "maybe" as never, "")).toEqual({ error: "Pick yes or no." });
+    expect(addCommentAction).not.toHaveBeenCalled();
+    vi.mocked(addCommentAction).mockResolvedValueOnce({ error: "Issue not found" });
+    expect(await answerYourCallAction("gone", "confirm", "no", "")).toEqual({ error: "Issue not found" });
+  });
 });
