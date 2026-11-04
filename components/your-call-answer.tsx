@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { answerYourCallAction } from "@/app/actions/your-call";
-import { PLAIN, type YourCallAnswer, type YourCallItem, type YourCallVote } from "@/lib/your-call-shared";
+import { PLAIN, plainTitle, type YourCallAnswer, type YourCallItem, type YourCallVote } from "@/lib/your-call-shared";
 
 const GO_BUTTON = "inline-flex h-8 items-center rounded-lg bg-zk-ok-fg px-3 text-[13px] font-semibold text-white hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue";
 const STOP_BUTTON = "inline-flex h-8 items-center rounded-lg border border-zk-border bg-zk-surface px-3 text-[13px] font-semibold text-zk-text hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent";
@@ -80,7 +80,7 @@ export function YourCallAnswerButton({ item, answer, onSent }: { item: YourCallI
                 <path d="m6 6 12 12M18 6 6 18" />
               </svg>
             </button>
-            <h2 className="m-0 pr-8 text-base font-bold text-zk-text">{item.title.replace(/^\[[^\]]+\]\s*/, "")}</h2>
+            <h2 className="m-0 pr-8 text-base font-bold text-zk-text">{plainTitle(item.title)}</h2>
             <p className="m-0 text-sm text-zk-text2">{words.question}</p>
             <Side heading={words.yesSaid} votes={item.yes} />
             <Side heading={words.noSaid} votes={item.no} />

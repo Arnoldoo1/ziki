@@ -12,6 +12,9 @@ export const URGENCY_LABEL: Record<Urgency, string> = {
   low: "Low",
 };
 
+/** "Bug", "Feature" and the like come in brackets at the start of a title: the plain list leaves them out. */
+export const plainTitle = (title: string) => title.replace(/^\[[^\]]+\]\s*/, "");
+
 /** The plain choice a person gives, in the words they see (`yes`: go ahead, `no`: leave it). */
 export type YourCallAnswer = "yes" | "no";
 

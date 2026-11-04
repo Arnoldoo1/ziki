@@ -255,9 +255,10 @@ describe("issue list layout", () => {
 describe("Your call urgency", () => {
   const NOW = new Date("2026-11-03T12:00:00Z").getTime();
   const days = (n: number) => new Date(NOW + n * 24 * 60 * 60 * 1000);
-  const open = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((importance) => ({ importance, reward: importance }));
-  const yardsticks = yardsticksFor(open);
-  const issue = (over: Partial<UrgencySignals>): UrgencySignals => ({ isBoosted: false, importance: 0, reward: 1, milestone: null, since: days(-1), ...over });
+  /** A project's open issues as the database counts them: one row per importance value. */
+  const spread = (values: number[]) => [...new Set(values)].map((importance) => ({ importance, count: values.filter((v) => v === importance).length }));
+  const yardsticks = yardsticksFor(spread([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]));
+  const issue = (over: Partial<UrgencySignals>): UrgencySignals => ({ isBoosted: false, importance: 0, milestone: null, since: days(-1), ...over });
 
   it("is Critical when boosted, due soon or overdue, or among the most important, and says why", () => {
     expect(urgencyOf(issue({ isBoosted: true }), yardsticks, NOW)).toEqual({ urgency: "critical", reasons: ["Boosted"] });
@@ -275,17 +276,17 @@ describe("Your call urgency", () => {
   });
 
   it("never makes nearly every issue Critical when most share one value (95 issues on 1 mark, 5 on 2)", () => {
-    const crowd = [...Array(95).fill(1), ...Array(5).fill(2)];
+    const crowd = spread([...Array(95).fill(1), ...Array(5).fill(2)]);
     expect(topShare(crowd, 0.1)).toBe(2);
     expect(topShare(crowd, 0.3)).toBe(2);
-    const yard = yardsticksFor(crowd.map((importance) => ({ importance, reward: 1 })));
+    const yard = yardsticksFor(crowd);
     expect(urgencyOf(issue({ importance: 1 }), yard, NOW).urgency).toBe("medium");
     expect(urgencyOf(issue({ importance: 2 }), yard, NOW).urgency).toBe("critical");
     // Everyone on the same mark: nothing stands out, so nothing is Critical or High.
-    expect(topShare(Array(100).fill(1), 0.1)).toBe(0);
+    expect(topShare(spread(Array(100).fill(1)), 0.1)).toBe(0);
     // Issues with nothing marked count towards the project's work but never qualify.
-    expect(topShare([...Array(90).fill(0), ...Array(10).fill(1)], 0.1)).toBe(1);
-    expect(topShare([...Array(50).fill(0), ...Array(50).fill(1)], 0.1)).toBe(0);
+    expect(topShare(spread([...Array(90).fill(0), ...Array(10).fill(1)]), 0.1)).toBe(1);
+    expect(topShare(spread([...Array(50).fill(0), ...Array(50).fill(1)]), 0.1)).toBe(0);
   });
 
   it("judges against the project's own work, so a project with nothing marked has no Critical issue", () => {
@@ -350,26 +351,43 @@ describe("Your call list", () => {
   const decision = (authorId: string, at: number) => ({ authorId, body: "**Decision from the owner:** Yes, the fix is ready. Please go ahead and merge it.", createdAt: T(at) });
   const issue = (over: Record<string, unknown> = {}) => ({
     id: "bug-9", number: 9, title: "Fix the header", summary: null, substatus: "requires_review", pullRequestUrl: PR, pullRequestHeadSha: "head2", updatedAt: T(0),
-    voteCount: 0, isBoosted: false, reward: 1, reporterId: "dave", beneficiaryUserId: "dave", milestone: null, project: { slug: "acme" },
+    voteCount: 0, isBoosted: false, reporterId: "dave", beneficiaryUserId: "dave", milestone: null, project: { slug: "acme" },
     deliveries: [{ beneficiaryUserId: "carl", pullRequestUrl: PR }], comments: [],
     testVerdicts: [verdict({}), verdict({ goodToMerge: false, agentId: "a2", onBehalfOfUserId: "ben", agent: { name: "Ben's agent", ownerUserId: "ben" }, createdAt: T(5), updatedAt: T(5) })],
     confirmations: [], ...over,
   });
   const load = async (issues: unknown[], viewer = { userId: "dave", isAdmin: false }) => {
-    findMany.mockResolvedValueOnce(issues as never).mockResolvedValueOnce([] as never);
+    findMany.mockResolvedValueOnce(issues as never);
     const real = await vi.importActual<typeof import("@/lib/your-call")>("@/lib/your-call");
     return real.loadYourCall("p1", viewer);
   };
 
   it("asks only for the issues the person filed, or every issue for an admin", async () => {
     await load([]);
-    expect(findMany.mock.calls.at(-2)![0].where).toMatchObject({ OR: [{ reporterId: "dave" }, { beneficiaryUserId: "dave" }] });
+    expect(findMany.mock.calls.at(-1)![0].where).toMatchObject({ OR: [{ reporterId: "dave" }, { beneficiaryUserId: "dave" }] });
     await load([], { userId: "root", isAdmin: true });
-    expect(findMany.mock.calls.at(-2)![0].where).not.toHaveProperty("OR");
+    expect(findMany.mock.calls.at(-1)![0].where).not.toHaveProperty("OR");
+  });
+
+  it("lists a report only when its confirmations split, asks for neutral ones to be left out, and shows nothing when they agree", async () => {
+    const confirmation = (verdict: string, agentId: string, at: number) => ({ verdict, summary: "Checked.", createdAt: T(at), agentId, agent: { name: `${agentId}'s agent` } });
+    const report = (confirmations: unknown[]) => issue({ substatus: "requires_confirmation", pullRequestUrl: null, pullRequestHeadSha: null, testVerdicts: [], deliveries: [], confirmations });
+    expect(await load([report([confirmation("confirm", "a", 1), confirmation("confirm", "b", 2)])])).toHaveLength(0);
+    expect(await load([report([confirmation("reject", "a", 1), confirmation("reject", "b", 2)])])).toHaveLength(0);
+    const [item] = await load([report([confirmation("confirm", "a", 1), confirmation("reject", "b", 2)])]);
+    expect(item).toMatchObject({ kind: "confirm", number: 9 });
+    expect(item!.yes).toHaveLength(1);
+    expect(item!.no).toHaveLength(1);
+    // Neutral confirmations never reach the list: the query leaves them out.
+    const select = findMany.mock.calls.at(-1)![0].select.confirmations;
+    expect(select.where).toEqual({ undoneAt: null, verdict: { in: ["confirm", "reject"] } });
   });
 
   it("lists a fix only when judgements on its current commit split, leaving out old commits and the people who delivered it", async () => {
     expect(await load([issue()])).toHaveLength(1);
+    // A verdict on an earlier pull request link says nothing about this one.
+    const otherLink = issue({ testVerdicts: [verdict({}), verdict({ goodToMerge: false, pullRequestUrl: "https://github.com/acme/web/pull/0", agentId: "a2", onBehalfOfUserId: "ben", agent: { name: "Ben's agent", ownerUserId: "ben" } })] });
+    expect(await load([otherLink])).toHaveLength(0);
     const oldCommit = issue({ testVerdicts: [verdict({}), verdict({ goodToMerge: false, headSha: "head1", agentId: "a2", onBehalfOfUserId: "ben", agent: { name: "Ben's agent", ownerUserId: "ben" } })] });
     expect(await load([oldCommit])).toHaveLength(0);
     const byDeliverer = issue({ testVerdicts: [verdict({}), verdict({ goodToMerge: false, agentId: "a3", onBehalfOfUserId: "carl", agent: { name: "Carl's agent", ownerUserId: "carl" } })] });

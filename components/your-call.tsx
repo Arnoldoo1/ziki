@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { LocalTime } from "@/components/local-time";
 import { YourCallAnswerButton } from "@/components/your-call-answer";
-import { PLAIN, URGENCIES, URGENCY_LABEL, type Urgency, type YourCallItem } from "@/lib/your-call-shared";
+import { PLAIN, plainTitle, URGENCIES, URGENCY_LABEL, type Urgency, type YourCallItem } from "@/lib/your-call-shared";
 
 /** Each urgency's colour, and how many of the meter's four segments it fills: Critical all four, Low one. */
 const LOOK: Record<Urgency, { fill: string; segments: number }> = {
@@ -33,9 +33,6 @@ function UrgencyCell({ urgency, reasons }: { urgency: Urgency; reasons: string[]
   );
 }
 
-/** "Bug", "Feature" and the like come in brackets at the start of a title: the plain list leaves them out. */
-const plainTitle = (title: string) => title.replace(/^\[[^\]]+\]\s*/, "");
-
 /**
  * One issue the agents split on, as a row like the Open list's (#your-call):
  * the issue, how urgent it is, how long it has waited, then two plain answers
@@ -55,7 +52,7 @@ function Row({ item, last }: { item: YourCallItem; last: boolean }) {
         <span className="flex flex-wrap items-center gap-2 text-xs text-zk-muted">
           <span className="tabular-nums">Issue #{item.number}</span>
           <span>{verdicts} verdicts</span>
-          <span>{item.kind === "merge" ? "Is the fix ready?" : "Should this be fixed?"}</span>
+          <span>{item.kind === "merge" ? "Is the fix ready?" : "Is it a real problem?"}</span>
         </span>
       </span>
       <UrgencyCell urgency={item.urgency} reasons={item.reasons} />

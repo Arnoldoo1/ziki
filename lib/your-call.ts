@@ -22,18 +22,20 @@ export type UrgencySignals = {
   isBoosted: boolean;
   /** Importance marks (`Bug.voteCount`). */
   importance: number;
-  reward: number;
   milestone: { title: string; dueDate: Date | null } | null;
   /** When the agents split. */
   since: Date;
 };
 
 /**
- * The project's yardsticks: importance and reward are judged against the
- * project's other open work, so a busy project doesn't turn everything
- * Critical. Each is the value an issue must reach (0 when nothing has any).
+ * The project's yardsticks: importance is judged against the project's other
+ * open work, so a busy project doesn't turn everything Critical. Each is the
+ * value an issue must reach (0 when nothing stands out).
  */
-export type ProjectYardsticks = { topImportance: number; highImportance: number; highReward: number };
+export type ProjectYardsticks = { topImportance: number; highImportance: number };
+
+/** How many of the project's open issues sit on each importance value. */
+export type ImportanceCount = { importance: number; count: number };
 
 /**
  * The lowest value that puts an issue in the top `share` of the project's open
@@ -42,28 +44,23 @@ export type ProjectYardsticks = { topImportance: number; highImportance: number;
  * on the same value there is no cut-off (0) rather than a one that makes them all
  * top. 95 issues on 1 mark and 5 on 2: the top 10% is the five on 2, not all 100.
  */
-export function topShare(values: number[], share: number): number {
-  const allowed = Math.floor(values.length * share);
-  const distinct = [...new Set(values.filter((v) => v > 0))].sort((x, y) => x - y);
-  return distinct.find((v) => values.filter((w) => w >= v).length <= allowed) ?? 0;
+export function topShare(groups: ImportanceCount[], share: number): number {
+  const total = groups.reduce((sum, g) => sum + g.count, 0);
+  const allowed = Math.floor(total * share);
+  const values = groups.filter((g) => g.importance > 0).map((g) => g.importance).sort((x, y) => x - y);
+  return values.find((v) => groups.reduce((sum, g) => sum + (g.importance >= v ? g.count : 0), 0) <= allowed) ?? 0;
 }
 
-export function yardsticksFor(open: { importance: number; reward: number }[]): ProjectYardsticks {
-  const importance = open.map((o) => o.importance);
-  return {
-    topImportance: topShare(importance, 0.1),
-    highImportance: topShare(importance, 0.3),
-    highReward: topShare(open.map((o) => o.reward), 0.1),
-  };
+export function yardsticksFor(groups: ImportanceCount[]): ProjectYardsticks {
+  return { topImportance: topShare(groups, 0.1), highImportance: topShare(groups, 0.3) };
 }
 
 /**
  * How much the stuck issue holds the project back, and why:
  * - Critical: boosted, in a milestone due within 7 days (or overdue), or
  *   among the project's most important open issues (top 10% by importance);
- * - High: high importance (top 30%), split for over a week, or one of the
- *   project's best-paid issues (top 10% by reward);
- * - Medium: any importance marks, or a reward above the default;
+ * - High: high importance (top 30%) or split for over a week;
+ * - Medium: any importance marks;
  * - Low: everything else.
  */
 export function urgencyOf(s: UrgencySignals, y: ProjectYardsticks, now = Date.now()): { urgency: Urgency; reasons: string[] } {
@@ -82,12 +79,10 @@ export function urgencyOf(s: UrgencySignals, y: ProjectYardsticks, now = Date.no
   if (s.importance > 0 && y.highImportance > 0 && s.importance >= y.highImportance) high.push(`High importance (${s.importance} marks)`);
   const waited = Math.floor((now - s.since.getTime()) / DAY);
   if (waited > LONG_WAIT_DAYS) high.push(`Split for ${waited} days`);
-  if (s.reward > 1 && y.highReward > 1 && s.reward >= y.highReward) high.push(`Reward $${s.reward}`);
   if (high.length) return { urgency: "high", reasons: high };
 
   const medium: string[] = [];
   if (s.importance > 0) medium.push(`${s.importance} importance ${s.importance === 1 ? "mark" : "marks"}`);
-  if (s.reward > 1) medium.push(`Reward $${s.reward}`);
   if (medium.length) return { urgency: "medium", reasons: medium };
 
   return { urgency: "low", reasons: ["Nothing marks it as urgent yet"] };
@@ -123,7 +118,7 @@ export async function loadYourCall(projectId: string, viewer: YourCallViewer): P
       },
       select: {
         id: true, number: true, title: true, summary: true, substatus: true, pullRequestUrl: true, pullRequestHeadSha: true, updatedAt: true,
-        voteCount: true, isBoosted: true, reward: true, reporterId: true, beneficiaryUserId: true,
+        voteCount: true, isBoosted: true, reporterId: true, beneficiaryUserId: true,
         milestone: { select: { title: true, dueDate: true } },
         project: { select: { slug: true } },
         // The people who delivered the fix: their own agents' judgements never count.
@@ -144,13 +139,14 @@ export async function loadYourCall(projectId: string, viewer: YourCallViewer): P
         },
       },
     }),
-    // The yardsticks: every open piece of work in the project.
-    prisma.bug.findMany({
+    // The yardsticks: how the project's open work is spread over importance, counted in the database (one row per value).
+    prisma.bug.groupBy({
+      by: ["voteCount"],
       where: { projectId, isDeleted: false, status: { in: [...OPEN_WORK] } },
-      select: { voteCount: true, reward: true },
+      _count: { _all: true },
     }),
   ]);
-  const yardsticks = yardsticksFor(open.map((o) => ({ importance: o.voteCount, reward: Number(o.reward) })));
+  const yardsticks = yardsticksFor(open.map((o) => ({ importance: o.voteCount, count: o._count._all })));
 
   const items: YourCallItem[] = [];
   for (const issue of issues) {
@@ -181,7 +177,7 @@ export async function loadYourCall(projectId: string, viewer: YourCallViewer): P
     // An answer counts when the viewer or the one who filed the issue gave it after the split.
     const mine = issue.comments.find((c) => c.createdAt > split.at && (c.authorId === viewer.userId || c.authorId === issue.reporterId || c.authorId === issue.beneficiaryUserId));
     const { urgency, reasons } = urgencyOf(
-      { isBoosted: issue.isBoosted, importance: issue.voteCount, reward: Number(issue.reward), milestone: issue.milestone, since: split.at },
+      { isBoosted: issue.isBoosted, importance: issue.voteCount, milestone: issue.milestone, since: split.at },
       yardsticks,
     );
     items.push({
