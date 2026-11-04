@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { LocalTime } from "@/components/local-time";
 import { YourCallAnswerButton } from "@/components/your-call-answer";
-import { URGENCIES, URGENCY_LABEL, type Urgency, type YourCallItem } from "@/lib/your-call-shared";
+import { PLAIN, URGENCIES, URGENCY_LABEL, type Urgency, type YourCallItem } from "@/lib/your-call-shared";
 
 /** Each urgency's colour, and how many of the meter's four segments it fills: Critical all four, Low one. */
 const LOOK: Record<Urgency, { fill: string; segments: number }> = {
@@ -61,9 +61,9 @@ function Row({ item, last }: { item: YourCallItem; last: boolean }) {
       <UrgencyCell urgency={item.urgency} reasons={item.reasons} />
       <span className={`${COL.waiting} text-xs text-zk-muted`}><LocalTime date={item.since} /></span>
       <span className={`${COL.answer} flex items-center gap-1.5`}>
-        {sent ? (
+        {item.answer || sent ? (
           <span role="status" className="inline-flex items-center rounded-lg bg-zk-ok-bg px-2.5 py-1.5 text-xs font-semibold text-zk-ok-fg">
-            Answer sent
+            {item.answer ? `You answered: ${PLAIN[item.kind][item.answer]}. Waiting for the agents` : "Answer sent. Waiting for the agents"}
           </span>
         ) : (
           <>

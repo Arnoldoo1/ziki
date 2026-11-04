@@ -58,4 +58,6 @@ export type YourCallItem = {
   no: YourCallVote[];
   since: Date;
   href: string;
+  /** What this person already answered here, when they did: the issue stays listed, now waiting for the agents. */
+  answer: YourCallAnswer | null;
 };

@@ -843,10 +843,6 @@ export async function IssuesList({
     }), 0),
   ]);
   // One status per issue, so the status tabs never overlap and add up to All.
-  // Your call (#your-call): the issues the agents split on. Its step sits above Open only while there are any.
-  const yourCall = isDeletedView || !tenantId || !projectId || allProjects
-    ? []
-    : await loadOrEmpty("your call", () => loadYourCall(projectId), []);
   const countForStatus = (status: string) => statusCounts.find((row) => row.status === status)?._count._all ?? 0;
   const allCount = statusCounts.reduce((sum, row) => sum + row._count._all, 0);
   const allFilterCount = (value: string) =>
@@ -907,6 +903,11 @@ export async function IssuesList({
     : isYourCallView
       ? IN_PROGRESS_STAGE
       : STAGE_GROUPS.findIndex((group) => (group.statuses as readonly string[]).includes(currentStatus ?? ""));
+  // Your call (#your-call): the issues the agents split on that this person has to settle. Its step sits above Open only while there
+  // are any, and only In Progress shows it, so the other views don't ask for it.
+  const yourCall = stageIndex !== IN_PROGRESS_STAGE || !tenantId || !projectId || allProjects || !userId
+    ? []
+    : await loadOrEmpty("your call", () => loadYourCall(projectId, { userId, isAdmin: Boolean(membershipRole && isOrganizationAdmin(membershipRole, effectiveRole)) }), []);
   const statusCount = (value: string) =>
     value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : value === ERROR_STATUS ? errorCount : value === POSSIBLY_DELIVERED ? possiblyDeliveredCount : countForStatus(value);
   const statusLink = (value: string) => (value === IDEAS_STATUS ? statusHref(null) : statusHref(value));

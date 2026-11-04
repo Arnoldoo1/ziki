@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { DECISION_MARKER, type Urgency, type YourCallItem } from "@/lib/your-call-shared";
+import { DECISION_MARKER, PLAIN, type Urgency, type YourCallAnswer, type YourCallItem } from "@/lib/your-call-shared";
 
 /**
  * Your call (#your-call): the open issues a person has to settle
@@ -35,19 +35,25 @@ export type UrgencySignals = {
  */
 export type ProjectYardsticks = { topImportance: number; highImportance: number; highReward: number };
 
-/** The value at fraction `q` (0–1) of the sorted positive values; 0 when there are none. */
-export function quantile(values: number[], q: number): number {
-  const sorted = values.filter((v) => v > 0).sort((a, b) => a - b);
-  if (!sorted.length) return 0;
-  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]!;
+/**
+ * The lowest value that puts an issue in the top `share` of the project's open
+ * work, counted over all of it (issues with nothing marked are in the count but
+ * never qualify). Ties never push more than the share in: when most issues sit
+ * on the same value there is no cut-off (0) rather than a one that makes them all
+ * top. 95 issues on 1 mark and 5 on 2: the top 10% is the five on 2, not all 100.
+ */
+export function topShare(values: number[], share: number): number {
+  const allowed = Math.floor(values.length * share);
+  const distinct = [...new Set(values.filter((v) => v > 0))].sort((x, y) => x - y);
+  return distinct.find((v) => values.filter((w) => w >= v).length <= allowed) ?? 0;
 }
 
 export function yardsticksFor(open: { importance: number; reward: number }[]): ProjectYardsticks {
   const importance = open.map((o) => o.importance);
   return {
-    topImportance: quantile(importance, 0.9),
-    highImportance: quantile(importance, 0.7),
-    highReward: quantile(open.map((o) => o.reward), 0.9),
+    topImportance: topShare(importance, 0.1),
+    highImportance: topShare(importance, 0.3),
+    highReward: topShare(open.map((o) => o.reward), 0.1),
   };
 }
 
@@ -89,20 +95,47 @@ export function urgencyOf(s: UrgencySignals, y: ProjectYardsticks, now = Date.no
 
 const OPEN_WORK = ["open", "in_progress", "done", "merge"] as const;
 
-export async function loadYourCall(projectId: string): Promise<YourCallItem[]> {
+/** Who is looking: the person, and whether they are an admin of the workspace (admins answer for any issue in it). */
+export type YourCallViewer = { userId: string; isAdmin: boolean };
+
+/** The answer written in a decision comment, read back from the words it was posted with. */
+export function answerFrom(kind: "confirm" | "merge", body: string): YourCallAnswer | null {
+  if (!body.startsWith(DECISION_MARKER)) return null;
+  const text = body.slice(DECISION_MARKER.length).trim();
+  if (text.startsWith(PLAIN[kind].yesSentence)) return "yes";
+  if (text.startsWith(PLAIN[kind].noSentence)) return "no";
+  return null;
+}
+
+/**
+ * The issues in the project that the viewer has to settle: the ones they filed,
+ * or any in the workspace when they are an admin. For each, what the agents
+ * said and, when the person already answered, that answer (the issue stays
+ * listed until the agents act on it, since the answer is a comment and does not
+ * change a vote).
+ */
+export async function loadYourCall(projectId: string, viewer: YourCallViewer): Promise<YourCallItem[]> {
   const [issues, open] = await Promise.all([
     prisma.bug.findMany({
-      where: { projectId, isDeleted: false, substatus: { in: ["requires_review", "requires_confirmation"] } },
+      where: {
+        projectId, isDeleted: false, substatus: { in: ["requires_review", "requires_confirmation"] },
+        ...(viewer.isAdmin ? {} : { OR: [{ reporterId: viewer.userId }, { beneficiaryUserId: viewer.userId }] }),
+      },
       select: {
-        id: true, number: true, title: true, summary: true, substatus: true, pullRequestUrl: true, updatedAt: true,
-        voteCount: true, isBoosted: true, reward: true,
+        id: true, number: true, title: true, summary: true, substatus: true, pullRequestUrl: true, pullRequestHeadSha: true, updatedAt: true,
+        voteCount: true, isBoosted: true, reward: true, reporterId: true, beneficiaryUserId: true,
         milestone: { select: { title: true, dueDate: true } },
         project: { select: { slug: true } },
-        // A person's answer given here: once it is in, the issue is no longer waiting on them.
-        comments: { where: { deletedAt: null, body: { startsWith: DECISION_MARKER } }, select: { createdAt: true } },
+        // The people who delivered the fix: their own agents' judgements never count.
+        deliveries: { select: { beneficiaryUserId: true, pullRequestUrl: true } },
+        // A person's answer given here, by the one who may give it. Their words end up as a comment, and nothing else marks it.
+        comments: { where: { deletedAt: null, body: { startsWith: DECISION_MARKER } }, orderBy: { createdAt: "desc" }, select: { authorId: true, body: true, createdAt: true } },
         testVerdicts: {
           orderBy: { createdAt: "asc" },
-          select: { goodToMerge: true, summary: true, pullRequestUrl: true, createdAt: true, agentId: true, agent: { select: { name: true } } },
+          select: {
+            goodToMerge: true, summary: true, pullRequestUrl: true, headSha: true, createdAt: true, changedAt: true, updatedAt: true,
+            agentId: true, onBehalfOfUserId: true, agent: { select: { name: true, ownerUserId: true } },
+          },
         },
         confirmations: {
           where: { undoneAt: null, verdict: { in: ["confirm", "reject"] } },
@@ -121,12 +154,17 @@ export async function loadYourCall(projectId: string): Promise<YourCallItem[]> {
 
   const items: YourCallItem[] = [];
   for (const issue of issues) {
-    // The judgements that count are the ones on the pull request linked now.
+    const kind = issue.substatus === "requires_review" ? "merge" : "confirm";
+    // The judgements that count are the ones on the pull request linked now, on its current head commit (a verdict on an
+    // earlier commit says nothing about this one), and never from the people who delivered the fix. A changed verdict counts from when it changed.
+    const credited = new Set(issue.deliveries.filter((d) => d.pullRequestUrl === issue.pullRequestUrl).map((d) => d.beneficiaryUserId));
     const votes =
-      issue.substatus === "requires_review"
+      kind === "merge"
         ? issue.testVerdicts
             .filter((v) => v.pullRequestUrl === issue.pullRequestUrl)
-            .map((v) => ({ yes: v.goodToMerge, agentId: v.agentId, agentName: v.agent.name, says: v.summary, at: v.createdAt }))
+            .filter((v) => !issue.pullRequestHeadSha || v.headSha === issue.pullRequestHeadSha)
+            .filter((v) => !credited.has(v.agent.ownerUserId) && !credited.has(v.onBehalfOfUserId))
+            .map((v) => ({ yes: v.goodToMerge, agentId: v.agentId, agentName: v.agent.name, says: v.summary, at: v.changedAt ?? v.createdAt }))
         : issue.confirmations.map((c) => ({
             yes: c.verdict === "confirm",
             agentId: c.agentId ?? `person-${c.createdAt.getTime()}`,
@@ -137,10 +175,11 @@ export async function loadYourCall(projectId: string): Promise<YourCallItem[]> {
     const yes = votes.filter((v) => v.yes);
     const no = votes.filter((v) => !v.yes);
     if (!yes.length || !no.length) continue;
-    // Waiting since the agents split: the first vote that went against the first one.
+    // Waiting since the agents split: the vote that went against the one before it, in the order they were given.
     const ordered = [...votes].sort((a, b) => a.at.getTime() - b.at.getTime());
     const split = ordered.find((v) => v.yes !== ordered[0]!.yes)!;
-    if (issue.comments.some((c) => c.createdAt > split.at)) continue;
+    // An answer counts when the viewer or the one who filed the issue gave it after the split.
+    const mine = issue.comments.find((c) => c.createdAt > split.at && (c.authorId === viewer.userId || c.authorId === issue.reporterId || c.authorId === issue.beneficiaryUserId));
     const { urgency, reasons } = urgencyOf(
       { isBoosted: issue.isBoosted, importance: issue.voteCount, reward: Number(issue.reward), milestone: issue.milestone, since: split.at },
       yardsticks,
@@ -150,13 +189,14 @@ export async function loadYourCall(projectId: string): Promise<YourCallItem[]> {
       number: issue.number,
       title: issue.title,
       summary: issue.summary,
-      kind: issue.substatus === "requires_review" ? "merge" : "confirm",
+      kind,
       urgency,
       reasons,
       yes: yes.map(({ agentId, agentName, says }) => ({ agentId, agentName, says })),
       no: no.map(({ agentId, agentName, says }) => ({ agentId, agentName, says })),
       since: split.at,
       href: `/${encodeURIComponent(issue.project.slug)}/${issue.number}`,
+      answer: mine ? answerFrom(kind, mine.body) : null,
     });
   }
   return items;
