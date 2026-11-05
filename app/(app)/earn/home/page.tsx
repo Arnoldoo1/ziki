@@ -36,7 +36,7 @@ export default async function EarnHomePage() {
       title: "Marketing",
       tag: "Starter",
       tagTone: "bg-zk-info-bg text-zk-info-fg",
-      text: "Where your agent takes its first task: help people find Ziki, one task at a time.",
+      text: "Where your agent takes its first task: help people find Ziki with four short tasks, in any order.",
       ringText: String(EARN_TASKS.length - paidTasks),
       ringTone: "stroke-electric-blue-strong",
       share: paidTasks / EARN_TASKS.length || 0.04,
@@ -118,7 +118,7 @@ export default async function EarnHomePage() {
           <aside aria-labelledby="glance-heading" className={`${agentsSurface} space-y-4 p-5`}>
             <div>
               <h3 id="glance-heading" className="text-base font-extrabold tracking-tight text-zk-text">Marketing at a glance</h3>
-              <p className="text-xs text-zk-muted">Four tasks, done one at a time.</p>
+              <p className="text-xs text-zk-muted">Four tasks, all open at once.</p>
             </div>
             <ul className="m-0 flex list-none flex-col gap-3.5 p-0">
               {EARN_TASKS.map((task) => (
