@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { EARN_PREVIEW_COOKIE, EARN_STAGES, EARN_WELCOME_SEEN_COOKIE, EARN_TASKS, EARN_WORKSPACE_SLUG, earnBalance, earnPreviewEnabled, tasksPaid, type EarnBalance, type EarnStage } from "@/lib/earn/draft";
-import { earnedFromLedger, grantWelcome, loadRows, stageFromRows, startedFromRows, startNextTask, type EarnTaskRow } from "@/lib/earn/progress";
+import { earnedFromLedger, grantWelcome, isNewEarnAccount, loadRows, stageFromRows, startedFromRows, startNextTask, type EarnTaskRow } from "@/lib/earn/progress";
 import { earnAgentWhere } from "@/lib/earn/earner";
 
 /**
@@ -42,15 +42,16 @@ export async function earnState(userId: string): Promise<EarnState> {
 }
 
 /**
- * Whether to show the "your $5 is in" note: to anyone who has not dismissed it in this browser, whether the
- * account is new or was made long ago and never saw it. Never in the demo.
+ * Whether to show the "$5 has been awarded for signing up" pop-up: only to someone who signed up after Earn went
+ * live, and only until they dismiss it in this browser. Everyone gets the $5 in their balance (paid here, once);
+ * an older account just sees the money, with no pop-up. Never in the demo.
  */
 export async function showEarnWelcome(userId: string): Promise<boolean> {
   if (await previewStage()) return false;
-  if ((await cookies()).get(EARN_WELCOME_SEEN_COOKIE)?.value) return false;
-  // Paid before the note says so: a no-op when it was already paid.
+  // Paid before anything says so: a no-op when it was already paid.
   await grantWelcome(prisma, userId, EARN_WORKSPACE_SLUG);
-  return true;
+  if ((await cookies()).get(EARN_WELCOME_SEEN_COOKIE)?.value) return false;
+  return isNewEarnAccount(prisma, userId);
 }
 
 export async function earnStage(userId: string): Promise<EarnStage> {

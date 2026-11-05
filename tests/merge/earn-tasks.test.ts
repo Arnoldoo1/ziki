@@ -6,14 +6,14 @@ import { describe, expect, it, vi } from "vitest";
  */
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
-import { confirmTask, grantWelcome, paidCount, rejectTask, startNextTask, submitTask, taskStateFor } from "@/lib/earn/progress";
+import { confirmTask, grantWelcome, isNewEarnAccount, paidCount, rejectTask, startNextTask, submitTask, taskStateFor } from "@/lib/earn/progress";
 
 type TaskRow = { userId: string; taskKey: string; status: string; proof?: string | null; note?: string | null };
 type Where = { userId?: string; taskKey?: string; status?: string | { in: string[] } };
 
 /** An in-memory database with the earn table, the ledger's unique key, and a transaction that rolls back when its callback throws. */
 function fakeEarnDb() {
-  const state = { tasks: [] as TaskRow[], ledger: [] as Array<Record<string, unknown>> };
+  const state = { tasks: [] as TaskRow[], ledger: [] as Array<Record<string, unknown>>, accountCreatedAt: new Date() };
   const matches = (row: TaskRow, where: Where) =>
     (where.userId === undefined || row.userId === where.userId) &&
     (where.taskKey === undefined || row.taskKey === where.taskKey) &&
@@ -43,6 +43,7 @@ function fakeEarnDb() {
         return { count };
       }),
     },
+    user: { findUnique: vi.fn(async () => ({ createdAt: state.accountCreatedAt })) },
     // The Earn workspace is made on first use; every earn credit goes there, whatever workspaces the person is in.
     tenant: { upsert: vi.fn(async () => ({ id: "tenant-earn" })) },
     $transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => {
@@ -109,6 +110,15 @@ describe("earn tasks (#earn-tasks)", () => {
     expect(await grantWelcome(db, "old-timer", "ziki-earn")).toBe(true);
     expect(await grantWelcome(db, "old-timer", "ziki-earn")).toBe(false);
     expect(state.ledger).toHaveLength(1);
+  });
+
+  it("tells a new account from one made before Earn went live, for the pop-up only", async () => {
+    const { state, db } = fakeEarnDb();
+    expect(await isNewEarnAccount(db, "newcomer")).toBe(true);
+    state.accountCreatedAt = new Date("2026-10-01T00:00:00.000Z");
+    expect(await isNewEarnAccount(db, "old-timer")).toBe(false);
+    // The money is not tied to it: the older account still gets the $5.
+    expect(await grantWelcome(db, "old-timer", "ziki-earn")).toBe(true);
   });
 
   it("starts the next task once, however often it is asked", async () => {

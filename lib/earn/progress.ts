@@ -1,6 +1,6 @@
 import type { EarnTaskProgress, Prisma, PrismaClient } from "@prisma/client";
 import { award } from "@/lib/points/award";
-import { EARN_TASKS, SIGNUP_BONUS, stageForPaid, type EarnStage, type EarnTask } from "@/lib/earn/draft";
+import { EARN_TASKS, EARN_WELCOME_FROM, SIGNUP_BONUS, stageForPaid, type EarnStage, type EarnTask } from "@/lib/earn/draft";
 
 /**
  * Earn marketing tasks (#earn-tasks): where a person is on each of the four
@@ -137,6 +137,12 @@ export async function earnTenantId(db: Db, earnTenantSlug: string): Promise<stri
     select: { id: true },
   });
   return tenant.id;
+}
+
+/** Whether the account signed up after Earn went live: only those are shown the "$5 awarded" pop-up. */
+export async function isNewEarnAccount(db: Db, userId: string): Promise<boolean> {
+  const user = await db.user.findUnique({ where: { id: userId }, select: { createdAt: true } });
+  return Boolean(user && user.createdAt >= EARN_WELCOME_FROM);
 }
 
 /**
