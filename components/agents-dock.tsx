@@ -159,7 +159,8 @@ export function AgentsDock({
   const pathname = usePathname();
   const projectSlug = projectSlugFromPath(pathname) ?? defaultProjectSlug;
   // My agents and an agent's own page manage the agents and list them already: the dock would only repeat them.
-  const managing = pathname === "/agents/mine" || pathname.startsWith("/agent/");
+  const myAgentsPage = pathname === "/agents/mine";
+  const managing = myAgentsPage || pathname.startsWith("/agent/");
   const [panel, setPanel] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   // How wide each nameplate is closed (its name and status) and opened (with what it has earned), so its character stands just beside it.
@@ -359,6 +360,8 @@ export function AgentsDock({
 
   // The leaderboard and Workstream, beside the Agents button: always there, agents or not.
   const links = <DockLinks projectSlug={projectSlug} version={version} quiet={earn && isEarnPath(pathname)} />;
+  // My agents has no strip at all: with the agents on the page, it would sit there empty.
+  if (myAgentsPage) return null;
   if (all.length === 0 || managing) return <Strip height={AGENTS_DOCK_HEIGHT} links={links} />;
 
   const showLabels = () => {
@@ -602,7 +605,7 @@ export function AgentsDock({
               onClick={() => setPanel(false)}
               className="mt-2 flex items-center justify-between rounded-lg px-1.5 py-1.5 text-xs font-bold text-zk-accent transition hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-electric-blue"
             >
-              See all agents
+              See all workspace agents
               <span aria-hidden="true">→</span>
             </Link>
           </section>
