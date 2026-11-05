@@ -22,7 +22,8 @@ import { loadOwnAgents } from "@/lib/dashboard-overview";
 import { AgentsDock, type DockAgent } from "@/components/agents-dock";
 import { appVersionLabel } from "@/lib/deployed-version";
 import { agentActivity, agentEarnings } from "@/lib/points/agent-earnings";
-import { earnBalanceFor } from "@/lib/earn/state";
+import { earnBalanceFor, showEarnWelcome } from "@/lib/earn/state";
+import { EarnWelcomeModal } from "@/components/earn-welcome-modal";
 import { isEarnConnectPath, isEarnLandingPath, isEarnPath } from "@/lib/earn/paths";
 import { withdrawInfo } from "@/lib/earn/draft";
 import { earnAgentWhere, earnWorkspace, isEarner } from "@/lib/earn/earner";
@@ -78,6 +79,8 @@ export default async function AppLayout({
   // Earn (#earn-landing): "Put your agent to work" is a page of its own, for someone who has just
   // arrived to earn: no header, agents bar or footer around it. It stops being one once an agent is connected.
   const requestPath = (await headers()).get("x-ziki-path") ?? "";
+  // The first time someone opens an earn page in a browser, new account or old: a note that the $5 is in.
+  const welcomeNotice = isEarnPath(requestPath) ? await showEarnWelcome(user.id).catch(() => false) : false;
   if (isEarnLandingPath(requestPath) || isEarnConnectPath(requestPath)) {
     const connected = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), select: { id: true } }).catch(() => null);
     if (!connected || isEarnConnectPath(requestPath)) {
@@ -87,6 +90,7 @@ export default async function AppLayout({
           <main id={MAIN_CONTENT_ID} tabIndex={-1} className="min-h-screen outline-none">
             {children}
           </main>
+          {welcomeNotice ? <EarnWelcomeModal /> : null}
         </div>
       );
     }
@@ -204,6 +208,7 @@ export default async function AppLayout({
       {/* The agents dock keeps the page's foot clear of its floor line itself, as tall as what stands on it. */}
       <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} earn={earnSample !== null} />
       <FocusMainOnNavigate />
+      {welcomeNotice ? <EarnWelcomeModal /> : null}
       <KeyboardShortcuts
         enabled={shortcutsEnabled}
       />

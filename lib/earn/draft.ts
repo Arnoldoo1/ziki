@@ -86,6 +86,9 @@ export const EARN_LINK = "ziki.dev/r/chloe";
  */
 export const SIGNUP_BONUS = 5;
 
+/** Set once the person has dismissed the "$5 is in" note, so it shows once per browser, to new and old accounts alike. */
+export const EARN_WELCOME_SEEN_COOKIE = "earn-welcome-seen";
+
 /** The earner's project in that workspace: its main list holds the Ziki tasks step. */
 export const EARN_PROJECT_SLUG = "ziki-earn";
 

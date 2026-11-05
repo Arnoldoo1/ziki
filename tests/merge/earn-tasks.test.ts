@@ -104,6 +104,13 @@ describe("earn tasks (#earn-tasks)", () => {
     expect(state.ledger).toEqual([expect.objectContaining({ tenantId: "tenant-earn", userId: "earner", role: "signup", points: 5, sourceKey: "earn:welcome:earner" })]);
   });
 
+  it("pays the welcome to an account made long ago too, once", async () => {
+    const { state, db } = fakeEarnDb();
+    expect(await grantWelcome(db, "old-timer", "ziki-earn")).toBe(true);
+    expect(await grantWelcome(db, "old-timer", "ziki-earn")).toBe(false);
+    expect(state.ledger).toHaveLength(1);
+  });
+
   it("starts the next task once, however often it is asked", async () => {
     const { state, db } = fakeEarnDb();
     expect(await startNextTask(db, "earner")).toBe(1);
