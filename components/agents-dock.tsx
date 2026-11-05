@@ -159,8 +159,7 @@ export function AgentsDock({
   const pathname = usePathname();
   const projectSlug = projectSlugFromPath(pathname) ?? defaultProjectSlug;
   // My agents and an agent's own page manage the agents and list them already: the dock would only repeat them.
-  const myAgentsPage = pathname === "/agents/mine";
-  const managing = myAgentsPage || pathname.startsWith("/agent/");
+  const managing = pathname === "/agents/mine" || pathname.startsWith("/agent/");
   const [panel, setPanel] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   // How wide each nameplate is closed (its name and status) and opened (with what it has earned), so its character stands just beside it.
@@ -360,9 +359,9 @@ export function AgentsDock({
 
   // The leaderboard and Workstream, beside the Agents button: always there, agents or not.
   const links = <DockLinks projectSlug={projectSlug} version={version} quiet={earn && isEarnPath(pathname)} />;
-  // My agents has no strip at all: with the agents on the page, it would sit there empty.
-  if (myAgentsPage) return null;
-  if (all.length === 0 || managing) return <Strip height={AGENTS_DOCK_HEIGHT} links={links} />;
+  // These pages have no strip: it would sit there empty. Its links stay where they always are.
+  if (managing) return <Strip height={AGENTS_DOCK_HEIGHT} links={links} bare />;
+  if (all.length === 0) return <Strip height={AGENTS_DOCK_HEIGHT} links={links} />;
 
   const showLabels = () => {
     clearTimeout(labelTimer.current);
@@ -654,17 +653,17 @@ function plain(text: string): string {
  * as on the site. The page keeps its height free at its foot, so everything
  * scrolls above it.
  */
-function Strip({ height, links, children }: { height: number; links: ReactNode; children?: ReactNode }) {
+function Strip({ height, links, children, bare = false }: { height: number; links: ReactNode; children?: ReactNode; /** Just the links, with no bar behind them. */ bare?: boolean }) {
   return (
     <>
       <div aria-hidden="true" className="hidden shrink-0 lg:block" style={{ height }} />
       <nav
         aria-label="Your agents"
         style={{ height }}
-        className="fixed inset-x-0 bottom-0 z-30 hidden border-t border-zk-border bg-zk-surface shadow-[0_-2px_10px_rgba(11,23,51,0.06)] lg:block"
+        className={`fixed inset-x-0 bottom-0 z-30 hidden lg:block ${bare ? "pointer-events-none" : "border-t border-zk-border bg-zk-surface shadow-[0_-2px_10px_rgba(11,23,51,0.06)]"}`}
       >
         {children}
-        <div className="absolute right-6 top-1/2 -translate-y-1/2">{links}</div>
+        <div className="pointer-events-auto absolute right-6 top-1/2 -translate-y-1/2">{links}</div>
       </nav>
     </>
   );
