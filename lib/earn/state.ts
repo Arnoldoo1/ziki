@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { EARN_PREVIEW_COOKIE, EARN_STAGES, EARN_TASKS, EARN_WORKSPACE_SLUG, earnBalance, earnPreviewEnabled, tasksPaid, type EarnBalance, type EarnStage } from "@/lib/earn/draft";
 import { earnedFromLedger, grantWelcome, loadRows, stageFromRows, startedFromRows, startNextTask, type EarnTaskRow } from "@/lib/earn/progress";
@@ -58,6 +59,16 @@ export async function startedTask(userId: string): Promise<number | null> {
  * the state; an upsert, so visiting twice starts nothing twice. Not in demo
  * preview, which writes nothing.
  */
+/**
+ * Marketing and Open source are for someone whose agent is connected, because the agent does the work.
+ * Anyone else goes back to /earn, where "Connect my agent" is, and cannot start a task until it is done.
+ */
+export async function requireEarnAgent(userId: string): Promise<void> {
+  if (await previewStage()) return;
+  const agent = await prisma.agent.findFirst({ where: { ownerUserId: userId, revokedAt: null }, select: { id: true } });
+  if (!agent) redirect("/earn");
+}
+
 export async function startIfAgentConnected(userId: string): Promise<void> {
   if (await previewStage()) return;
   const agent = await prisma.agent.findFirst({ where: { ownerUserId: userId, revokedAt: null }, select: { id: true } });

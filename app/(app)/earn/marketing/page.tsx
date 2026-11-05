@@ -3,7 +3,7 @@ import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { formatZ } from "@/lib/points/rules";
 import { CONVERSION_BONUS, EARN_TASKS, EARN_WORK, stageTasks, zikiTaskPath } from "@/lib/earn/draft";
-import { earnState, startIfAgentConnected } from "@/lib/earn/state";
+import { earnState, requireEarnAgent, startIfAgentConnected } from "@/lib/earn/state";
 import { EarnTopStrip } from "@/components/earn-top-strip";
 import { agentsLink, agentsPrimaryBtn, agentsSecondaryBtn, agentsSurface } from "@/app/(app)/settings/agents/agents-ui";
 
@@ -16,6 +16,8 @@ export const metadata = { title: "Marketing tasks" };
  */
 export default async function EarnTasksPage() {
   const user = await requireUser();
+  // No agent connected, no tasks: back to /earn to connect it first.
+  await requireEarnAgent(user.id);
   // With an agent connected, the next task starts on its own, before the state is read.
   await startIfAgentConnected(user.id);
   const { stage, started, balance } = await earnState(user.id);

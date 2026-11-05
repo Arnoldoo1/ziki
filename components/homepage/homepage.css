@@ -496,7 +496,8 @@
 .ziki-homepage .th-kicker { color: rgba(255,255,255,.85); display: block; font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 12px; letter-spacing: .08em; margin-bottom: 18px; text-transform: uppercase; }
 
 /* Homepage: three ways in */
-.ziki-homepage .paths-grid { display: grid; gap: 18px; grid-template-columns: repeat(3, 1fr); }
+.ziki-homepage .paths-grid { display: grid; gap: 18px; grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 1180px) { .ziki-homepage .paths-grid { grid-template-columns: repeat(2, 1fr); } }
 .ziki-homepage .path-card { display: flex; flex-direction: column; padding: 26px 24px 24px; }
 .ziki-homepage .path-card .lifecycle-icon { margin: 0 0 18px; }
 .ziki-homepage .path-kicker { color: var(--green); font-family: var(--font-geist-mono), ui-monospace, monospace; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
