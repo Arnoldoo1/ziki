@@ -26,7 +26,7 @@ import { earnBalanceFor, showEarnWelcome } from "@/lib/earn/state";
 import { EarnWelcomeToast } from "@/components/earn-welcome-toast";
 import { isEarnConnectPath, isEarnLandingPath, isEarnPath } from "@/lib/earn/paths";
 import { withdrawInfo } from "@/lib/earn/draft";
-import { earnAgentWhere, earnWorkspace, isEarner } from "@/lib/earn/earner";
+import { earnAgentWhere, earnWorkspace } from "@/lib/earn/earner";
 
 export default async function AppLayout({
   children,
@@ -126,6 +126,8 @@ export default async function AppLayout({
 
   let pendingEscalationsCount = 0;
   let dockAgents: DockAgent[] = [];
+  // Members of this workspace, for the Leaderboard link: nobody ranks against no one. Null when it couldn't be read.
+  let memberCount: number | null = null;
   // Earn is a place of its own: on an earn page the agents bar shows the Earn workspace's agents, not the
   // ones in the person's other workspaces.
   const dockTenantId = isEarnPath(requestPath) ? ((await earnWorkspace().catch(() => null))?.id ?? null) : tenantId;
@@ -134,6 +136,11 @@ export default async function AppLayout({
       pendingEscalationsCount = await countPendingEscalations(user.id, tenantId);
     } catch (error) {
       console.error("[layout] pending escalations count failed", error);
+    }
+    try {
+      memberCount = await prisma.membership.count({ where: { tenantId } });
+    } catch (error) {
+      console.error("[layout] member count failed", error);
     }
     try {
       const agents = dockTenantId ? await loadOwnAgents({ userId: user.id, tenantId: dockTenantId }) : [];
@@ -153,11 +160,10 @@ export default async function AppLayout({
     }
   }
 
-  // Earn (#earn-drafts): an earner's money for the header.
-  const earner = await isEarner(user.id).catch(() => false);
-  // Anyone on an earn page gets the clean earn header and bar, member of the Earn workspace or not.
-  const earnSample = earner || isEarnPath(requestPath) ? await earnBalanceFor(user.id) : null;
-  // The earner's agent bar shows what they have earned, the same amount as the header.
+  // Earn (#earn-drafts): the balance and Withdraw are for the earn pages only. Everywhere else, Ideas included,
+  // the app looks as it always does, even for someone who is in the Earn workspace.
+  const earnSample = isEarnPath(requestPath) ? await earnBalanceFor(user.id) : null;
+  // On the earn pages the agent bar shows what they have earned, the same amount as the header.
   if (earnSample) dockAgents = dockAgents.map((agent) => ({ ...agent, earnedPoints: earnSample.earned }));
 
   // #287: one primary-key read; a failure leaves shortcuts on, the default.
@@ -193,6 +199,9 @@ export default async function AppLayout({
           organizationAdmin={tenantId !== null && isOrganizationAdmin(membershipRole, user.role)}
           earned={earnSample ? earnSample.earned : null}
           withdraw={earnSample ? withdrawInfo(earnSample.stage, earnSample.earned) : null}
+          version={appVersionLabel()}
+          memberCount={memberCount}
+          agentCount={dockAgents.length}
         />
         <main
           id={MAIN_CONTENT_ID}
@@ -205,8 +214,8 @@ export default async function AppLayout({
           {children}
         </main>
       </div>
-      {/* The agents dock keeps the page's foot clear of its floor line itself, as tall as what stands on it. */}
-      <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} earn={earnSample !== null} />
+      {/* The agents dock keeps the page's foot clear of its floor line itself, as tall as what stands on it, and draws nothing (no spacer either) where it doesn't help. */}
+      <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} earn={earnSample !== null} memberCount={memberCount} />
       <FocusMainOnNavigate />
       {welcomeNotice ? <EarnWelcomeToast /> : null}
       <KeyboardShortcuts
