@@ -8,13 +8,13 @@ const STEPS = ["Copy the setup text", "Paste it into your agent", "Pick a projec
 /**
  * "Put your agent to work" (#earn-landing): the page for someone who has just
  * arrived to earn. It stands on its own, with no site header, agents bar or
- * footer, and it looks like the home page's own hero (EarnHero). It fits one screen and does not scroll.
+ * footer, and it looks like the home page's own hero (EarnHero). It fills the screen and scrolls like any other page when the window is short.
  * The $5 welcome is a toast that appears over it (EarnWelcomeToast), not part of the page.
  */
 export function EarnLanding() {
   const upTo = EARN_TASKS.reduce((sum, task) => sum + task.pay, 0);
   return (
-    <EarnHero fit link={{ href: "/tenants", label: "Here to build instead?" }}>
+    <EarnHero link={{ href: "/tenants", label: "Here to build instead?" }}>
       <div className="flex min-h-0 flex-1 flex-col justify-center px-4 sm:px-8">
         <div className="max-w-[1060px]">
           <h1 className="text-balance font-medium leading-[0.98] tracking-[-0.055em] text-white [font-size:clamp(34px,min(5.4vw,9vh),76px)] [text-shadow:0_2px_30px_rgba(0,20,50,0.18)]">
