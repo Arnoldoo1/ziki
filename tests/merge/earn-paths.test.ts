@@ -7,13 +7,13 @@ import { isEarnPath } from "@/lib/earn/paths";
  */
 describe("isEarnPath", () => {
   it("is true on the earn pages", () => {
-    for (const path of ["/earn", "/earn/", "/earn/connect", "/earn/marketing", "/earn/marketing/2", "/earn/withdraw", "/ziki-earn/tasks/1"]) {
+    for (const path of ["/earn", "/earn/", "/earn/connect", "/earn/marketing", "/earn/marketing/2", "/earn/withdraw"]) {
       expect(isEarnPath(path), path).toBe(true);
     }
   });
 
   it("is false on the ordinary app pages, so no balance shows there", () => {
-    for (const path of ["/", "/ziki/ideas", "/ziki/815", "/web/issues", "/settings/agents", "/home", "/earnings", "/earnest/1", "", null, undefined]) {
+    for (const path of ["/", "/ziki-earn/ideas", "/ziki-earn/tasks/1", "/ziki/ideas", "/ziki/815", "/web/issues", "/settings/agents", "/home", "/earnings", "/earnest/1", "", null, undefined]) {
       expect(isEarnPath(path), String(path)).toBe(false);
     }
   });

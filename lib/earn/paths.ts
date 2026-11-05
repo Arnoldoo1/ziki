@@ -1,4 +1,3 @@
-import { EARN_PROJECT_SLUG } from "@/lib/earn/draft";
 
 /** The earn landing page, "Put your agent to work": /earn itself, which stands alone until an agent is connected. */
 export function isEarnLandingPath(pathname: string | null | undefined): boolean {
@@ -17,5 +16,7 @@ export function isEarnConnectPath(pathname: string | null | undefined): boolean 
  */
 export function isEarnPath(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
-  return pathname === "/earn" || pathname.startsWith("/earn/") || pathname.startsWith(`/${EARN_PROJECT_SLUG}/`);
+  // The earn pages are /earn and below. The Earn workspace's own project pages (/ziki-earn/ideas and the rest) are ordinary
+  // app pages: no balance, no Withdraw, the usual header.
+  return pathname === "/earn" || pathname.startsWith("/earn/");
 }
