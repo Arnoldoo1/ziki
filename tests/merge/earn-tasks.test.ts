@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
  */
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
-import { confirmTask, grantWelcome, isNewEarnAccount, paidCount, rejectTask, doneTasks, startAllTasks, submitTask, taskStateFor } from "@/lib/earn/progress";
+import { confirmTask, grantWelcome, isNewEarnAccount, paidCount, rejectTask, doneTasks, startTask, submitTask, taskStateFor } from "@/lib/earn/progress";
 
 type TaskRow = { userId: string; taskKey: string; status: string; proof?: string | null; note?: string | null };
 type Where = { userId?: string; taskKey?: string; status?: string | { in: string[] } };
@@ -85,7 +85,7 @@ describe("earn tasks (#earn-tasks)", () => {
 
   it("pays nothing for a task that was never sent in", async () => {
     const { state, db } = fakeEarnDb();
-    await startAllTasks(db, "earner");
+    await startTask(db, "earner", 1);
     expect((await confirm(db)).ok).toBe(false);
     expect(state.ledger).toEqual([]);
   });
@@ -144,10 +144,12 @@ describe("earn tasks (#earn-tasks)", () => {
     expect(await grantWelcome(db, "old-timer", "ziki-earn")).toBe(true);
   });
 
-  it("starts all four tasks once, however often it is asked", async () => {
+  it("starts a task only when it is opened, once, and touches no other: an unopened task has no row and so no status", async () => {
     const { state, db } = fakeEarnDb();
-    expect(await startAllTasks(db, "earner")).toBe(4);
-    expect(await startAllTasks(db, "earner")).toBe(0);
-    expect(state.tasks).toHaveLength(4);
+    expect(await startTask(db, "earner", 3)).toBe(true);
+    expect(await startTask(db, "earner", 3)).toBe(false);
+    expect(state.tasks).toEqual([expect.objectContaining({ taskKey: "emails", status: "started" })]);
+    const rows = state.tasks.map((row) => ({ taskKey: row.taskKey, status: row.status as "started", note: null }));
+    expect([0, 1, 2, 3].map((i) => taskStateFor(rows, i))).toEqual(["open", "open", "in-progress", "open"]);
   });
 });

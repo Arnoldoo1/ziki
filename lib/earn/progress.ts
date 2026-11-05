@@ -78,20 +78,10 @@ export async function earnedFromLedger(db: Db, userId: string): Promise<number> 
 }
 
 /**
- * Starts every task the earner hasn't started yet: all four are open at once, so
- * the agent can work on them side by side. Safe to call on every visit (rows that
- * exist are skipped, by the unique pair). Returns how many it started.
+ * Starts one task: its row is made the first time the earner opens it or presses Start, and not before, so a task
+ * nobody has begun has no status. All four are open at once, so starting one touches no other. Does nothing if the
+ * task already has a row. Returns whether it started it now.
  */
-export async function startAllTasks(db: Db, userId: string): Promise<number> {
-  const rows = await loadRows(db, userId);
-  const have = new Set(rows.map((row) => row.taskKey));
-  const data = EARN_TASKS.filter((task) => !have.has(task.id)).map((task) => ({ userId, taskKey: task.id }));
-  if (data.length === 0) return 0;
-  const { count } = await db.earnTaskProgress.createMany({ data, skipDuplicates: true });
-  return count;
-}
-
-/** Starts one task by hand (a person with no agent working on it for them). Does nothing if it already has a row. */
 export async function startTask(db: Db, userId: string, n: number): Promise<boolean> {
   const task = taskByNumber(n);
   if (!task) return false;
