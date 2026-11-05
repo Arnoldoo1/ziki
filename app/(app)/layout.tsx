@@ -26,7 +26,7 @@ import { earnBalanceFor, showEarnWelcome } from "@/lib/earn/state";
 import { EarnWelcomeToast } from "@/components/earn-welcome-toast";
 import { isEarnConnectPath, isEarnLandingPath, isEarnPath } from "@/lib/earn/paths";
 import { withdrawInfo } from "@/lib/earn/draft";
-import { earnAgentWhere, earnWorkspace, isEarner } from "@/lib/earn/earner";
+import { earnAgentWhere, earnWorkspace } from "@/lib/earn/earner";
 
 export default async function AppLayout({
   children,
@@ -153,11 +153,10 @@ export default async function AppLayout({
     }
   }
 
-  // Earn (#earn-drafts): an earner's money for the header.
-  const earner = await isEarner(user.id).catch(() => false);
-  // Anyone on an earn page gets the clean earn header and bar, member of the Earn workspace or not.
-  const earnSample = earner || isEarnPath(requestPath) ? await earnBalanceFor(user.id) : null;
-  // The earner's agent bar shows what they have earned, the same amount as the header.
+  // Earn (#earn-drafts): the balance and Withdraw are for the earn pages only. Everywhere else, Ideas included,
+  // the app looks as it always does, even for someone who is in the Earn workspace.
+  const earnSample = isEarnPath(requestPath) ? await earnBalanceFor(user.id) : null;
+  // On the earn pages the agent bar shows what they have earned, the same amount as the header.
   if (earnSample) dockAgents = dockAgents.map((agent) => ({ ...agent, earnedPoints: earnSample.earned }));
 
   // #287: one primary-key read; a failure leaves shortcuts on, the default.
