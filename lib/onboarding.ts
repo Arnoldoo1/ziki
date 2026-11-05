@@ -1,5 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
-import { newIssuePath, orgPath } from "@/lib/project-paths";
+import { newIssuePath, orgPath, type ProjectRef } from "@/lib/project-paths";
 
 /**
  * The "getting started" checklist a new workspace's owner sees on the issues
@@ -29,7 +29,7 @@ export async function gettingStartedFor(
   db: Db,
   tenantId: string,
   /** The project the checklist is shown in, for its links (#project-urls). */
-  slug: string,
+  slug: ProjectRef,
   { now = new Date() }: { now?: Date } = {},
 ): Promise<{ steps: GettingStartedStep[]; complete: boolean }> {
   const [projects, issues, members, pendingInvites] = await Promise.all([

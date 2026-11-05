@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams, usePathname } from "next/navigation";
-import { ideasPath, orgPath } from "@/lib/project-paths";
+import { usePathname } from "next/navigation";
+import { ideasPath, orgPath, type ProjectRef } from "@/lib/project-paths";
+import { useProjectRef } from "@/lib/use-project-ref";
 import { SignOutButton } from "@/components/sign-out-button";
 import { WorkspaceSwitcher, type WorkspaceChoice } from "@/components/workspace-switcher";
 import {
@@ -119,7 +120,7 @@ function TopNavLink({
  * The workspace areas: Product (the issue tracker), Marketing and Security.
  * The logo goes to the project's Ideas.
  */
-function TopNav({ pathname, projectSlug }: { pathname: string | null; projectSlug: string | null }) {
+function TopNav({ pathname, projectSlug }: { pathname: string | null; projectSlug: ProjectRef | null }) {
   // Product opens the project the page is in, or the first one (#project-urls).
   const productHref = projectSlug ? ideasPath(projectSlug) : "/tenants";
   return (
@@ -281,7 +282,7 @@ export function AppHeader({
   /** Earn (#earn-drafts): an earner's dollars, shown with Withdraw in the header; null for everyone else. */
   earned?: number | null;
   /** The first project in the current workspace, for pages whose URL names none yet. */
-  defaultProjectSlug?: string | null;
+  defaultProjectSlug?: ProjectRef | null;
   userName?: string | null;
   userImage?: string | null;
   role?: AppRole | null;
@@ -297,7 +298,7 @@ export function AppHeader({
   organizationAdmin?: boolean;
 }) {
   const pathname = usePathname();
-  const projectSlug = useParams<{ project?: string }>()?.project ?? defaultProjectSlug;
+  const projectSlug = useProjectRef() ?? defaultProjectSlug;
   const [accountOpen, setAccountOpen] = useState(false);
   const accountRef = useRef<HTMLDivElement>(null);
   const accountButtonRef = useRef<HTMLButtonElement>(null);

@@ -6,8 +6,8 @@ import { isEarnPath } from "@/lib/earn/paths";
 import { usePathname, useRouter } from "next/navigation";
 import { agentPageHref } from "@/lib/header-nav";
 import { VersionCredits } from "@/components/credits-dialog";
-import { projectPath } from "@/lib/project-paths";
-import { isReservedProjectSlug } from "@/lib/project-slug";
+import { projectPath, type ProjectRef } from "@/lib/project-paths";
+import { useProjectRef } from "@/lib/use-project-ref";
 import { AGENTS_DOCK_HEIGHT } from "@/lib/agents-dock";
 import { PAGE_CONTAINER_CLASS } from "@/components/page-container";
 import { formatZ } from "@/lib/points/rules";
@@ -97,12 +97,6 @@ const GUESS = { text: 110, full: 180 };
 /** The leaderboard (Ranking) the dock links to; /leaderboard redirects here. */
 const LEADERBOARD_HREF = "/workers";
 
-/** The project the page is in (`/<slug>/...`), or null on a page outside any project. */
-function projectSlugFromPath(pathname: string | null): string | null {
-  const first = pathname?.split("/").filter(Boolean)[0];
-  return first && !isReservedProjectSlug(first) ? decodeURIComponent(first) : null;
-}
-
 /** The order agents stand in, left to right: whatever needs you first, then stuck, then the rest. */
 const RANK: Record<DockAgent["status"], number> = { waiting: 0, stuck: 1, working: 2, idle: 3, offline: 4 };
 
@@ -137,7 +131,7 @@ export function AgentsDock({
   /** Earn (#earn-drafts): the viewer is an earner; on the earn pages the leaderboard and workstream icons are left out. */
   earn?: boolean;
   /** Workstream's project on pages outside a project. */
-  defaultProjectSlug?: string | null;
+  defaultProjectSlug?: ProjectRef | null;
   /** The running version (package version and short commit), in tiny grey text under the links. */
   version?: string;
 }) {
@@ -157,7 +151,7 @@ export function AgentsDock({
   const dockHeight = AGENTS_DOCK_HEIGHT;
   const floorHeight = pixelOnFloor ? Math.round(CANVAS_H * ROBOT_SCALE) : LOW_FLOOR_H;
   const pathname = usePathname();
-  const projectSlug = projectSlugFromPath(pathname) ?? defaultProjectSlug;
+  const projectSlug = useProjectRef() ?? defaultProjectSlug;
   // My agents and an agent's own page manage the agents and list them already: the dock would only repeat them.
   const managing = pathname === "/agents/mine" || pathname.startsWith("/agent/");
   const [panel, setPanel] = useState(false);
@@ -670,7 +664,7 @@ function Strip({ height, links, children, bare = false }: { height: number; link
 }
 
 /** Right side of the strip: the leaderboard, with the workstream as an icon under it, and the running version (#workstream). */
-function DockLinks({ projectSlug, version, quiet = false }: { projectSlug: string | null; version?: string; /** Earn: no leaderboard or workstream (#earn-drafts). */ quiet?: boolean }) {
+function DockLinks({ projectSlug, version, quiet = false }: { projectSlug: ProjectRef | null; version?: string; /** Earn: no leaderboard or workstream (#earn-drafts). */ quiet?: boolean }) {
   return (
     <div className="flex shrink-0 flex-col items-end gap-0.5">
       {quiet ? null : (
