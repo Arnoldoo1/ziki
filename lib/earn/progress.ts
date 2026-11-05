@@ -30,7 +30,7 @@ export function taskByNumber(n: number): EarnTask | null {
 /** One task as the earner sees it. */
 export type EarnTaskState = "open" | "in-progress" | "in-review" | "paid";
 
-export type EarnTaskRow = Pick<EarnTaskProgress, "taskKey" | "status" | "note">;
+export type EarnTaskRow = Pick<EarnTaskProgress, "taskKey" | "status" | "note"> & Partial<Pick<EarnTaskProgress, "proof">>;
 
 /** The tasks that are confirmed, in the order of the task list. All four are open at once, so any can be done first. */
 export function doneTasks(rows: EarnTaskRow[]): EarnTaskId[] {
@@ -53,6 +53,39 @@ export function taskStateFor(rows: EarnTaskRow[], index: number): EarnTaskState 
   if (!row) return "open";
   if (row.status === "confirmed") return "paid";
   return row.status === "submitted" ? "in-review" : "in-progress";
+}
+
+const EMAIL = /[^\s@<>(),;:"']+@[^\s@<>(),;:"']+\.[a-z]{2,}/gi;
+
+/**
+ * How many of a counted task's things the proof lists: the distinct email
+ * addresses for Send 10 emails, the filled lines for Research 10 people (one
+ * per line, as the form asks). Never more than the task's target.
+ */
+export function proofCount(task: EarnTask, proof: string | null | undefined): number {
+  const text = proof?.trim() ?? "";
+  if (!text) return 0;
+  if (task.target === 1) return 1;
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const emails = new Set((text.match(EMAIL) ?? []).map((address) => address.toLowerCase()));
+  const found = task.id === "emails" && emails.size > 0 ? emails.size : lines.length;
+  return Math.min(found, task.target);
+}
+
+export type EarnTaskProgressView = { task: EarnTask; state: EarnTaskState; done: number; target: number };
+
+/**
+ * Where each task really is, for a progress bar: a paid task is full, a task
+ * sent for checking counts what its proof lists (a one-off task counts once),
+ * and a task not started, still going or rejected counts nothing yet.
+ */
+export function taskProgress(rows: EarnTaskRow[]): EarnTaskProgressView[] {
+  return EARN_TASKS.map((task, index) => {
+    const state = taskStateFor(rows, index);
+    const row = rows.find((candidate) => candidate.taskKey === task.id);
+    const done = state === "paid" ? task.target : state === "in-review" ? proofCount(task, row?.proof) : 0;
+    return { task, state, done, target: task.target };
+  });
 }
 
 /** The first task number (1-based) that has been started and is not paid, or null when none has. */
