@@ -131,11 +131,8 @@ export function AgentsDock({
   agents: given,
   defaultProjectSlug = null,
   version,
-  earn = false,
 }: {
   agents: DockAgent[];
-  /** Earn (#earn-drafts): the viewer is an earner; on the earn pages the leaderboard and workstream icons are left out. */
-  earn?: boolean;
   /** Workstream's project on pages outside a project. */
   defaultProjectSlug?: string | null;
   /** The running version (package version and short commit), in tiny grey text under the links. */
@@ -358,7 +355,7 @@ export function AgentsDock({
   }, [hover, panel]);
 
   // The leaderboard and Workstream, beside the Agents button: always there, agents or not.
-  const links = <DockLinks projectSlug={projectSlug} version={version} quiet={earn && isEarnPath(pathname)} />;
+  const links = <DockLinks projectSlug={projectSlug} version={version} quiet={isEarnPath(pathname)} />;
   if (all.length === 0 || managing) return <Strip height={AGENTS_DOCK_HEIGHT} links={links} />;
 
   const showLabels = () => {

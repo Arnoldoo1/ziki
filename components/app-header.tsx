@@ -311,8 +311,8 @@ export function AppHeader({
   }
 
   const realRole = realRoleOf({ isRealSuperAdmin, isRealAdmin });
-  // Earn (#earn-drafts): an earner on the earn pages sees only what they came for.
-  const earnQuiet = earned !== null && isEarnPath(pathname);
+  // Earn (#earn-drafts): the earn pages are their own, so whoever is on them sees only what they came for.
+  const earnQuiet = isEarnPath(pathname);
 
   return (
     // Sticky only from lg: on phones and tablets the toolbar wraps onto rows,

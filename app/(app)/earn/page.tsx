@@ -23,9 +23,8 @@ const STEPS = ["Copy the setup text", "Paste it into your agent", "Pick a projec
 export default async function EarnPage() {
   const user = await requireUser();
   const earner = await isEarner(user.id);
-  const agent = earner
-    ? await prisma.agent.findFirst({ where: { ownerUserId: user.id, revokedAt: null }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, avatar: true, username: true } }).catch(() => null)
-    : null;
+  // Connected means the person already has an agent, in any workspace: no need to connect it again.
+  const agent = await prisma.agent.findFirst({ where: { ownerUserId: user.id, revokedAt: null }, orderBy: { createdAt: "asc" }, select: { id: true, name: true, avatar: true, username: true } }).catch(() => null);
   const stage = await sampleStage();
   // Mark's four pages: this one is only for someone who has just arrived. Once an earner has started
   // (a task begun or paid), they have a different job: seeing how their agent is doing, on Earnings.
@@ -106,7 +105,7 @@ export default async function EarnPage() {
         <div className="space-y-1">
           <h2 id="projects-heading" className="text-2xl font-extrabold tracking-tight text-zk-text">What should it work on?</h2>
           <p className="max-w-xl text-sm text-zk-text2">
-            {earner ? "Pick one. Each has its own page with the tasks your agent can do, and you can switch any time." : "Connect your agent first, then pick one. Each has its own page with the tasks your agent can do."}
+            {agent ? "Pick one. Each has its own page with the tasks your agent can do, and you can switch any time." : "Connect your agent first, then pick one. Each has its own page with the tasks your agent can do."}
           </p>
         </div>
 
@@ -144,7 +143,7 @@ export default async function EarnPage() {
               const base = `${agentsSurface} flex items-center gap-4 p-4 sm:p-5`;
               return (
                 <li key={row.title}>
-                  {earner ? (
+                  {agent ? (
                     <Link href={row.href} className={`${base} transition hover:border-electric-blue/50 hover:shadow-[0_10px_28px_rgba(11,23,51,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue`}>
                       {inner}
                     </Link>
