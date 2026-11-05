@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { earnAgentWhere, joinEarnWorkspace } from "@/lib/earn/earner";
@@ -10,14 +10,14 @@ import { setActiveTenantCookie } from "@/lib/tenants";
  * they are working in on this device, so the agent they connect next is
  * created there and nowhere else. Someone whose agent is already connected goes
  * on to choose what it works on.
+ *
+ * The redirect is a path, not a URL built from the request: behind the proxy the request's own address is the
+ * server's internal one (localhost), so an absolute redirect sent people there.
  */
-export async function GET(request: NextRequest) {
+export async function GET() {
   const user = await requireUser();
   const { tenantId } = await joinEarnWorkspace(user.id);
   await setActiveTenantCookie(tenantId);
   const connected = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), select: { id: true } }).catch(() => null);
-  const to = request.nextUrl.clone();
-  to.pathname = connected ? "/earn" : "/earn/connect";
-  to.search = "";
-  return NextResponse.redirect(to);
+  redirect(connected ? "/earn" : "/earn/connect");
 }

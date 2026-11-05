@@ -23,7 +23,7 @@ import { AgentsDock, type DockAgent } from "@/components/agents-dock";
 import { appVersionLabel } from "@/lib/deployed-version";
 import { agentActivity, agentEarnings } from "@/lib/points/agent-earnings";
 import { earnBalanceFor, showEarnWelcome } from "@/lib/earn/state";
-import { EarnWelcomeModal } from "@/components/earn-welcome-modal";
+import { EarnWelcomeToast } from "@/components/earn-welcome-toast";
 import { isEarnConnectPath, isEarnLandingPath, isEarnPath } from "@/lib/earn/paths";
 import { withdrawInfo } from "@/lib/earn/draft";
 import { earnAgentWhere, earnWorkspace, isEarner } from "@/lib/earn/earner";
@@ -85,12 +85,12 @@ export default async function AppLayout({
     const connected = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), select: { id: true } }).catch(() => null);
     if (!connected || isEarnConnectPath(requestPath)) {
       return (
-        <div data-app-shell="" className="min-h-screen bg-zk-bg">
+        <div data-app-shell="" className="min-h-dvh bg-zk-bg">
           <SkipLink />
-          <main id={MAIN_CONTENT_ID} tabIndex={-1} className="min-h-screen outline-none">
+          <main id={MAIN_CONTENT_ID} tabIndex={-1} className="min-h-dvh outline-none">
             {children}
           </main>
-          {welcomeNotice ? <EarnWelcomeModal /> : null}
+          {welcomeNotice ? <EarnWelcomeToast /> : null}
         </div>
       );
     }
@@ -208,7 +208,7 @@ export default async function AppLayout({
       {/* The agents dock keeps the page's foot clear of its floor line itself, as tall as what stands on it. */}
       <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} earn={earnSample !== null} />
       <FocusMainOnNavigate />
-      {welcomeNotice ? <EarnWelcomeModal /> : null}
+      {welcomeNotice ? <EarnWelcomeToast /> : null}
       <KeyboardShortcuts
         enabled={shortcutsEnabled}
       />

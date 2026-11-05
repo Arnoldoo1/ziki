@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { EARN_TASKS, SIGNUP_BONUS, WITHDRAW_THRESHOLD, stageTasks } from "@/lib/earn/draft";
+import { EARN_TASKS, WITHDRAW_THRESHOLD, stageTasks } from "@/lib/earn/draft";
 import { earnState } from "@/lib/earn/state";
 import { EarnLanding } from "@/components/earn-landing";
 import { formatZ } from "@/lib/points/rules";
@@ -25,9 +25,9 @@ export default async function EarnPage({ searchParams }: { searchParams: Promise
   // Just connected an agent: always land here, on choosing what it works on, whatever else the person has done.
   const justConnected = (await searchParams).connected === "1";
   const agent = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), orderBy: { createdAt: "asc" }, select: { id: true } }).catch(() => null);
-  const { stage, started, balance } = await earnState(user.id);
+  const { stage, started } = await earnState(user.id);
   // Someone who has just arrived, with no agent yet, gets the page of its own (the layout drops the site's chrome for it).
-  if (!agent) return <EarnLanding earned={balance.earned} welcome={SIGNUP_BONUS} />;
+  if (!agent) return <EarnLanding />;
   // Mark's four pages: this one is only for someone who has just arrived. Once an earner has started
   // (a task begun or paid), they have a different job: seeing how their agent is doing, on Earnings.
   if (!justConnected && (stage !== "new" || started !== null)) redirect("/earn/earnings");
