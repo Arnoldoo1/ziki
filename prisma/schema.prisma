@@ -269,6 +269,7 @@ model User {
   redesignsApproved         RedesignProposal[]      @relation("RedesignApprover")
   pointEntries              PointEntry[]
   earnTasks                 EarnTaskProgress[]
+  walletEntries             WalletEntry[]
   pointDisputes             PointDispute[]          @relation("DisputeOpener")
   pointDisputesResolved     PointDispute[]          @relation("DisputeResolver")
   auditActions              AgentAuditEvent[]       @relation("AuditActorUser")
@@ -1988,6 +1989,51 @@ model EarnTaskProgress {
 
   @@unique([userId, taskKey])
   @@index([status, submittedAt])
+}
+
+/// What a wallet holds (#ziki-wallet): cash in US dollars, or the ZIKI token.
+enum WalletAsset {
+  usd
+  ziki
+}
+
+/// Why a wallet entry was written (#ziki-wallet).
+enum WalletEntryKind {
+  /// The pool's starting cash and tokens.
+  genesis
+  /// A swap: cash for ZIKI, ZIKI for cash, and the fee taken on it.
+  swap_buy
+  swap_sell
+  swap_fee
+  /// ZIKI paid for approved work.
+  reward
+  /// ZIKI spent on something in Ziki.
+  spend
+}
+
+/// One movement of cash or ZIKI (#ziki-wallet). Entries are never edited or
+/// deleted: a balance is the sum of its entries, and a correction is a new
+/// entry. Entries written together (a swap's four or five) share `transferId`
+/// and always sum to zero per asset. A person's entries have `userId`; Ziki's
+/// own wallets have `system` instead ("pool", "fees").
+model WalletEntry {
+  id         String          @id @default(cuid())
+  userId     String?
+  system     String?
+  asset      WalletAsset
+  /// Signed: positive comes in, negative goes out.
+  amount     Decimal         @db.Decimal(18, 6)
+  kind       WalletEntryKind
+  transferId String
+  /// A line for the history, e.g. "Bought 2,475 ZIKI".
+  memo       String?
+  createdAt  DateTime        @default(now())
+  user       User?           @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  @@index([userId, asset])
+  @@index([userId, createdAt])
+  @@index([system, asset])
+  @@index([transferId])
 }
 
 /// A member saying an award is missing or wrong (#436).

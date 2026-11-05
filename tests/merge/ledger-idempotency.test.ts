@@ -13,6 +13,7 @@ vi.mock("@/lib/agent-api/pull-request-report", () => ({
 
 import { award, awardDispatcher, solverAward } from "@/lib/points/award";
 import { correct } from "@/lib/points/correct";
+import { DAILY_SELL_LIMIT_ZIKI, quoteSwap, swapProblem } from "@/lib/wallet/rules";
 
 /** An in-memory ledger with the unique `sourceKey` the database enforces. */
 function fakeLedger() {
@@ -73,5 +74,27 @@ describe("corrections (#450)", () => {
       expect.objectContaining({ sourceKey: "undo:entry-1", points: -5 }),
     ]);
     expect(rows.every((r) => r.skipDuplicates)).toBe(true);
+  });
+});
+
+describe("ZIKI swap (#ziki-wallet)", () => {
+  const room = { usd: 1_000, ziki: 10_000, soldToday: 0, poolUsd: 10_000, poolZiki: 250_000 };
+
+  it("buys at the fixed $0.04 less a 1% fee, and sells less a 2% fee", () => {
+    // $100 → $1 fee → $99 buys 2,475 ZIKI, as the plan says.
+    expect(quoteSwap("buy", 100)).toMatchObject({ pay: 100, fee: 1, receive: 2475, poolUsd: 99, poolZiki: 2475 });
+    // 1,000 ZIKI → $40 → $0.80 fee → $39.20 paid out.
+    expect(quoteSwap("sell", 1000)).toMatchObject({ pay: 1000, poolUsd: 40, fee: 0.8, receive: 39.2 });
+  });
+
+  it("refuses a buy beyond your cash or the pool's ZIKI, and a sell beyond your ZIKI or the daily limit", () => {
+    expect(swapProblem(quoteSwap("buy", 100), room)).toBeNull();
+    expect(swapProblem(quoteSwap("buy", 1_001), room)).toMatch(/enough cash/);
+    expect(swapProblem(quoteSwap("buy", 100), { ...room, poolZiki: 1_000 })).toMatch(/pool doesn't have/);
+    expect(swapProblem(quoteSwap("sell", 1_000), room)).toBeNull();
+    expect(swapProblem(quoteSwap("sell", 20_000), room)).toMatch(/don't have that many/);
+    // 4,500 already sold today: only 500 more until 24 hours pass.
+    expect(swapProblem(quoteSwap("sell", 1_000), { ...room, soldToday: 4_500 })).toMatch(/sell 500 more ZIKI today/);
+    expect(swapProblem(quoteSwap("sell", DAILY_SELL_LIMIT_ZIKI), room)).toBeNull();
   });
 });
