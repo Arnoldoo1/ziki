@@ -35,19 +35,29 @@ describe("taskProgress", () => {
   it("shows nothing done for someone who has not started", () => {
     expect(taskProgress([]).map((item) => [item.state, item.done, item.target])).toEqual([
       ["open", 0, 1],
-      ["locked", 0, 10],
-      ["locked", 0, 10],
-      ["locked", 0, 1],
+      ["open", 0, 10],
+      ["open", 0, 10],
+      ["open", 0, 1],
     ]);
   });
 
-  it("fills paid tasks, counts the one in review, and leaves later tasks empty", () => {
+  it("fills paid tasks, counts the one in review, and leaves tasks not yet started empty", () => {
     const rows = [row("who", "confirmed", "Bakeries in Lagos"), row("research", "submitted", "One\nTwo\nThree\nFour")];
     expect(taskProgress(rows).map((item) => [item.state, item.done])).toEqual([
       ["paid", 1],
       ["in-review", 4],
-      ["locked", 0],
-      ["locked", 0],
+      ["open", 0],
+      ["open", 0],
+    ]);
+  });
+
+  it("fills a task that was paid first, whichever it is, because every task is open", () => {
+    const progress = taskProgress([row("post", "confirmed", "https://x.com/me/status/1")]);
+    expect(progress.map((item) => [item.state, item.done])).toEqual([
+      ["open", 0],
+      ["open", 0],
+      ["open", 0],
+      ["paid", 1],
     ]);
   });
 
