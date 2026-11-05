@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { EARN_TASKS, WITHDRAW_THRESHOLD, stageTasks } from "@/lib/earn/draft";
@@ -20,17 +19,15 @@ const RING = 2 * Math.PI * 24;
  * next: Ziki's own projects. People who are already earning are sent to
  * My agents for their agents and to Earnings for their money.
  */
-export default async function EarnPage({ searchParams }: { searchParams: Promise<{ connected?: string }> }) {
+export default async function EarnPage() {
   const user = await requireUser();
   // Just connected an agent: always land here, on choosing what it works on, whatever else the person has done.
-  const justConnected = (await searchParams).connected === "1";
   const agent = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), orderBy: { createdAt: "asc" }, select: { id: true } }).catch(() => null);
-  const { stage, started } = await earnState(user.id);
+  const { stage } = await earnState(user.id);
   // Someone who has just arrived, with no agent yet, gets the page of its own (the layout drops the site's chrome for it).
   if (!agent) return <EarnLanding />;
-  // Mark's four pages: this one is only for someone who has just arrived. Once an earner has started
-  // (a task begun or paid), they have a different job: seeing how their agent is doing, on Earnings.
-  if (!justConnected && (stage !== "new" || started !== null)) redirect("/earn/earnings");
+  // This is the home of Earn: Marketing and Open source, at a glance. People come back to it any time; it is not
+  // swapped for Earnings once a task has started.
 
   const paidTasks = stageTasks(stage).filter((task) => task.done).length;
   const maxPay = Math.max(...EARN_TASKS.map((task) => task.pay));
