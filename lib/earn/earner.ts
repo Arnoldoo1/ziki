@@ -7,6 +7,15 @@ export async function earnWorkspace() {
   return prisma.tenant.findUnique({ where: { slug: EARN_WORKSPACE_SLUG }, select: { id: true, name: true } });
 }
 
+/**
+ * Someone's Earn agent (#earn-standalone): an agent they own that lives in the Earn workspace. Earn is a place of
+ * its own, so the agents they have in their other workspaces are not Earn agents: they don't count as connected,
+ * and they are not shown on the earn pages.
+ */
+export function earnAgentWhere(userId: string) {
+  return { ownerUserId: userId, revokedAt: null, tenant: { slug: EARN_WORKSPACE_SLUG } };
+}
+
 /** Whether someone is an earner: a member of the Earn workspace. Builders elsewhere don't see Earn. */
 export async function isEarner(userId: string): Promise<boolean> {
   const workspace = await earnWorkspace().catch(() => null);

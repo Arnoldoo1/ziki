@@ -6,6 +6,7 @@ import { CONVERSION_BONUS, EARN_TASKS, EARN_WORK, stageTasks, zikiTaskPath } fro
 import { earnState, requireEarnAgent, startIfAgentConnected } from "@/lib/earn/state";
 import { EarnTopStrip } from "@/components/earn-top-strip";
 import { agentsLink, agentsPrimaryBtn, agentsSecondaryBtn, agentsSurface } from "@/app/(app)/settings/agents/agents-ui";
+import { earnAgentWhere } from "@/lib/earn/earner";
 
 export const metadata = { title: "Marketing tasks" };
 
@@ -21,7 +22,7 @@ export default async function EarnTasksPage() {
   // With an agent connected, the next task starts on its own, before the state is read.
   await startIfAgentConnected(user.id);
   const { stage, started, balance } = await earnState(user.id);
-  const agent = await prisma.agent.findFirst({ where: { ownerUserId: user.id, revokedAt: null }, orderBy: { createdAt: "asc" }, select: { name: true } }).catch(() => null);
+  const agent = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), orderBy: { createdAt: "asc" }, select: { name: true } }).catch(() => null);
   const tasks = stageTasks(stage);
   const index = tasks.findIndex((task) => !task.done);
   const current = index >= 0 ? tasks[index] : null;

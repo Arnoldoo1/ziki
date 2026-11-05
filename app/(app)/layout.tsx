@@ -25,7 +25,7 @@ import { agentActivity, agentEarnings } from "@/lib/points/agent-earnings";
 import { earnBalanceFor } from "@/lib/earn/state";
 import { isEarnConnectPath, isEarnLandingPath, isEarnPath } from "@/lib/earn/paths";
 import { withdrawInfo } from "@/lib/earn/draft";
-import { isEarner } from "@/lib/earn/earner";
+import { earnAgentWhere, earnWorkspace, isEarner } from "@/lib/earn/earner";
 
 export default async function AppLayout({
   children,
@@ -79,7 +79,7 @@ export default async function AppLayout({
   // arrived to earn: no header, agents bar or footer around it. It stops being one once an agent is connected.
   const requestPath = (await headers()).get("x-ziki-path") ?? "";
   if (isEarnLandingPath(requestPath) || isEarnConnectPath(requestPath)) {
-    const connected = await prisma.agent.findFirst({ where: { ownerUserId: user.id, revokedAt: null }, select: { id: true } }).catch(() => null);
+    const connected = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), select: { id: true } }).catch(() => null);
     if (!connected || isEarnConnectPath(requestPath)) {
       return (
         <div data-app-shell="" className="min-h-screen bg-zk-bg">
@@ -122,6 +122,9 @@ export default async function AppLayout({
 
   let pendingEscalationsCount = 0;
   let dockAgents: DockAgent[] = [];
+  // Earn is a place of its own: on an earn page the agents bar shows the Earn workspace's agents, not the
+  // ones in the person's other workspaces.
+  const dockTenantId = isEarnPath(requestPath) ? ((await earnWorkspace().catch(() => null))?.id ?? null) : tenantId;
   if (tenantId) {
     try {
       pendingEscalationsCount = await countPendingEscalations(user.id, tenantId);
@@ -129,14 +132,14 @@ export default async function AppLayout({
       console.error("[layout] pending escalations count failed", error);
     }
     try {
-      const agents = await loadOwnAgents({ userId: user.id, tenantId });
+      const agents = dockTenantId ? await loadOwnAgents({ userId: user.id, tenantId: dockTenantId }) : [];
       // #710: what each agent earned, from the point entries its work wrote.
       const ids = agents.map((agent) => agent.id);
       const startOfToday = new Date();
       startOfToday.setHours(0, 0, 0, 0);
       const [earned, activity, pending] = await Promise.all([
-        agentEarnings(prisma, tenantId, ids),
-        agentActivity(prisma, tenantId, ids, startOfToday),
+        agentEarnings(prisma, dockTenantId ?? tenantId, ids),
+        agentActivity(prisma, dockTenantId ?? tenantId, ids, startOfToday),
         prisma.agentRequest.groupBy({ by: ["agentId"], where: { agentId: { in: ids }, doneAt: null }, _count: { _all: true } }),
       ]);
       const pendingBy = new Map(pending.map((row) => [row.agentId, row._count._all]));

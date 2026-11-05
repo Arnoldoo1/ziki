@@ -7,6 +7,7 @@ import { earnState } from "@/lib/earn/state";
 import { EarnLanding } from "@/components/earn-landing";
 import { formatZ } from "@/lib/points/rules";
 import { agentsLink, agentsSurface } from "@/app/(app)/settings/agents/agents-ui";
+import { earnAgentWhere } from "@/lib/earn/earner";
 
 export const metadata = { title: "Earn with your agent" };
 
@@ -23,7 +24,7 @@ export default async function EarnPage({ searchParams }: { searchParams: Promise
   const user = await requireUser();
   // Just connected an agent: always land here, on choosing what it works on, whatever else the person has done.
   const justConnected = (await searchParams).connected === "1";
-  const agent = await prisma.agent.findFirst({ where: { ownerUserId: user.id, revokedAt: null }, orderBy: { createdAt: "asc" }, select: { id: true } }).catch(() => null);
+  const agent = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), orderBy: { createdAt: "asc" }, select: { id: true } }).catch(() => null);
   const { stage, started, balance } = await earnState(user.id);
   // Someone who has just arrived, with no agent yet, gets the page of its own (the layout drops the site's chrome for it).
   if (!agent) return <EarnLanding earned={balance.earned} welcome={SIGNUP_BONUS} />;

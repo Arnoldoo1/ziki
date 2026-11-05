@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { EARN_PREVIEW_COOKIE, EARN_STAGES, EARN_TASKS, EARN_WORKSPACE_SLUG, earnBalance, earnPreviewEnabled, tasksPaid, type EarnBalance, type EarnStage } from "@/lib/earn/draft";
 import { earnedFromLedger, grantWelcome, loadRows, stageFromRows, startedFromRows, startNextTask, type EarnTaskRow } from "@/lib/earn/progress";
+import { earnAgentWhere } from "@/lib/earn/earner";
 
 /**
  * Where an earner is (#earn-tasks), read from the database: their task rows
@@ -65,12 +66,12 @@ export async function startedTask(userId: string): Promise<number | null> {
  */
 export async function requireEarnAgent(userId: string): Promise<void> {
   if (await previewStage()) return;
-  const agent = await prisma.agent.findFirst({ where: { ownerUserId: userId, revokedAt: null }, select: { id: true } });
+  const agent = await prisma.agent.findFirst({ where: earnAgentWhere(userId), select: { id: true } });
   if (!agent) redirect("/earn");
 }
 
 export async function startIfAgentConnected(userId: string): Promise<void> {
   if (await previewStage()) return;
-  const agent = await prisma.agent.findFirst({ where: { ownerUserId: userId, revokedAt: null }, select: { id: true } });
+  const agent = await prisma.agent.findFirst({ where: earnAgentWhere(userId), select: { id: true } });
   if (agent) await startNextTask(prisma, userId);
 }

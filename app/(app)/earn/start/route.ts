@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
-import { joinEarnWorkspace } from "@/lib/earn/earner";
+import { earnAgentWhere, joinEarnWorkspace } from "@/lib/earn/earner";
 import { setActiveTenantCookie } from "@/lib/tenants";
 
 /**
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const user = await requireUser();
   const { tenantId } = await joinEarnWorkspace(user.id);
   await setActiveTenantCookie(tenantId);
-  const connected = await prisma.agent.findFirst({ where: { ownerUserId: user.id, revokedAt: null }, select: { id: true } }).catch(() => null);
+  const connected = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), select: { id: true } }).catch(() => null);
   const to = request.nextUrl.clone();
   to.pathname = connected ? "/earn" : "/earn/connect";
   to.search = "";

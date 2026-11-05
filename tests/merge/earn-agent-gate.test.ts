@@ -13,6 +13,7 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: { agent: { findFirst: (...args: unknown[]) => findFirst(...args) } } }));
 
+import { EARN_WORKSPACE_SLUG } from "@/lib/earn/draft";
 import { requireEarnAgent } from "@/lib/earn/state";
 
 describe("requireEarnAgent", () => {
@@ -23,10 +24,14 @@ describe("requireEarnAgent", () => {
     await expect(requireEarnAgent("user-1")).rejects.toThrow("REDIRECT:/earn");
   });
 
-  it("only counts an agent that has not been revoked", async () => {
+  it("only counts an agent in the Earn workspace that has not been revoked", async () => {
     findFirst.mockResolvedValue(null);
     await requireEarnAgent("user-1").catch(() => undefined);
-    expect(findFirst).toHaveBeenCalledWith({ where: { ownerUserId: "user-1", revokedAt: null }, select: { id: true } });
+    // Agents in the person's other workspaces are not Earn agents: Earn is a place of its own.
+    expect(findFirst).toHaveBeenCalledWith({
+      where: { ownerUserId: "user-1", revokedAt: null, tenant: { slug: EARN_WORKSPACE_SLUG } },
+      select: { id: true },
+    });
   });
 
   it("lets someone with a connected agent through", async () => {
