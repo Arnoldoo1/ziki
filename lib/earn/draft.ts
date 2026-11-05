@@ -18,13 +18,14 @@ export const CONVERSION_BONUS = 11;
 export const EARN_CC_ADDRESS = "earn@ziki.dev";
 
 export type EarnTaskId = "who" | "research" | "emails" | "post";
-export type EarnTask = { id: EarnTaskId; title: string; detail: string; pay: number; done: boolean };
+/** `target`: how many make the task (10 people, 10 emails), or 1 for a task done once. */
+export type EarnTask = { id: EarnTaskId; title: string; detail: string; pay: number; target: number; done: boolean };
 
 export const EARN_TASKS: EarnTask[] = [
-  { id: "who", title: "Tell us who needs Ziki", detail: "One sentence about a kind of business. Takes 2 minutes.", pay: 3, done: false },
-  { id: "research", title: "Research 10 people with your agent", detail: "Your agent finds businesses that match what you wrote.", pay: 2, done: false },
-  { id: "emails", title: "Send 10 emails", detail: "From your own email, with your link. CC Ziki so each one counts.", pay: 4, done: false },
-  { id: "post", title: "Post about Ziki", detail: "Share your link on X, LinkedIn or your WhatsApp status.", pay: 5, done: false },
+  { id: "who", title: "Tell us who needs Ziki", detail: "One sentence about a kind of business. Takes 2 minutes.", pay: 3, target: 1, done: false },
+  { id: "research", title: "Research 10 people with your agent", detail: "Your agent finds businesses that match what you wrote.", pay: 2, target: 10, done: false },
+  { id: "emails", title: "Send 10 emails", detail: "From your own email, with your link. CC Ziki so each one counts.", pay: 4, target: 10, done: false },
+  { id: "post", title: "Post about Ziki", detail: "Share your link on X, LinkedIn or your WhatsApp status.", pay: 5, target: 1, done: false },
 ];
 
 /** Who does what on each task, and what to send back as proof. The agent does the work; the person checks it and sends it from their own accounts. */
