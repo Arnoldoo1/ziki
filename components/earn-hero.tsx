@@ -11,21 +11,19 @@ export const EARN_BTN =
 /**
  * The look of the earn pages that stand on their own (#earn-landing, #earn-connect): the home page's hero. Its
  * photo and shade, its brand mark and Inter type, its mono nav link. No site header, agents bar or footer.
- * `fit` makes it exactly one screen with no scrolling (the landing); without it the page grows with its content
- * (the connect steps).
+ * It fills the screen when its content is short and scrolls like any other page when the window is shorter than
+ * the content, so nothing is ever cut off.
  */
 export function EarnHero({
   link,
-  fit = false,
   children,
 }: {
   link: { href: string; label: string };
-  fit?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div className={`${fit ? "h-dvh overflow-hidden" : "min-h-dvh"} bg-white p-3 [font-family:var(--font-inter),sans-serif] sm:p-5`}>
-      <section className={`relative isolate flex flex-col overflow-hidden rounded-[18px] text-white ${fit ? "h-full" : "min-h-[calc(100dvh-1.5rem)] sm:min-h-[calc(100dvh-2.5rem)]"}`}>
+    <div className="min-h-dvh bg-white p-3 [font-family:var(--font-inter),sans-serif] sm:p-5">
+      <section className="relative isolate flex min-h-[calc(100dvh-1.5rem)] flex-col overflow-hidden rounded-[18px] text-white sm:min-h-[calc(100dvh-2.5rem)]">
         <Image src="/homepage/hero-sea.webp" alt="" fill priority sizes="100vw" className="-z-20 object-cover [object-position:50%_54%]" />
         <div
           aria-hidden="true"
