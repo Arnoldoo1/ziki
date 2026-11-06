@@ -2,7 +2,7 @@ import { requireUser } from "@/lib/auth-helpers";
 import { prisma } from "@/lib/prisma";
 import { AgentTrustCard } from "@/components/agent-trust-card";
 
-export const metadata = { title: "Agent trust & autonomy" };
+export const metadata = { title: "Agent trust and autonomy" };
 
 /** Owner-controlled trust & autonomy for the person's own agents (localStorage only, no DB). */
 export default async function AgentTrustPage() {
@@ -19,7 +19,7 @@ export default async function AgentTrustPage() {
       <div className="mx-auto flex max-w-5xl flex-col gap-5 pb-10">
         <h1 className="m-0 text-2xl font-extrabold text-zk-text">Agent trust &amp; autonomy</h1>
         <p className="text-sm text-zk-muted">
-          You don't own any active agents yet. Connect one at Settings → Agents to set its trust level.
+          You do not own any active agents yet. Connect one at Settings &rarr; Agents to set its trust level.
         </p>
       </div>
     );
