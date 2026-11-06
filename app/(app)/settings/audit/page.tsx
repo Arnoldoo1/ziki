@@ -20,6 +20,10 @@ type Props = {
     issue?: string | string[];
     before?: string | string[];
     show?: string | string[];
+    q?: string | string[];
+    action?: string | string[];
+    from?: string | string[];
+    to?: string | string[];
   }>;
 };
 
@@ -63,6 +67,10 @@ export default async function AuditLogPage({ searchParams }: Props) {
   const before = single(params.before);
   // Request rows are hidden by default so each action reads once (#575).
   const includeRequests = single(params.show) === "requests";
+  const q = single(params.q);
+  const actionFilter = single(params.action);
+  const from = single(params.from);
+  const to = single(params.to);
 
   // #576: the issue filter takes "#123", "123", an issue link or an id.
   const ref = issueInput ? parseIssueRef(issueInput) : null;
@@ -82,7 +90,18 @@ export default async function AuditLogPage({ searchParams }: Props) {
     noSuchIssue
       ? []
       : prisma.agentAuditEvent.findMany({
-          where: auditWhere(access, { agentId, issueId, includeRequests }),
+          where: {
+            AND: [
+              auditWhere(access, { agentId, issueId, includeRequests }),
+              ...(actionFilter ? [{ action: actionFilter }] : []),
+              ...(q
+                ? [{ OR: [{ action: { contains: q, mode: "insensitive" as const } }, { target: { contains: q, mode: "insensitive" as const } }] }]
+                : []),
+              ...(from || to
+                ? [{ createdAt: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } }]
+                : []),
+            ],
+          },
           // id breaks ties so the cursor never skips or repeats a row.
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           take: AUDIT_PAGE_SIZE + 1,
@@ -175,12 +194,62 @@ export default async function AuditLogPage({ searchParams }: Props) {
             className="mt-1 min-h-11 rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text"
           />
         </label>
+        <label className="text-sm">
+          <span className="block font-bold text-zk-text">Search</span>
+          <input
+            name="q"
+            defaultValue={q ?? ""}
+            placeholder="action or target"
+            className="mt-1 min-h-11 rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text"
+          />
+        </label>
+        <label className="text-sm">
+          <span className="block font-bold text-zk-text">Action</span>
+          <input
+            name="action"
+            defaultValue={actionFilter ?? ""}
+            placeholder="e.g. issue.updated"
+            className="mt-1 min-h-11 rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text"
+          />
+        </label>
+        <label className="text-sm">
+          <span className="block font-bold text-zk-text">From</span>
+          <input
+            type="date"
+            name="from"
+            defaultValue={from ?? ""}
+            className="mt-1 min-h-11 rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text"
+          />
+        </label>
+        <label className="text-sm">
+          <span className="block font-bold text-zk-text">To</span>
+          <input
+            type="date"
+            name="to"
+            defaultValue={to ?? ""}
+            className="mt-1 min-h-11 rounded-xl border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text"
+          />
+        </label>
         <button
           type="submit"
           className="min-h-11 rounded-full bg-electric-blue-strong px-4 text-sm font-bold text-white hover:brightness-105"
         >
           Filter
         </button>
+        <a
+          href={`/settings/audit/export?${new URLSearchParams({
+            ...(agentId ? { agent: agentId } : {}),
+            ...(issueInput ? { issue: issueInput } : {}),
+            ...(includeRequests ? { show: "requests" } : {}),
+            ...(q ? { q } : {}),
+            ...(actionFilter ? { action: actionFilter } : {}),
+            ...(from ? { from } : {}),
+            ...(to ? { to } : {}),
+          }).toString()}`}
+          className="min-h-11 rounded-full border border-zk-border px-4 py-2 text-sm font-bold text-zk-text hover:bg-zk-surface-2"
+        >
+          Export CSV
+        </a>
         {filtered ? (
           <Link href="/settings/audit" className="py-2 text-sm font-bold text-zk-accent hover:underline">
             Clear
