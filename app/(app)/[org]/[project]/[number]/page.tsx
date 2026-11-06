@@ -42,6 +42,7 @@ import { IssueStageProvider } from "@/components/issue-stage-context";
 import { IssueComments } from "@/components/comment-thread";
 import { CommentComposer } from "@/components/comment-composer";
 import { AwardBox } from "@/components/award-box";
+import { AgentSteerPanel } from "@/components/agent-steer-panel";
 import { AwardStep, IdeaStep, IssueTimeline, TimelineStep, type AwardStepView } from "@/components/issue-timeline";
 import { currentHold, shownAssignee, type IssueHold } from "@/lib/issue-holders";
 import { isOpenBid } from "@/lib/open-bids";
@@ -461,6 +462,17 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     }),
   ]);
   const awardClaim: AwardStepView | null = claimHistory[0] ?? null;
+  const activeSteerClaim = await prisma.issueClaim.findFirst({
+    where: { bugId: bug.id, status: "active", releasedAt: null },
+    orderBy: { createdAt: "desc" },
+    select: { agentId: true, agent: { select: { name: true, ownerUserId: true, pausedAt: true } } },
+  });
+  const canSteerAgent = Boolean(activeSteerClaim && (activeSteerClaim.agent.ownerUserId === user.id || bug.reporterId === user.id || canTriage));
+  const steerHistory = activeSteerClaim ? await prisma.agentSteerNote.findMany({
+    where: { bugId: bug.id, agentId: activeSteerClaim.agentId },
+    orderBy: { createdAt: "desc" }, take: 10,
+    select: { id: true, body: true, plan: true, createdAt: true, acknowledgedAt: true, author: { select: { name: true } } },
+  }) : [];
 
   const [users, voterSummary, activities, activityCount, comments, latestStatusChange, attachments, lastRevision, agentDecisions, escalations] =
     await Promise.all([
@@ -1231,6 +1243,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
         {/* MAIN COLUMN */}
         <div className="flex min-w-0 flex-[999_1_600px] flex-col gap-5">
           {/* #1446: the progress report's stage filters the Conversation (#186). */}
+          {activeSteerClaim && canSteerAgent ? (
+            <AgentSteerPanel issueRef={String(bug.number)} agentId={activeSteerClaim.agentId} agentName={activeSteerClaim.agent.name} notes={steerHistory.map((entry) => ({ id: entry.id, body: entry.body, plan: entry.plan, createdAt: entry.createdAt.toISOString(), acknowledgedAt: entry.acknowledgedAt?.toISOString() ?? null, author: entry.author.name }))} paused={Boolean(activeSteerClaim.agent.pausedAt)} canPause={activeSteerClaim.agent.ownerUserId === user.id} />
+          ) : null}
           <IssueStageProvider initialStage={currentStage}>
           <EditableIssueDescription
             bugId={bug.id}

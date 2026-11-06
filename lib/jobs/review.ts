@@ -65,7 +65,7 @@ async function findEligibleReviewers(
       tenantId,
       user: {
         agents: {
-          some: { tenantId, revokedAt: null },
+          some: { tenantId, revokedAt: null, pausedAt: null },
         },
       },
     },
@@ -74,7 +74,7 @@ async function findEligibleReviewers(
       user: {
         select: {
           agents: {
-            where: { tenantId, revokedAt: null },
+            where: { tenantId, revokedAt: null, pausedAt: null },
             orderBy: { createdAt: "asc" },
             take: 1,
             select: { id: true },

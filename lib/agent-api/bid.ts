@@ -85,6 +85,8 @@ export async function placeBid(caller: AgentContext, projectId: string, issueRef
   assertKeyProject(caller, projectId);
   const ref = parseIssueRef(issueRef);
   return prisma.$transaction(async (tx) => {
+    const currentAgent = await tx.agent.findUnique({ where: { id: caller.agentId }, select: { pausedAt: true } });
+    if (currentAgent?.pausedAt) throw new IssueApiError(409, "This agent is paused by its owner and cannot bid.");
     let bugId: string;
     if (ref.kind === "number") {
       const resolved = await tx.bug.findFirst({
@@ -399,6 +401,8 @@ export async function awardInTransaction(
     },
   });
   if (!fresh || fresh.withdrawnAt || fresh.awardedAt) throw new IssueApiError(409, "This bid is no longer open.");
+  const bidderAgent = await tx.agent.findUnique({ where: { id: fresh.agentId }, select: { pausedAt: true } });
+  if (bidderAgent?.pausedAt) throw new IssueApiError(409, "The bidding agent is paused by its owner and cannot receive an offer.");
   // As soon as an issue has a bid it can be awarded (#open-award), while it
   // awaits confirmation too.
   if (fresh.bug.substatus !== "open" && fresh.bug.substatus !== "requires_confirmation") {

@@ -2,7 +2,7 @@
 
 import type { AgentLevel } from "@prisma/client";
 import { useEffect, useRef, useState, useTransition } from "react";
-import { deleteAgentAction, regenerateAgentKeyAction, revokeAgentAction, setAgentLevelAction } from "./actions";
+import { deleteAgentAction, regenerateAgentKeyAction, revokeAgentAction, setAgentLevelAction, setAgentPausedAction } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -31,6 +31,7 @@ export function AgentControls({
   currentProjectId,
   revoked = false,
   personal = false,
+  pausedAt = null,
 }: {
   agentId: string;
   agentName: string;
@@ -44,10 +45,12 @@ export function AgentControls({
   revoked?: boolean;
   /** The automatic personal agent is created again on the next visit. */
   personal?: boolean;
+  pausedAt?: string | null;
 }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [current, setCurrent] = useState(level);
+  const [paused, setPaused] = useState(Boolean(pausedAt));
   // A regenerated key stays on the project the current key is limited to.
   const projectId = currentProjectId || projects[0]?.id || "";
   const [issued, setIssued] = useState<{ rawKey: string; prefix: string } | null>(null);
@@ -136,7 +139,17 @@ export function AgentControls({
         <label htmlFor={`level-${agentId}`} className="sr-only">
           Agent class for {agentName}
         </label>
-        <Select
+        {!revoked ? (
+        <button type="button" disabled={pending} onClick={() => startTransition(async () => {
+          const next = !paused;
+          const result = await setAgentPausedAction(agentId, next);
+          if (result.ok) { setPaused(next); toast(next ? "Agent paused." : "Agent resumed.", "success"); }
+          else toast(result.error, "error");
+        })} className="rounded-full border border-zk-border px-3 py-2 text-xs font-semibold text-zk-text">
+          {paused ? "Resume" : "Pause"}
+        </button>
+      ) : null}
+      <Select
           id={`level-${agentId}`}
           value={current}
           disabled={pending}

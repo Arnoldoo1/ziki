@@ -104,6 +104,7 @@ async function findEligibleReviewerCandidates(
           some: {
             tenantId,
             revokedAt: null,
+            pausedAt: null,
           },
         },
       },
@@ -116,6 +117,7 @@ async function findEligibleReviewerCandidates(
             where: {
               tenantId,
               revokedAt: null,
+              pausedAt: null,
             },
             orderBy: { createdAt: "asc" },
             take: 1,

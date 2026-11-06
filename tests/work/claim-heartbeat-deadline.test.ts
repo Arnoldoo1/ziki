@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 /** Active work (#556, #593): the holder heartbeats its claim, a silent or overdue claim is released and its issue reopened for bids, and delivered work is never taken back. */
 const db = vi.hoisted(() => ({
   agentApiKey: { findUnique: vi.fn() }, agentAuditEvent: { create: vi.fn() },
+  agent: { findUnique: vi.fn() }, agentSteerNote: { findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn() }, notification: { create: vi.fn() },
   agentEvent: { create: vi.fn() }, webhookSubscription: { findMany: vi.fn() },
   webhookDelivery: { createMany: vi.fn() },
   project: { findFirst: vi.fn(), findUnique: vi.fn() },
@@ -44,6 +45,10 @@ beforeEach(() => {
   db.$queryRaw.mockResolvedValue([{ id: "issue" }]);
   db.$transaction.mockImplementation((run) => run(db));
   db.issueClaim.findFirst.mockResolvedValue(claim);
+  db.agent.findUnique.mockResolvedValue({ pausedAt: null });
+  db.agentSteerNote.findFirst.mockResolvedValue(null);
+  db.agentSteerNote.update.mockResolvedValue({ id: "steer", body: "", createdAt: now, heartbeatCount: 1, notifiedAt: null });
+  db.agentSteerNote.updateMany.mockResolvedValue({ count: 1 });
   db.issueClaim.findMany.mockResolvedValue([{ id: "claim", bugId: "issue", bug: { tenantId: "tenant", projectId: "project" } }]);
   db.issueClaim.update.mockResolvedValue({ ...claim, lastHeartbeatAt: now });
   db.issueClaim.count.mockResolvedValue(0);

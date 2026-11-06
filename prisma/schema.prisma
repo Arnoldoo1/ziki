@@ -251,6 +251,7 @@ model User {
   securityEvents            SecurityAuditEvent[]
   watches                   IssueWatch[]
   notifications             Notification[]
+  steerNotes                AgentSteerNote[]
   // Agent platform (#423).
   memberships               Membership[]
   agents                    Agent[]
@@ -391,6 +392,7 @@ model Bug {
   assignee                  User?                   @relation("BugAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   attachments               Attachment[]
   comments                  Comment[]
+  steerNotes                AgentSteerNote[]
   votes                     Vote[]
   watches                   IssueWatch[]
   notifications             Notification[]
@@ -975,6 +977,8 @@ model Agent {
   /// next request; no cleanup job flips `burst` off.
   burstUntil           DateTime?
   revokedAt            DateTime?
+  /// Owner-controlled pause; active claim clocks are frozen while set (#236).
+  pausedAt             DateTime?
   /// Set when this is the person's personal agent for that project.
   /// Created automatically so they can copy a key without registering one.
   defaultProjectId     String?
@@ -1013,6 +1017,7 @@ model Agent {
   createdBugs          Bug[]                 @relation("AgentCreatedBugs")
   createdIdeas         Idea[]                @relation("AgentCreatedIdeas")
   comments             Comment[]
+  steerNotes           AgentSteerNote[]
   claims               IssueClaim[]
   bids                 IssueBid[]
   deliveries           Delivery[]
@@ -2178,6 +2183,26 @@ model AgentInboxItem {
   @@unique([agentId, eventId])
   @@index([agentId, createdAt, id])
   @@index([agentId, readAt, createdAt, id])
+}
+
+/// A human instruction delivered to an agent holding an issue claim (#236).
+model AgentSteerNote {
+  id          String   @id @default(cuid())
+  bugId       String
+  agentId     String
+  authorId    String
+  body        String
+  plan        String?
+  heartbeatCount Int  @default(0)
+  acknowledgedAt DateTime?
+  notifiedAt  DateTime?
+  createdAt   DateTime @default(now())
+  bug         Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  agent       Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([agentId, acknowledgedAt, createdAt])
+  @@index([bugId, createdAt])
 }
 
 /// An agent with a public HTTPS endpoint opting in to webhooks (#445). The

@@ -70,7 +70,30 @@ export async function heartbeatClaim(agent: AgentContext, projectId: string, iss
     if (!claim) throw new IssueApiError(409, "This issue has no current claim.");
     if (claim.agentId !== agent.agentId) throw new IssueApiError(403, "Only the claiming agent can send a heartbeat.");
     if (claim.status !== "active") throw new IssueApiError(409, "Only active claims accept heartbeats.");
-    return tx.issueClaim.update({ where: { id: claim.id }, data: { lastHeartbeatAt: new Date() } });
+    const ownerAgent = await tx.agent.findUnique({ where: { id: agent.agentId }, select: { pausedAt: true } });
+    const paused = Boolean(ownerAgent?.pausedAt);
+    const heartbeatAt = new Date();
+    const updated = await tx.issueClaim.update({ where: { id: claim.id }, data: { lastHeartbeatAt: heartbeatAt } });
+    const pendingSteer = await tx.agentSteerNote.findFirst({
+      where: { bugId, agentId: agent.agentId, acknowledgedAt: null },
+      orderBy: { createdAt: "asc" },
+    });
+    let steer = null;
+    if (pendingSteer) {
+      const incremented = await tx.agentSteerNote.update({
+        where: { id: pendingSteer.id }, data: { heartbeatCount: { increment: 1 } },
+      });
+      steer = { id: incremented.id, note: incremented.body, created_at: incremented.createdAt.toISOString() };
+      if (incremented.heartbeatCount >= 2 && !incremented.notifiedAt) {
+        const notified = await tx.agentSteerNote.updateMany({ where: { id: incremented.id, notifiedAt: null }, data: { notifiedAt: heartbeatAt } });
+        if (notified.count) await tx.notification.create({ data: {
+          userId: agent.ownerId, tenantId: agent.tenantId, bugId, kind: "steer_unacknowledged",
+          title: "Your agent has not acknowledged a steer note",
+          url: `/issues/${bugId}`,
+        } });
+      }
+    }
+    return { claim: updated, paused, steer };
   });
 }
 

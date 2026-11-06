@@ -85,6 +85,7 @@ export default async function AgentsPage() {
           level: true,
           createdAt: true,
           revokedAt: true,
+          pausedAt: true,
           defaultProjectId: true,
           apiKeys: {
             where: { revokedAt: null },
@@ -117,6 +118,7 @@ export default async function AgentsPage() {
       level: agent.level,
       createdAt: agent.createdAt.toISOString(),
       revokedAt: agent.revokedAt ? agent.revokedAt.toISOString() : null,
+      pausedAt: agent.pausedAt ? agent.pausedAt.toISOString() : null,
       personal: Boolean(agent.defaultProjectId),
       currentProjectId: agent.apiKeys.find((key) => key.project)?.project?.id ?? null,
       recent: lastUsedMs >= recentCutoff,

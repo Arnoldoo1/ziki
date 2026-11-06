@@ -8,7 +8,7 @@ const db = vi.hoisted(() => {
     issueBid: { findUnique: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
     issueClaim: { findFirst: vi.fn(), count: vi.fn(), create: vi.fn(), update: vi.fn() },
     bidVote: { findMany: vi.fn(), deleteMany: vi.fn() },
-    agent: { findFirst: vi.fn() },
+    agent: { findFirst: vi.fn(), findUnique: vi.fn() },
     projectWorkflow: { findUnique: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn(),
@@ -56,6 +56,7 @@ beforeEach(() => {
   db.issueClaim.count.mockResolvedValue(0);
   db.projectWorkflow.findUnique.mockResolvedValue(null);
   db.agent.findFirst.mockResolvedValue(null);
+  db.agent.findUnique.mockResolvedValue({ pausedAt: null });
   db.issueBid.updateMany.mockResolvedValue({ count: 1 });
   db.bug.updateMany.mockResolvedValue({ count: 1 });
   db.issueBid.findUnique.mockResolvedValue(null);
@@ -66,6 +67,12 @@ beforeEach(() => {
 });
 
 describe("placeBid", () => {
+  it("refuses to bid while the owner has paused the agent (#236)", async () => {
+    db.agent.findUnique.mockResolvedValue({ pausedAt: new Date("2026-11-05T10:00:00Z") });
+    await expect(placePlan(caller, "project", "issue1")).rejects.toMatchObject({ status: 409, message: expect.stringContaining("paused") });
+    expect(db.issueBid.create).not.toHaveBeenCalled();
+  });
+
   it("records a bid and does not claim the issue", async () => {
     const { bid, replaced } = await placeBid(caller, "project", "issue1", plan);
     expect(bid.id).toBe("bid1");

@@ -542,3 +542,32 @@ export async function setAgentPictureAsPerson(
   const result = bytes ? await setAgentPicture(who, bytes) : await removeAgentPicture(who);
   return result.ok ? { ok: true } : result;
 }
+
+/** Pause or resume an agent and freeze the deadlines of its active claims (#236). */
+export async function setAgentPaused(actor: Actor, agentId: string, paused: boolean, now = new Date()): Promise<ManageResult> {
+  const agent = await prisma.agent.findFirst({ where: { id: agentId, ownerUserId: actor.id, revokedAt: null }, select: { id: true, pausedAt: true } });
+  if (!agent) return { ok: false, error: "Agent not found." };
+  if (paused) {
+    if (agent.pausedAt) return { ok: true };
+    await prisma.$transaction(async (tx) => {
+      await tx.agent.update({ where: { id: agentId }, data: { pausedAt: now } });
+      // Reuse the existing owner-wait clock pause so silence and delivery
+      // deadlines stop together. Existing question waits are left untouched.
+      await tx.issueClaim.updateMany({ where: { agentId, releasedAt: null, waitingOnOwnerSince: null }, data: { waitingOnOwnerSince: now } });
+    });
+    return { ok: true };
+  }
+  if (!agent.pausedAt) return { ok: true };
+  await prisma.$transaction(async (tx) => {
+    const claims = await tx.issueClaim.findMany({ where: { agentId, releasedAt: null, waitingOnOwnerSince: agent.pausedAt }, select: { id: true, deliverBy: true } });
+    const duration = Math.max(0, now.getTime() - agent.pausedAt!.getTime());
+    for (const claim of claims) {
+      await tx.issueClaim.update({ where: { id: claim.id }, data: {
+        waitingOnOwnerSince: null,
+        ...(claim.deliverBy ? { deliverBy: new Date(claim.deliverBy.getTime() + duration) } : {}),
+      } });
+    }
+    await tx.agent.update({ where: { id: agentId }, data: { pausedAt: null } });
+  });
+  return { ok: true };
+}

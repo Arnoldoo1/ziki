@@ -11,7 +11,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     if (!request.nextUrl.searchParams.get("projectId")) return NextResponse.json({ error: "projectId is required." }, { status: 400 });
     const scope = await issueProject(agent, request.nextUrl.searchParams);
     try {
-      return NextResponse.json({ claim: await heartbeatClaim(agent, scope.projectId, id) });
+      const heartbeat = await heartbeatClaim(agent, scope.projectId, id);
+      return NextResponse.json({ claim: heartbeat.claim, paused: heartbeat.paused, steer: heartbeat.steer });
     } catch (error) {
       if (error instanceof IssueApiError) throw error;
       return NextResponse.json({ error: "Heartbeat unavailable; try again." }, { status: 503 });

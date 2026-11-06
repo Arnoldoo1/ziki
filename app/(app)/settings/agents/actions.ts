@@ -7,7 +7,7 @@ import type { AgentLevel } from "@prisma/client";
 import { consumePairingLimit } from "@/lib/agents/rate-limit";
 import { approvePairing, findPendingPairing } from "@/lib/agents/pairing";
 import { currentTenantIdFor } from "@/lib/tenant-context";
-import { createAgent, deleteAgent, regenerateKey, revokeAgent, setAgentAreaPreferences, setAgentLevel } from "@/lib/agents/registry";
+import { createAgent, deleteAgent, regenerateKey, revokeAgent, setAgentAreaPreferences, setAgentLevel, setAgentPaused } from "@/lib/agents/registry";
 import { RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
 
@@ -161,4 +161,12 @@ export async function pairAgentAction(
     level: pending.proposedLevel ?? "working",
     instructions: pending.proposedInstructions,
   };
+}
+
+export async function setAgentPausedAction(agentId: unknown, paused: unknown): Promise<AgentActionResult> {
+  if (typeof agentId !== "string" || typeof paused !== "boolean") return { ok: false, error: "Invalid pause request." };
+  const user = await requireUser();
+  const result = await setAgentPaused(user, agentId, paused);
+  if (result.ok) revalidatePath("/agents/mine");
+  return result;
 }

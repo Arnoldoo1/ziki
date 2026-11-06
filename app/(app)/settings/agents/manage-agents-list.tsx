@@ -27,6 +27,7 @@ export type ManageAgentItem = {
   level: AgentLevel;
   createdAt: string;
   revokedAt: string | null;
+  pausedAt: string | null;
   personal: boolean;
   /** The owner's avatar pick; null wears the automatic robot. */
   avatar: string | null;
