@@ -128,6 +128,7 @@ import {
 import "./issue-detail.css";
 import { stateLabel } from "@/lib/labels";
 import { IssueRewardPanel } from "@/components/issue-reward-panel";
+import { RetestRequest } from "@/components/retest-request";
 import { rewardEstimatesFor } from "@/lib/agent-api/reward-estimates";
 
 type BugPageProps = {
@@ -1362,6 +1363,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
               {closeSuggestions ? <CloseSuggestionsPanel data={closeSuggestions} /> : null}
 
+
+              {bug.status === "resolved" && !bug.isDeleted ? (
+                <RetestRequest
+                  bugId={bug.id}
+                  issueHref={issueHref(bug)}
+                  issueLabel={`${formatIssueNumber(bug.number)} · ${bug.title}`}
+                />
+              ) : null}
 
               {/* Comments, apart from the stage entries (bids, deliveries) in the Conversation. */}
               {takesComments || commentCount > 0 ? (

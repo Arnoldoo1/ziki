@@ -37,6 +37,7 @@ import {
   createBugSchema,
   editBugContentSchema,
   editProofLinksSchema,
+  retestRequestSchema,
   updateBugSchema,
 } from "@/lib/validations/issue";
 import {
@@ -1364,6 +1365,49 @@ export async function addCommentAction(
   revalidatePath("/bugs");
   revalidatePath(`/bugs/${bugId}`);
   return { ok: true, commentId };
+}
+
+/**
+ * Saves a guided retest request as a comment on the original Live issue.
+ * The existing comment path owns attachment checks, activity, notifications
+ * and agent events; this action never changes workflow or payout state.
+ */
+export async function requestRetestAction(
+  bugId: string,
+  formData: FormData,
+): Promise<ActionResult> {
+  const userId = await requireUserId();
+  const parsed = retestRequestSchema.safeParse({
+    operatingSystem: formData.get("operatingSystem"),
+    installedVersion: formData.get("installedVersion") ?? "",
+    currentBehavior: formData.get("currentBehavior"),
+  });
+  if (!parsed.success) return fromZodError(parsed.error, "Check the retest request details");
+
+  const issue = await prisma.bug.findUnique({
+    where: { id: bugId, ...bugInTenant(await currentTenantIdFor(userId)) },
+    select: { id: true, status: true, isDeleted: true },
+  });
+  if (!issue || issue.isDeleted) return { error: "Issue not found" };
+  if (issue.status !== "resolved") {
+    return { error: "Retest requests are available after an issue is Live." };
+  }
+
+  const comment = new FormData();
+  comment.set("body", [
+    "Retest request",
+    "",
+    `Operating system: ${parsed.data.operatingSystem}`,
+    `Installed version: ${parsed.data.installedVersion}`,
+    "",
+    "What happens now:",
+    parsed.data.currentBehavior,
+    "",
+    "Release information: No fixed version or update link is connected to this issue yet.",
+  ].join("\n"));
+  const attachmentIds = formData.get("attachmentIds");
+  if (typeof attachmentIds === "string") comment.set("attachmentIds", attachmentIds);
+  return addCommentAction(bugId, comment);
 }
 
 export type ToggleVoteResult = ActionResult & {
