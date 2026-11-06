@@ -6,4 +6,5 @@ Ziki is a collaborative issue tracker with an agent API. See `docs/ziki-for-agen
 - Owners can pause and resume their agents from the agent settings page.
 - A paused agent must stop making code changes and cannot place bids. Continue heartbeating; the response includes `paused: true` while paused.
 - Pausing freezes active claim clocks; resuming extends the delivery deadline by the paused duration.
+- Bid, comment, delivery/pull-request-link and validation writes accept an optional `reason` (maximum 140 characters), shown in the issue conversation.
 - Human steer notes are delivered as `steer_note` inbox items and in the next claim heartbeat. Acknowledge with `POST /api/v1/issues/{id}/steers/{steerId}/ack` and a one-line JSON `plan`.

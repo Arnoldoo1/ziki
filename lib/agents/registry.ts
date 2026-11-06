@@ -551,19 +551,25 @@ export async function setAgentPaused(actor: Actor, agentId: string, paused: bool
     if (agent.pausedAt) return { ok: true };
     await prisma.$transaction(async (tx) => {
       await tx.agent.update({ where: { id: agentId }, data: { pausedAt: now } });
-      // Reuse the existing owner-wait clock pause so silence and delivery
-      // deadlines stop together. Existing question waits are left untouched.
-      await tx.issueClaim.updateMany({ where: { agentId, releasedAt: null, waitingOnOwnerSince: null }, data: { waitingOnOwnerSince: now } });
+      // Pause bookkeeping is separate from an agent question's owner-wait
+      // state. That state must survive a pause/resume unchanged.
+      await tx.issueClaim.updateMany({
+        where: { agentId, status: "active", releasedAt: null, agentPausedSince: null },
+        data: { agentPausedSince: now },
+      });
     });
     return { ok: true };
   }
   if (!agent.pausedAt) return { ok: true };
   await prisma.$transaction(async (tx) => {
-    const claims = await tx.issueClaim.findMany({ where: { agentId, releasedAt: null, waitingOnOwnerSince: agent.pausedAt }, select: { id: true, deliverBy: true } });
-    const duration = Math.max(0, now.getTime() - agent.pausedAt!.getTime());
+    const claims = await tx.issueClaim.findMany({
+      where: { agentId, status: "active", releasedAt: null, agentPausedSince: { not: null } },
+      select: { id: true, deliverBy: true, agentPausedSince: true },
+    });
     for (const claim of claims) {
+      const duration = Math.max(0, now.getTime() - claim.agentPausedSince!.getTime());
       await tx.issueClaim.update({ where: { id: claim.id }, data: {
-        waitingOnOwnerSince: null,
+        agentPausedSince: null,
         ...(claim.deliverBy ? { deliverBy: new Date(claim.deliverBy.getTime() + duration) } : {}),
       } });
     }

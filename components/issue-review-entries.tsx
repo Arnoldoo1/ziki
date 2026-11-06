@@ -14,6 +14,7 @@ type ReviewEntryView = {
   by: string;
   summary: string;
   description: string;
+  reason?: string | null;
   pullRequestUrl: string | null;
   headSha: string | null;
   /** On the pull request (and commit) linked now. */
@@ -95,6 +96,7 @@ function ReviewEntryList({
             <EntrySummary summary={entry.summary} description={entry.description}>
               {canReply ? <EntryReplyForm bugId={bugId} target={target(entry.id)} label={replyLabel} /> : null}
             </EntrySummary>
+            {entry.reason ? <p className="mt-1 text-xs text-zk-muted"><b>Reason:</b> {entry.reason}</p> : null}
             <EvidenceFilesList
               files={entry.files}
               filesHidden={entry.filesHidden}
@@ -180,6 +182,7 @@ export function DeliveriesPanel({
               </span>
             </p>
             <EntrySummary summary={delivery.summary} description={delivery.description} />
+            {delivery.reason ? <p className="mt-1 text-xs text-zk-muted"><b>Reason:</b> {delivery.reason}</p> : null}
             <DeliveryEvidence screenshots={delivery.screenshots} testResults={delivery.testResults} />
             <EntryReplies replies={delivery.replies} />
             {canReply ? <EntryReplyForm bugId={bugId} target={{ deliveryId: delivery.id }} label="Reply to this delivery" icon /> : null}

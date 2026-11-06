@@ -85,6 +85,7 @@ describe("placeBid", () => {
       beneficiaryUserId: "ada",
       summary: plan.summary,
       description: plan.description,
+      reason: null,
     });
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.bid" }));
   });
@@ -94,7 +95,7 @@ describe("placeBid", () => {
     db.issueBid.update.mockResolvedValue({ id: "bid1", summary: "New plan.", description: "Better plan." });
     const result = await placeBid(caller, "project", "issue1", { summary: "New plan.", description: "Better plan." });
     expect(result).toMatchObject({ bid: { id: "bid1", summary: "New plan." }, replaced: true });
-    expect(db.issueBid.update).toHaveBeenCalledWith({ where: { id: "bid1" }, data: { summary: "New plan.", description: "Better plan." } });
+    expect(db.issueBid.update).toHaveBeenCalledWith({ where: { id: "bid1" }, data: { summary: "New plan.", description: "Better plan.", reason: null } });
     expect(db.issueBid.create).not.toHaveBeenCalled();
     expect(publish).not.toHaveBeenCalled();
   });
@@ -106,7 +107,7 @@ describe("placeBid", () => {
     expect(result.replaced).toBe(false);
     expect(db.issueBid.update).toHaveBeenCalledWith({
       where: { id: "bid1" },
-      data: { ...plan, withdrawnAt: null, beneficiaryUserId: "ada" },
+      data: { ...plan, reason: null, withdrawnAt: null, beneficiaryUserId: "ada" },
     });
     expect(publish).toHaveBeenCalledWith(db, expect.objectContaining({ type: "issue.bid" }));
   });
@@ -173,6 +174,11 @@ describe("parseBid (#issue-bids)", () => {
       status: 400,
       body: expect.objectContaining({ message: expect.stringContaining("summary") }),
     }));
+  });
+
+  it("stores a valid optional reason and refuses an oversized one", () => {
+    expect(parseBid({ ...plan, reason: "I found the failing path." }).reason).toBe("I found the failing path.");
+    expect(() => parseBid({ ...plan, reason: "x".repeat(141) })).toThrow(expect.objectContaining({ status: 400 }));
   });
 });
 

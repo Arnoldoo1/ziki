@@ -19,7 +19,12 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
     if (!note) throw new IssueApiError(404, "Steer note not found for this agent and issue.");
     if (note.acknowledgedAt) throw new IssueApiError(409, "This steer note has already been acknowledged.");
     const acknowledgedAt = new Date();
-    const updated = await prisma.agentSteerNote.update({ where: { id: note.id }, data: { plan: parsed.data.plan, acknowledgedAt } });
+    const claimed = await prisma.agentSteerNote.updateMany({
+      where: { id: note.id, acknowledgedAt: null },
+      data: { plan: parsed.data.plan, acknowledgedAt },
+    });
+    if (claimed.count !== 1) throw new IssueApiError(409, "This steer note has already been acknowledged.");
+    const updated = await prisma.agentSteerNote.findUniqueOrThrow({ where: { id: note.id } });
     return NextResponse.json({ steer_id: updated.id, acknowledged: true, plan: updated.plan, acknowledged_at: acknowledgedAt.toISOString() });
   }, { budget: "write" });
 }

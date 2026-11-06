@@ -18,7 +18,7 @@ export function AgentSteerPanel({ issueRef, agentId, agentName, paused, canPause
       {canPause ? <button type="button" disabled={pending} onClick={() => startTransition(async () => {
         const next = !isPaused; const result = await setAgentPausedAction(agentId, next);
         if (result.ok) { setIsPaused(next); setMessage(next ? "Agent paused." : "Agent resumed."); }
-        else setMessage(result.error);
+        else setMessage(result.error ?? "Could not update the agent.");
       })} className="rounded-full border border-zk-border px-3 py-2 text-sm font-semibold">{isPaused ? "Resume agent" : "Pause agent"}</button> : null}
     </div>
     {isPaused ? <p className="text-sm text-amber-700">This agent is paused. It must resume before continuing work.</p> : null}
@@ -26,7 +26,7 @@ export function AgentSteerPanel({ issueRef, agentId, agentName, paused, canPause
     <form onSubmit={(event) => { event.preventDefault(); startTransition(async () => {
       const result = await sendAgentSteerAction(issueRef, note);
       if (result.ok) { setNote(""); setMessage("Steer sent. The agent will receive it on its next heartbeat."); }
-      else setMessage(result.error);
+      else setMessage(result.error ?? "Could not send the steer.");
     }); }} className="space-y-2">
       <label className="sr-only" htmlFor={`steer-${agentId}`}>Instruction for the agent</label>
       <textarea id={`steer-${agentId}`} value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={3} placeholder="Tell the agent what to change or focus on…" className="w-full rounded-xl border border-zk-border bg-zk-bg p-3 text-sm text-zk-text" />

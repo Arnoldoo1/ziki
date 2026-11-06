@@ -40,6 +40,7 @@ function claimSweepWhere(
     status: "active",
     releasedAt: null,
     waitingOnOwnerSince: null,
+    agentPausedSince: null,
     bug: {
       isDeleted: false,
       status: "in_progress",
@@ -128,7 +129,7 @@ async function releaseClaimIfStale(
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT "id" FROM "Bug" WHERE "id" = ${claim.bugId} FOR NO KEY UPDATE`;
     // Re-read after locking: a heartbeat or another sweep may have won the race.
-    const fresh = await tx.issueClaim.findFirst({ where: { id: claim.id, status: "active", releasedAt: null,
+    const fresh = await tx.issueClaim.findFirst({ where: { id: claim.id, status: "active", releasedAt: null, agentPausedSince: null,
       bug: { projectId, tenantId, isDeleted: false, status: "in_progress" } },
       include: { bug: { select: { pullRequestUrl: true, project: { select: { ownerWaitCapMinutes: true } } } } } });
     const now = new Date();

@@ -9,8 +9,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => ({
   $queryRaw: vi.fn(),
   $transaction: vi.fn(),
-  issueClaim: { findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn(), count: vi.fn() },
+  issueClaim: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
   issueBid: { findFirst: vi.fn(), updateMany: vi.fn() },
+  agent: { findFirst: vi.fn(), update: vi.fn() },
   bug: { update: vi.fn() },
   bugActivity: { createMany: vi.fn() },
 }));
@@ -29,6 +30,7 @@ import { DEFAULT_PROJECT_WORKFLOW } from "@/lib/workflow-config";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { yourWorkWhere } from "@/lib/my-work-filter";
 import { whatsNext } from "@/lib/whats-next";
+import { setAgentPaused } from "@/lib/agents/registry";
 
 const agent = { agentId: "agent-1", name: "Ada's Claude", ownerId: "ada", tenantId: "t1", level: "working", burst: false, keyId: "k1" } as AgentContext;
 const offered = (overrides: Record<string, unknown> = {}) => ({
@@ -100,6 +102,45 @@ describe("the offer window", () => {
     expect(isOfferExpired(offeredAt, offeredAt.getTime() + OFFER_TTL_MS - 1)).toBe(false);
     expect(isOfferExpired(offeredAt, offeredAt.getTime() + OFFER_TTL_MS)).toBe(true);
     expect(isOfferExpired(null, offeredAt.getTime())).toBe(true);
+  });
+});
+
+describe("pausing an agent (#236)", () => {
+  const actor = { id: "ada" };
+  const pausedAt = new Date("2026-11-05T10:00:00Z");
+  const resumedAt = new Date("2026-11-05T10:30:00Z");
+
+  it("marks only active claims and preserves an existing owner wait", async () => {
+    db.agent.findFirst.mockResolvedValue({ id: "agent-1", pausedAt: null });
+    await expect(setAgentPaused(actor, "agent-1", true, pausedAt)).resolves.toEqual({ ok: true });
+    expect(db.issueClaim.updateMany).toHaveBeenCalledWith({
+      where: { agentId: "agent-1", status: "active", releasedAt: null, agentPausedSince: null },
+      data: { agentPausedSince: pausedAt },
+    });
+    expect(db.issueClaim.updateMany.mock.calls[0][0].data).not.toHaveProperty("waitingOnOwnerSince");
+  });
+
+  it("extends each marked claim once and never clears waitingOnOwnerSince", async () => {
+    db.agent.findFirst.mockResolvedValue({ id: "agent-1", pausedAt });
+    db.issueClaim.findMany.mockResolvedValue([
+      { id: "claim-1", deliverBy: new Date("2026-11-05T12:00:00Z"), agentPausedSince: pausedAt },
+    ]);
+    await expect(setAgentPaused(actor, "agent-1", false, resumedAt)).resolves.toEqual({ ok: true });
+    expect(db.issueClaim.update).toHaveBeenCalledWith({
+      where: { id: "claim-1" },
+      data: { agentPausedSince: null, deliverBy: new Date("2026-11-05T12:30:00Z") },
+    });
+    expect(db.issueClaim.update.mock.calls.at(-1)?.[0].data).not.toHaveProperty("waitingOnOwnerSince");
+    expect(db.agent.update).toHaveBeenCalledWith({ where: { id: "agent-1" }, data: { pausedAt: null } });
+  });
+
+  it("is owner-only and repeated pause/resume calls are idempotent", async () => {
+    db.agent.findFirst.mockResolvedValue(null);
+    await expect(setAgentPaused({ id: "other" }, "agent-1", true, pausedAt)).resolves.toEqual({ ok: false, error: "Agent not found." });
+    db.agent.findFirst.mockResolvedValue({ id: "agent-1", pausedAt });
+    await expect(setAgentPaused(actor, "agent-1", true, resumedAt)).resolves.toEqual({ ok: true });
+    db.agent.findFirst.mockResolvedValue({ id: "agent-1", pausedAt: null });
+    await expect(setAgentPaused(actor, "agent-1", false, resumedAt)).resolves.toEqual({ ok: true });
   });
 });
 

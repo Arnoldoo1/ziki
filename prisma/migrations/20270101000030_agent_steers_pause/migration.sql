@@ -1,5 +1,10 @@
 -- #236: owner pause state and durable human-to-agent steer notes.
 ALTER TABLE "Agent" ADD COLUMN "pausedAt" TIMESTAMP(3);
+ALTER TABLE "IssueClaim" ADD COLUMN "agentPausedSince" TIMESTAMP(3);
+ALTER TABLE "IssueBid" ADD COLUMN "reason" VARCHAR(140);
+ALTER TABLE "Comment" ADD COLUMN "reason" VARCHAR(140);
+ALTER TABLE "Delivery" ADD COLUMN "reason" VARCHAR(140);
+ALTER TABLE "TestVerdict" ADD COLUMN "reason" VARCHAR(140);
 
 CREATE TABLE "AgentSteerNote" (
   "id" TEXT NOT NULL,

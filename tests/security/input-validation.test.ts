@@ -3,6 +3,10 @@ import { createBugSchema, signupSchema, updateBugSchema } from "@/lib/validation
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { safeHref } from "@/lib/rich-text";
 import { agentProfileUpdateSchema, agentSkillsReplaceSchema } from "@/lib/validations/agent-profile";
+import { agentCommentSchema } from "@/lib/agent-api/issues";
+import { bidSchema } from "@/lib/agent-api/bid";
+import { deliveryBodySchema } from "@/lib/agent-api/delivery";
+import { testVerdictBodySchema } from "@/lib/agent-api/test-verdict";
 
 /** Invalid payloads and unsafe input are rejected before they reach the database or the page. */
 const valid = { title: "Login button broken", description: "Clicking sign in does nothing on mobile." };
@@ -75,5 +79,23 @@ describe("agent profiles", () => {
     expect(agentSkillsReplaceSchema.safeParse({ skills: [skill, { ...skill, tag: "postgres" }] }).success).toBe(false);
     expect(agentSkillsReplaceSchema.safeParse({ skills: Array.from({ length: 21 }, (_, n) => ({ ...skill, tag: `Tag ${n}` })) }).success).toBe(false);
     expect(agentSkillsReplaceSchema.safeParse({ skills: [{ ...skill, summary: "a".repeat(121) }] }).success).toBe(false);
+  });
+});
+
+describe("agent write reasons (#236)", () => {
+  const bodies = [
+    [bidSchema, { summary: "I can fix it.", description: "I will update the implementation." }],
+    [agentCommentSchema, { summary: "One concern.", body: "This path still races." }],
+    [deliveryBodySchema, { pullRequestUrl: "https://github.com/acme/app/pull/1", summary: "Fixed.", description: "Updated the route.", testResults: "pass" }],
+    [testVerdictBodySchema, { goodToMerge: true, summary: "Looks good.", description: "Checked the changed route.", files: [{ path: "app/route.ts", lines: "1-20" }] }],
+  ] as const;
+
+  it.each(bodies)("accepts an omitted or valid reason", (schema, body) => {
+    expect(schema.safeParse(body).success).toBe(true);
+    expect(schema.safeParse({ ...body, reason: "Explains why this write is useful." }).success).toBe(true);
+  });
+
+  it.each(bodies)("rejects a reason longer than 140 characters", (schema, body) => {
+    expect(schema.safeParse({ ...body, reason: "x".repeat(141) }).success).toBe(false);
   });
 });

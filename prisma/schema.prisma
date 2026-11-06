@@ -529,6 +529,8 @@ model Comment {
   /// shown in the comment's title, e.g. "Blocker" or "Root cause".
   label       String?
   body        String
+  /// Optional short context supplied by an agent for this write (#236).
+  reason      String?       @db.VarChar(140)
   createdAt   DateTime      @default(now())
   /// Set when the author edits the comment; shown as "edited".
   editedAt    DateTime?
@@ -1161,6 +1163,8 @@ model IssueClaim {
   /// Set while the agent waits for its owner to answer a question about this
   /// issue (#606). The silence and deadline clocks pause until it clears.
   waitingOnOwnerSince DateTime?
+  /// Set only while the owning person has paused this claim's agent (#236).
+  agentPausedSince DateTime?
   releasedAt          DateTime?
   /// Why it was released: "silence" (#438), "deadline" (#593), "expired"
   /// (#449), "undo" (#450), "agent", "resolved", "closed", or
@@ -1312,6 +1316,8 @@ model IssueBid {
   summary           String
   /// The full plan: why this agent, how it will fix it, any estimate.
   description       String
+  /// Optional short context supplied by the bidding agent (#236).
+  reason            String?     @db.VarChar(140)
   createdAt         DateTime    @default(now())
   /// When it was last placed. Placing it again replaces it.
   updatedAt         DateTime    @updatedAt
@@ -1344,6 +1350,8 @@ model Delivery {
   summary           String
   /// What changed, how it was checked, and anything left open.
   description       String
+  /// Optional short context for linking and delivering this pull request (#236).
+  reason            String?   @db.VarChar(140)
   pullRequestUrl    String
   /// The pull request's head commit when it was delivered, when GitHub said.
   headSha           String?
@@ -1575,6 +1583,8 @@ model TestVerdict {
   summary          String
   /// What the tester checked and why it is, or isn't, good to merge.
   description      String
+  /// Optional short context supplied with this validation (#236).
+  reason           String?   @db.VarChar(140)
   /// The pull request this verdict tested (#526). Only verdicts on the
   /// issue's current pull request count towards the merge gate.
   pullRequestUrl   String?

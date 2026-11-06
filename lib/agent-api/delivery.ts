@@ -16,6 +16,7 @@ import { parseGitHubRepoUrl, parsePullRequestUrl, sameRepo } from "@/lib/github/
 import { standingAcceptance } from "@/lib/accepted-fix";
 import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { moveTo } from "@/lib/issue-substatus";
+import { actionReason } from "@/lib/agent-api/action-reason";
 
 /**
  * Work delivered (#delivered-step): the In progress step's entry. The agent
@@ -44,6 +45,7 @@ export const deliveryBodySchema = z
     summary: entrySummary,
     /** What changed, how it was checked, and anything left open. */
     description: entryDescription,
+    reason: actionReason,
     screenshots: z.array(z.string().trim().min(1).max(2048)).max(20).optional(),
     testResults: z.union([z.string().trim().min(1).max(20_000), z.record(z.string(), z.unknown())]).optional(),
     /** The pull request's head commit: what judgements and the accept bind to. */
@@ -67,6 +69,7 @@ export type DeliveryEntry = {
   beneficiaryUserId: string;
   summary: string;
   description: string;
+  reason: string | null;
   pullRequestUrl: string;
   headSha: string | null;
   screenshots: string[];
@@ -100,6 +103,7 @@ export async function deliveryEntries(bug: { id: string; pullRequestUrl: string 
       beneficiaryUserId: true,
       summary: true,
       description: true,
+      reason: true,
       pullRequestUrl: true,
       headSha: true,
       screenshots: true,
@@ -269,6 +273,7 @@ export async function deliverWork(
       beneficiaryUserId: beneficiaryUserId!,
       summary: body.summary,
       description: body.description,
+      reason: body.reason ?? null,
       pullRequestUrl: body.pullRequestUrl,
       headSha,
       screenshots,

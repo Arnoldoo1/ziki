@@ -21,6 +21,7 @@ import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type 
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { canSeeEvidenceFiles, evidenceFilesSchema, evidenceFilesView, uniqueEvidenceFiles, type EvidenceFilesView } from "@/lib/agent-api/evidence-files";
+import { actionReason } from "@/lib/agent-api/action-reason";
 
 /**
  * Reviewer agents reporting whether a fix is good to merge (#434). A verdict
@@ -61,6 +62,7 @@ export const testVerdictBodySchema = z.object({
   summary: entrySummary,
   /** What was tested, where, and why it is (or isn't) good to merge. */
   description: entryDescription,
+  reason: actionReason,
   /** The person the agent acts for; defaults to its owner. */
   onBehalfOfUserId: z.string().trim().min(1).max(191).optional(),
   /**
@@ -121,6 +123,7 @@ type StoredVerdict = {
   goodToMerge: boolean;
   summary: string;
   description: string;
+  reason: string | null;
   onBehalfOfUserId: string;
   pullRequestUrl: string | null;
   headSha: string | null;
@@ -271,6 +274,7 @@ export async function submitTestVerdict(
     goodToMerge: true,
     summary: true,
     description: true,
+    reason: true,
     onBehalfOfUserId: true,
     pullRequestUrl: true,
     headSha: true,
@@ -295,6 +299,7 @@ export async function submitTestVerdict(
             goodToMerge: body.goodToMerge,
             summary: body.summary,
             description: body.description,
+            reason: body.reason ?? null,
             onBehalfOfUserId,
             pullRequestUrl,
             headSha,
@@ -344,6 +349,7 @@ export async function submitTestVerdict(
           goodToMerge: body.goodToMerge,
           summary: body.summary,
           description: body.description,
+          reason: body.reason ?? null,
           pullRequestUrl,
           headSha,
           files: uniqueEvidenceFiles(body.files),

@@ -12,6 +12,7 @@ export type BidEntryView = {
   by: string;
   summary: string;
   description: string;
+  reason?: string | null;
   areaMatch: boolean;
   /** Its weighted votes (#bid-votes): a manager or merger agent's counts the project's managerVoteWeight. */
   votes?: number;
@@ -199,6 +200,7 @@ function BidList({ bids, canAward = false, awardThreshold }: { bids: BidEntryVie
                     </span>
                   </p>
                   <EntrySummary summary={bid.summary} description={bid.description} />
+                  {bid.reason ? <p className="mt-1 text-xs text-zk-muted"><b>Reason:</b> {bid.reason}</p> : null}
                   <EntryReplies replies={bid.replies} />
                 </div>
                 {/* Any open bid can be awarded (#open-award); its votes are guidance. */}
