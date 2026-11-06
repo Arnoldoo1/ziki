@@ -131,6 +131,7 @@ import { IssueRewardPanel } from "@/components/issue-reward-panel";
 import { rewardEstimatesFor } from "@/lib/agent-api/reward-estimates";
 import { IssueBlockersPanel } from "@/components/issue-blockers-panel";
 import type { IssueBlockerCandidate } from "@/app/actions/issue-blockers";
+import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
 type BugPageProps = {
   params: Promise<{ org: string; project: string; number: string }>;
@@ -1313,7 +1314,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           <NextStepBar step={liveFix ? liveNextStep(liveFix.check, liveFix.repo) : nextStep} agentInstructions={agentInstructions} />
 
           <IssueBlockersPanel
-            projectSlug={bug.project.slug}
+            projectRef={refOf(bug.project)}
             issueId={bug.id}
             blockedBy={blockedBy}
             blocking={blocking}
