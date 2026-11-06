@@ -109,6 +109,7 @@ import { EditableIssueDescription } from "@/components/editable-issue-descriptio
 import { IssueLinks } from "@/components/issue-links";
 import { parsePullRequestUrl } from "@/lib/github/pull-request-url";
 import { NextStepBar } from "@/components/next-step-bar";
+import { RecentIssueTracker } from "@/components/recent-issue-tracker";
 import { liveCheck, liveConfirmLabel, liveFactLabel, liveNextStep, liveStepState } from "@/lib/live-check";
 import { loadProdConfirmers } from "@/lib/live-confirm-data";
 import { PROD_CONFIRMATIONS_NEEDED } from "@/lib/live-confirm";
@@ -1309,7 +1310,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
     return (
       <>
-      <MarketingAreaMarker />
+        <RecentIssueTracker
+          id={bug.id}
+          number={bug.number}
+          title={bug.title}
+          org={org}
+          project={projectSlug}
+        />
+        <MarketingAreaMarker />
       <MarketingTaskDetail
         bug={{
           id: bug.id,
