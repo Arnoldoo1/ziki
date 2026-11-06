@@ -142,6 +142,9 @@ export default async function AgentsPage() {
             <Link href={PREFERENCES_HREF} className={agentsSecondaryBtn}>
               Preferences
             </Link>
+            <Link href="/agent-trust" className={agentsSecondaryBtn}>
+              Trust &amp; autonomy
+            </Link>
             <Link href={CREATE_AGENT_HREF} className={agentsPrimaryBtn}>
               Create agent
             </Link>
