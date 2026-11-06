@@ -120,3 +120,18 @@
 /* The Add Idea chat box (#idea-chat) opens in the header bar. On phones it
    opens in the actions, which then take the whole row so it has room. */
 .issues-heading:has(.issues-actions [data-idea-chat-open]) .issues-actions { grid-column: 1 / -1; grid-row: 1; flex-wrap: wrap; }
+
+/* Compact density: tighter rows when the person picks Compact (#density-toggle). */
+#issues-table[data-density="compact"] .issues-row {
+  padding: 5px 16px !important;
+  min-height: 44px !important;
+  gap: 10px !important;
+}
+#issues-table[data-density="compact"] .issues-row [data-issue-type-icon] {
+  height: 7px !important;
+  width: 7px !important;
+}
+#issues-table[data-density="compact"] .issues-row-title {
+  font-size: 13px !important;
+  line-height: 18px !important;
+}

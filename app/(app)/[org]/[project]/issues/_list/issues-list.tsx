@@ -106,6 +106,7 @@ import { PROD_CONFIRMATIONS_NEEDED } from "@/lib/live-confirm";
 import { LiveRefresh } from "@/components/live-refresh";
 import { ConfirmDots } from "@/components/confirm-dots";
 import { ExpandableRow, RowToggle } from "@/components/expandable-row";
+import { IssuesDensityToggle } from "@/components/issues-density-toggle";
 import { PROJECT_ALL_PARAM, showsAllProjects } from "@/lib/issue-list-filters";
 import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
 import { bugSearchSort, ideaSearchSort, searchWorkItems, typesenseFilter } from "@/lib/search-index";
@@ -1124,6 +1125,7 @@ export async function IssuesList({
           {/* Phones: the + beside the title, since the tools row is collapsed there.
               Desktop has it at the far left of the toolbar, except on a first run. */}
           {!isDeletedView ? <IdeaChat projectId={project.id} className={isFirstRun ? "" : "md:hidden"} /> : null}
+          <IssuesDensityToggle />
         </div>
       </div>
     </>
@@ -1249,7 +1251,7 @@ export async function IssuesList({
               </div>
             </div>
 
-            <div className="issues-table relative">
+            <div className="issues-table relative" id="issues-table">
               <div>
                 <div className="issues-table-heading">
                   {/* Each column sorts the list on the server; the choice is kept in a cookie (#column-sort). */}
