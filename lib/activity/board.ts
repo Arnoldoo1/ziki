@@ -23,7 +23,7 @@ export type ActivityAgent = { id: string; name: string };
 
 export type ActivityClaim = {
   id: string;
-  status: "offered" | "active" | "released";
+  status: "offered" | "planning" | "active" | "released";
   agent: ActivityAgent;
   issue: ActivityIssue;
   offeredAt: string | null;
