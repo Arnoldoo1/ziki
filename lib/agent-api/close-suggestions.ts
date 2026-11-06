@@ -1,7 +1,8 @@
+import { reopenSubstatus } from "@/lib/marketing/track";
 import { z } from "zod";
 import type { Prisma, PrismaClient, Status, Substatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { assertKeyProject, type AgentContext } from "@/lib/agents/require-agent";
+import type { AgentContext } from "@/lib/agents/require-agent";
 import { requireLevel } from "@/lib/agents/levels";
 import { audit } from "@/lib/agents/audit";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -105,17 +106,17 @@ export type CloseSuggestionInput = z.infer<typeof closeSuggestionSchema>;
 export type CloseIssueInput = z.infer<typeof closeIssueSchema>;
 
 /** Who closes, reopens or withdraws: a person, through one of their agents or in the web app. */
-type Actor = { tenantId: string; userId: string; agentId: string | null; agentName: string | null };
+type Actor = { organisationId: string; userId: string; agentId: string | null; agentName: string | null };
 
 function agentActor(agent: AgentContext): Actor {
-  return { tenantId: agent.tenantId, userId: agent.ownerId, agentId: agent.agentId, agentName: agent.name };
+  return { organisationId: agent.organisationId, userId: agent.ownerId, agentId: agent.agentId, agentName: agent.name };
 }
 
-/** The issue in the tenant's project, not deleted; 404 otherwise. */
-async function issueInProject(tenantId: string, projectId: string, issueRef: string) {
-  const resolved = await resolveIssueRef(prisma, parseIssueRef(issueRef), { tenantId });
+/** The issue in the organisation's project, not deleted; 404 otherwise. */
+async function issueInProject(organisationId: string, projectId: string, issueRef: string) {
+  const resolved = await resolveIssueRef(prisma, parseIssueRef(issueRef), { organisationId });
   const bug = resolved && await prisma.bug.findFirst({
-    where: { id: resolved.id, tenantId, projectId, isDeleted: false },
+    where: { id: resolved.id, organisationId, projectId, isDeleted: false },
     select: { id: true, number: true },
   });
   if (!bug) throw new IssueApiError(404, "Issue not found in this project.");
@@ -123,6 +124,7 @@ async function issueInProject(tenantId: string, projectId: string, issueRef: str
 }
 
 const lockedSelect = {
+  track: true,
   status: true, substatus: true, isDeleted: true, isBoosted: true, closeReason: true,
   reporterId: true, beneficiaryUserId: true, assigneeId: true,
   createdByAgent: { select: { ownerUserId: true } },
@@ -146,13 +148,13 @@ async function lockedIssue(tx: Prisma.TransactionClient, bugId: string) {
   return bug;
 }
 
-/** Resolves `duplicateOf` (a number or an id) to another live issue in the tenant; 422 otherwise. */
-async function duplicateTarget(tx: Prisma.TransactionClient, tenantId: string, bugId: string, raw: string | number): Promise<string> {
+/** Resolves `duplicateOf` (a number or an id) to another live issue in the organisation; 422 otherwise. */
+async function duplicateTarget(tx: Prisma.TransactionClient, organisationId: string, bugId: string, raw: string | number): Promise<string> {
   const ref = parseIssueRef(String(raw).replace(/^#/, ""));
-  const target = await resolveIssueRef(tx, ref, { tenantId });
-  const live = target && await tx.bug.findFirst({ where: { id: target.id, tenantId, isDeleted: false }, select: { id: true } });
+  const target = await resolveIssueRef(tx, ref, { organisationId });
+  const live = target && await tx.bug.findFirst({ where: { id: target.id, organisationId, isDeleted: false }, select: { id: true } });
   if (!live || live.id === bugId) {
-    const message = "duplicateOf must name another issue in this workspace.";
+    const message = "duplicateOf must name another issue in this organisation.";
     throw new IssueApiError(422, message, { error: "invalid_duplicate", message, field: "duplicateOf" });
   }
   return live.id;
@@ -173,8 +175,7 @@ export async function closeTally(bugId: string, reason: CloseReason, db: Db = pr
  */
 export async function suggestClose(agent: AgentContext, projectId: string, issueRef: string, input: CloseSuggestionInput) {
   requireLevel(agent, "working");
-  assertKeyProject(agent, projectId);
-  const bug = await issueInProject(agent.tenantId, projectId, issueRef);
+  const bug = await issueInProject(agent.organisationId, projectId, issueRef);
   const workflow = await workflowFor(projectId);
   const { closeThreshold } = workflow;
   const weight = voteWeight(agent.level, workflow.managerVoteWeight);
@@ -183,7 +184,7 @@ export async function suggestClose(agent: AgentContext, projectId: string, issue
 
   const result = await prisma.$transaction(async (tx) => {
     const fresh = await lockedIssue(tx, bug.id);
-    const duplicateOfId = input.duplicateOf !== undefined ? await duplicateTarget(tx, agent.tenantId, bug.id, input.duplicateOf) : null;
+    const duplicateOfId = input.duplicateOf !== undefined ? await duplicateTarget(tx, agent.organisationId, bug.id, input.duplicateOf) : null;
     from = fresh.status;
     const fields = {
       reason: input.reason,
@@ -206,7 +207,7 @@ export async function suggestClose(agent: AgentContext, projectId: string, issue
     });
     const votes = await closeTally(bug.id, input.reason, tx);
     await publish(tx, {
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       type: "issue.close_suggested",
       actorAgentId: agent.agentId,
       bugId: bug.id,
@@ -320,7 +321,7 @@ async function closeInTransaction(
   const { reason, evidence } = input;
   if (reason === "duplicate") {
     if (!input.duplicateOfId) throw new IssueApiError(422, "A duplicate names the issue that owns the same work.", { error: "invalid_duplicate", field: "duplicateOf" });
-    await linkDuplicate(tx, { tenantId: actor.tenantId, bugId: bug.id, targetId: input.duplicateOfId, actorId: actor.userId }).catch(duplicateRefused);
+    await linkDuplicate(tx, { organisationId: actor.organisationId, bugId: bug.id, targetId: input.duplicateOfId, actorId: actor.userId }).catch(duplicateRefused);
   }
   const claims = await tx.issueClaim.findMany({
     where: { bugId: bug.id, status: { in: ["offered", "active"] }, releasedAt: null },
@@ -368,7 +369,7 @@ async function closeInTransaction(
   }
   for (const claim of claims) {
     await publish(tx, {
-      tenantId: actor.tenantId,
+      organisationId: actor.organisationId,
       type: "claim.released",
       actorAgentId: claim.agentId,
       bugId: bug.id,
@@ -377,7 +378,7 @@ async function closeInTransaction(
     });
   }
   await publish(tx, {
-    tenantId: actor.tenantId,
+    organisationId: actor.organisationId,
     type: "issue.closed",
     actorAgentId: actor.agentId,
     bugId: bug.id,
@@ -404,8 +405,7 @@ async function closeInTransaction(
  */
 export async function closeIssue(agent: AgentContext, projectId: string, issueRef: string, input: CloseIssueInput) {
   requireLevel(agent, "manager");
-  assertKeyProject(agent, projectId);
-  const bug = await issueInProject(agent.tenantId, projectId, issueRef);
+  const bug = await issueInProject(agent.organisationId, projectId, issueRef);
   const { closeThreshold } = await workflowFor(projectId);
   const reason: VotedCloseReason = input.reason;
   let from: Status = "open";
@@ -418,7 +418,7 @@ export async function closeIssue(agent: AgentContext, projectId: string, issueRe
       const message = `${votes} of ${closeThreshold} votes suggest closing this issue as ${closeReasonLabel(reason)}; it can be closed for that reason once they reach the threshold.`;
       throw new IssueApiError(409, message, { error: "below_threshold", message, reason, votes, threshold: closeThreshold });
     }
-    const duplicateOfId = input.duplicateOf !== undefined ? await duplicateTarget(tx, agent.tenantId, bug.id, input.duplicateOf) : null;
+    const duplicateOfId = input.duplicateOf !== undefined ? await duplicateTarget(tx, agent.organisationId, bug.id, input.duplicateOf) : null;
     const closed = await closeInTransaction(tx, agentActor(agent), projectId, bug, fresh, {
       reason, evidence: input.evidence, duplicateOfId, votes, threshold: closeThreshold,
     });
@@ -452,8 +452,7 @@ export async function closeIssue(agent: AgentContext, projectId: string, issueRe
  */
 export async function reopenIssue(agent: AgentContext, projectId: string, issueRef: string, input: z.infer<typeof reopenIssueSchema>) {
   requireLevel(agent, "manager");
-  assertKeyProject(agent, projectId);
-  const bug = await issueInProject(agent.tenantId, projectId, issueRef);
+  const bug = await issueInProject(agent.organisationId, projectId, issueRef);
 
   const result = await prisma.$transaction(async (tx) => {
     const fresh = await lockedRow(tx, bug.id);
@@ -463,7 +462,7 @@ export async function reopenIssue(agent: AgentContext, projectId: string, issueR
         : "Only a closed issue can be reopened.";
       throw new IssueApiError(409, message, { error: "not_reopenable", message, status: fresh.status, closeReason: fresh.closeReason });
     }
-    const to: Substatus = (await isConfirmed(bug.id, tx)) ? "open" : "requires_confirmation";
+    const to = reopenSubstatus(fresh.track, await isConfirmed(bug.id, tx));
     const previousReason = fresh.closeReason;
     await tx.bug.update({
       where: { id: bug.id },
@@ -483,7 +482,7 @@ export async function reopenIssue(agent: AgentContext, projectId: string, issueR
       },
     });
     await publish(tx, {
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       type: "issue.reopened",
       actorAgentId: agent.agentId,
       bugId: bug.id,
@@ -497,7 +496,7 @@ export async function reopenIssue(agent: AgentContext, projectId: string, issueR
 }
 
 /** The issue's owner (its reporter or the person it is for), answering a close in the web app (#your-decisions). */
-export type IssueOwner = { tenantId: string; userId: string };
+export type IssueOwner = { organisationId: string; userId: string };
 
 /** The closed issue the owner may answer: theirs (403 otherwise), and closed by other members' votes (409 otherwise). */
 async function ownersClosedIssue(tx: Prisma.TransactionClient, owner: IssueOwner, bugId: string) {
@@ -522,7 +521,7 @@ async function ownersClosedIssue(tx: Prisma.TransactionClient, owner: IssueOwner
  * with the fresh reproduction (`reopenIssue`).
  */
 export async function respondToClose(owner: IssueOwner, projectId: string, issueRef: string, input: z.infer<typeof respondToCloseSchema>) {
-  const bug = await issueInProject(owner.tenantId, projectId, issueRef);
+  const bug = await issueInProject(owner.organisationId, projectId, issueRef);
   const result = await prisma.$transaction(async (tx) => {
     const fresh = await ownersClosedIssue(tx, owner, bug.id);
     const voters = await tx.closeSuggestion.findMany({
@@ -557,7 +556,7 @@ export async function respondToClose(owner: IssueOwner, projectId: string, issue
 
 /** The owner agrees with a close by other members' votes (#your-decisions): the decision card folds away. */
 export async function agreeWithClose(owner: IssueOwner, projectId: string, issueRef: string) {
-  const bug = await issueInProject(owner.tenantId, projectId, issueRef);
+  const bug = await issueInProject(owner.organisationId, projectId, issueRef);
   return prisma.$transaction(async (tx) => {
     const fresh = await ownersClosedIssue(tx, owner, bug.id);
     const agreedAt = new Date();
@@ -576,7 +575,7 @@ export async function agreeWithClose(owner: IssueOwner, projectId: string, issue
 }
 
 /** Who withdraws an issue: a person, through one of their agents or in the web app. */
-export type IssueWithdrawer = { tenantId: string; userId: string; agentId: string | null; agentName: string | null };
+export type IssueWithdrawer = { organisationId: string; userId: string; agentId: string | null; agentName: string | null };
 
 /**
  * The issue's owner withdraws it (#close-reasons): its reporter or the person
@@ -586,7 +585,7 @@ export type IssueWithdrawer = { tenantId: string; userId: string; agentId: strin
  * already_closed.
  */
 export async function withdrawIssue(withdrawer: IssueWithdrawer, projectId: string, issueRef: string, input: { evidence?: string } = {}) {
-  const bug = await issueInProject(withdrawer.tenantId, projectId, issueRef);
+  const bug = await issueInProject(withdrawer.organisationId, projectId, issueRef);
   const evidence = input.evidence?.trim() ? input.evidence.trim() : null;
   const result = await prisma.$transaction(async (tx) => {
     const fresh = await lockedRow(tx, bug.id);
@@ -611,7 +610,7 @@ export async function withdrawIssue(withdrawer: IssueWithdrawer, projectId: stri
   });
   // The agent audit log keeps an agent's withdrawal; a person's is in the event.
   if (withdrawer.agentId) {
-    await audit({ agentId: withdrawer.agentId, tenantId: withdrawer.tenantId }, "issue.closed", `issue:${bug.id}`, {
+    await audit({ agentId: withdrawer.agentId, organisationId: withdrawer.organisationId }, "issue.closed", `issue:${bug.id}`, {
       reason: "withdrawn", evidence, releasedClaimIds: result.releasedClaimIds,
     }, { bugId: bug.id });
   }

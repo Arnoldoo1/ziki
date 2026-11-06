@@ -6,7 +6,7 @@ test("requests a retest on a Live issue and keeps its workflow and payout histor
   const prisma = e2eDb();
   const number = width === "mobile" ? 151 : 150;
   const issue = await prisma.bug.findUniqueOrThrow({
-    where: { tenantId_number: { tenantId: "fx-tenant", number } },
+    where: { organisationId_number: { organisationId: "fx-organisation", number } },
     select: { id: true, number: true, title: true, status: true, substatus: true, reporterId: true, heldPayout: true, payoutReleasedAt: true },
   });
   const requester = await prisma.user.findUniqueOrThrow({ where: { email: emailFor("user", width) }, select: { id: true } });
@@ -14,7 +14,7 @@ test("requests a retest on a Live issue and keeps its workflow and payout histor
   // this requester to the fixture tenant so the issue route and workspace
   // switch exercised below behave consistently in CI and local runs.
   await prisma.membership.createMany({
-    data: [{ tenantId: "fx-tenant", userId: requester.id, role: "member" }],
+    data: [{ organisationId: "fx-organisation", userId: requester.id, role: "member" }],
     skipDuplicates: true,
   });
 
@@ -44,10 +44,10 @@ test("requests a retest on a Live issue and keeps its workflow and payout histor
 
     const previousRequests = await prisma.comment.count({ where: { bugId: issue.id, authorId: requester.id, body: { startsWith: "Retest request" } } });
     await page.goto("/demo/demo/1");
-    const switchWorkspace = page.getByRole("button", { name: "Switch to Demo and open the issue" });
+    const switchWorkspace = page.getByRole("button", { name: /Switch to Demo and open #\d+/ });
     if (await switchWorkspace.isVisible()) {
       await switchWorkspace.click();
-      await expect(page.getByRole("heading", { name: "This issue is in Demo" })).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "This issue is in the Demo workspace" })).toHaveCount(0);
     }
     await expect(page).toHaveURL(/\/demo\/demo\/1$/);
     await expect(page.getByRole("button", { name: "Still having this problem?" })).toHaveCount(0);

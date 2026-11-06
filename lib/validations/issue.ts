@@ -9,7 +9,7 @@ export const statuses = ["open", "in_progress", "done", "merge", "resolved", "cl
 export const statusSchema = z.enum(statuses);
 
 /** The step within a main status (#substatus, lib/issue-substatus.ts). */
-export const substatuses = ["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod", "closed"] as const;
+export const substatuses = ["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod", "published", "closed"] as const;
 
 export const substatusSchema = z.enum(substatuses);
 
@@ -117,6 +117,16 @@ export const editProofLinksSchema = z
   })
   .strict();
 
+/** Update or replace a submitted GitHub pull request URL on an issue (#edit-pr-link). */
+export const editPullRequestUrlSchema = z
+  .object({
+    pullRequestUrl: z
+      .string()
+      .trim()
+      .min(1, "Enter a GitHub pull request URL")
+      .max(2048, "Pull request URL is too long"),
+  })
+  .strict();
 
 /**
  * A comment (#entry-replies-only): a plain reply to exactly one stage entry,
