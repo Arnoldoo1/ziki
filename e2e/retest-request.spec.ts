@@ -10,6 +10,13 @@ test("requests a retest on a Live issue and keeps its workflow and payout histor
     select: { id: true, number: true, title: true, status: true, substatus: true, reporterId: true, heldPayout: true, payoutReleasedAt: true },
   });
   const requester = await prisma.user.findUniqueOrThrow({ where: { email: emailFor("user", width) }, select: { id: true } });
+  // `e2e:seed` makes the test accounts members of Zedu, but not Demo. Add only
+  // this requester to the fixture tenant so the issue route and workspace
+  // switch exercised below behave consistently in CI and local runs.
+  await prisma.membership.createMany({
+    data: [{ tenantId: "fx-tenant", userId: requester.id, role: "member" }],
+    skipDuplicates: true,
+  });
 
   const snapshot = async () => prisma.bug.findUniqueOrThrow({
     where: { id: issue.id },
