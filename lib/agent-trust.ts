@@ -5,6 +5,8 @@
  * (userId, agentId); userId is read from a data attribute the page sets.
  */
 
+export type AutonomyValue = "ask-always" | "ask-risky" | "auto-routine";
+
 type TrustLevel = "low" | "medium" | "high";
 
 type TrustRecord = {

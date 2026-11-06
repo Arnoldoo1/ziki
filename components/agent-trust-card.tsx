@@ -2,7 +2,14 @@
 
 import { useCallback, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { getTrust, setTrust, trustBand, AUTONOMY_LABELS, GUARDRAIL_OPTIONS } from "@/lib/agent-trust";
+import {
+  getTrust,
+  setTrust,
+  trustBand,
+  AUTONOMY_LABELS,
+  GUARDRAIL_OPTIONS,
+  type AutonomyValue,
+} from "@/lib/agent-trust";
 
 type Props = {
   userId: string;
@@ -14,7 +21,7 @@ export function AgentTrustCard({ userId, agentId, agentName }: Props) {
   const [record, setRecord] = useState(() => getTrust(userId, agentId));
   const [editing, setEditing] = useState(false);
 
-  const save = useCallback((next: Parameters<typeof setTrust>[2]) => {
+  const save = useCallback((next: Partial<Parameters<typeof setTrust>[2]>) => {
     const updated = setTrust(userId, agentId, next);
     setRecord(updated);
   }, [userId, agentId]);
@@ -57,14 +64,16 @@ export function AgentTrustCard({ userId, agentId, agentName }: Props) {
         Score set by you based on deliveries, test verdicts and penalties.
       </p>
 
-      <div className="space-y-2 mb-3">
-        <label className="text-xs font-semibold text-zk-text block">Autonomy dial</label>
+      <div className="space-y-2 mb-3" role="radiogroup" aria-label="Autonomy dial">
+        <span className="text-xs font-semibold text-zk-text block">Autonomy dial</span>
         <div className="flex gap-2">
           {Object.entries(AUTONOMY_LABELS).map(([value, labelText]) => (
             <button
               key={value}
               type="button"
-              onClick={() => save({ autonomy: value as any })}
+              role="radio"
+              aria-checked={record.autonomy === value}
+              onClick={() => save({ autonomy: value as AutonomyValue })}
               className={`flex-1 rounded-lg border px-2 py-1.5 text-xs font-semibold text-left ${
                 record.autonomy === value
                   ? "bg-electric-blue-strong border-electric-blue-strong text-white"
@@ -78,7 +87,7 @@ export function AgentTrustCard({ userId, agentId, agentName }: Props) {
       </div>
 
       <div className="space-y-2 mb-3">
-        <label className="text-xs font-semibold text-zk-text block">Hard guardrails (always ask owner)</label>
+        <span className="text-xs font-semibold text-zk-text block">Hard guardrails (always ask owner)</span>
         <div className="flex flex-wrap gap-2">
           {GUARDRAIL_OPTIONS.map((g) => (
             <button
@@ -105,7 +114,7 @@ export function AgentTrustCard({ userId, agentId, agentName }: Props) {
 
       {editing ? (
         <div className="mt-3 space-y-2">
-          <label className="text-xs font-semibold text-zk-text block">Set score (0–100)</label>
+          <span className="text-xs font-semibold text-zk-text block">Set score (0–100)</span>
           <input
             type="number"
             min={0}
