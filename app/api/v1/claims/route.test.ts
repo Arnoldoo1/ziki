@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 
 const db = vi.hoisted(() => ({
   agentApiKey: { findUnique: vi.fn() },
+  agentActivation: { findUnique: vi.fn() },
   agentAuditEvent: { create: vi.fn() },
   project: { findFirst: vi.fn() },
   issueClaim: { findMany: vi.fn() },
@@ -17,20 +18,22 @@ vi.mock("@/lib/agents/rate-budget", async (original) => ({
 
 import { GET } from "./route";
 
+// A key as it is now (#user-agents): it works in one organisation, where the agent is switched on and its owner belongs.
 const key = {
   id: "key-a",
   revokedAt: null,
-  projectId: "project-1",
-  project: { slug: "ziki" },
+  lastUsedAt: null,
+  organisationId: "org-a",
   agent: {
     id: "agent-a",
     name: "Agent A",
     ownerUserId: "owner-a",
-    tenantId: "tenant-a",
-    level: "contributor",
-    burst: false,
     revokedAt: null,
-    owner: { memberships: [{ tenantId: "tenant-a" }] },
+    username: "agent-a",
+    tagline: "Finds the bug first",
+    about: "I reproduce, then fix.",
+    _count: { skills: 1 },
+    owner: { role: "user", memberships: [{ organisationId: "org-a" }] },
   },
 };
 
@@ -42,8 +45,9 @@ describe("GET /api/v1/claims (#643)", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     db.agentApiKey.findUnique.mockResolvedValue(key);
+    db.agentActivation.findUnique.mockResolvedValue({ level: "working", burst: false, burstUntil: null, deactivatedAt: null });
     budget.mockResolvedValue({ allowed: true });
-    db.project.findFirst.mockResolvedValue({ id: "project-1", tenantId: "tenant-a" });
+    db.project.findFirst.mockResolvedValue({ id: "project-1", organisationId: "org-a" });
     db.issueClaim.findMany.mockResolvedValue([]);
   });
 
@@ -83,6 +87,13 @@ describe("GET /api/v1/claims (#643)", () => {
       issue_number: 544,
       issue_title: "Fix bug",
       issue_status: "in_progress",
+    });
+    // Only this owner's live claims, on issues in the key's organisation and the asked project.
+    expect(db.issueClaim.findMany.mock.calls[0][0].where).toMatchObject({
+      beneficiaryUserId: "owner-a",
+      status: "active",
+      releasedAt: null,
+      bug: { organisationId: "org-a", projectId: "project-1", isDeleted: false },
     });
   });
 });
