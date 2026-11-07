@@ -24,6 +24,11 @@ const redirect = vi.hoisted(() => vi.fn((to: string) => { throw new Error(`redir
 const findFirst = vi.hoisted(() => vi.fn());
 const upsert = vi.hoisted(() => vi.fn());
 const previewUpsert = vi.hoisted(() => vi.fn());
+const previewSettingsFindUnique = vi.hoisted(() => vi.fn());
+const previewBuildCreate = vi.hoisted(() => vi.fn());
+const previewBuildUpdate = vi.hoisted(() => vi.fn());
+const githubSend = vi.hoisted(() => vi.fn());
+const installationIdForRepo = vi.hoisted(() => vi.fn());
 const auditCreate = vi.hoisted(() => vi.fn());
 const transaction = vi.hoisted(() => vi.fn());
 
@@ -41,12 +46,18 @@ vi.mock("@/lib/organisation-context", () => ({
   NO_ORGANISATION_MESSAGE: "You're not a member of a organisation yet.",
 }));
 vi.mock("@/lib/workflow", () => ({ invalidateWorkflow }));
+vi.mock("@/lib/github/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/github/client")>()),
+  installationIdForRepo,
+  githubClientFor: vi.fn(async () => ({ auth: "app", canWrite: true, get: vi.fn(), getOrNull: vi.fn(), send: githubSend })),
+}));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     project: { findFirst, findMany: projectFindMany, create: projectCreate },
     organisation: { findUnique: organisationFindUnique },
     projectWorkflow: { upsert },
-    projectPreviewSettings: { upsert: previewUpsert },
+    projectPreviewSettings: { upsert: previewUpsert, findUnique: previewSettingsFindUnique },
+    previewBuild: { create: previewBuildCreate, update: previewBuildUpdate },
     projectAuditEvent: { create: auditCreate },
     issueType: { findFirst: typeFindFirst, create: typeCreate, update: typeUpdate, delete: typeDelete },
     bug: { count: bugCount },
@@ -60,6 +71,8 @@ import { createProjectAction } from "@/app/(app)/projects/actions";
 import { updateProjectWorkflowAction } from "@/app/(app)/projects/[slug]/settings/workflow-actions";
 import { updateProjectPreviewSettingsAction } from "@/app/(app)/projects/[slug]/settings/preview-actions";
 import { previewSettingsSchema } from "@/lib/validations/preview-settings";
+import { startPreviewBuildIfDue } from "@/lib/previews/builds";
+import { Prisma } from "@prisma/client";
 import {
   createMarketingIssueTypeAction,
   deleteMarketingIssueTypeAction,
@@ -492,5 +505,72 @@ describe("previewSettingsSchema (#previews)", () => {
   it("refuses a malformed or repeated build variable", () => {
     expect(previewSettingsSchema.safeParse({ ...valid, buildVariables: "not a variable" }).success).toBe(false);
     expect(previewSettingsSchema.safeParse({ ...valid, buildVariables: "A=1\nA=2" }).success).toBe(false);
+  });
+
+  it("refuses a build variable the build machine owns", () => {
+    expect(previewSettingsSchema.safeParse({ ...valid, buildVariables: "GITHUB_TOKEN=x" }).success).toBe(false);
+    expect(previewSettingsSchema.safeParse({ ...valid, buildVariables: "PATH=/tmp" }).success).toBe(false);
+  });
+});
+
+describe("startPreviewBuildIfDue (#previews)", () => {
+  const HEAD = "a".repeat(40);
+  const trigger = {
+    bugId: "bug1",
+    projectId: "p1",
+    issueStatus: "done",
+    repoUrl: "https://github.com/acme/web",
+    pullRequestUrl: "https://github.com/acme/web/pull/7",
+    state: "open",
+    headSha: HEAD,
+  };
+  const enabled = {
+    enabled: true, rootDir: ".", installCommand: null, buildCommand: "npm run build",
+    outputDir: "dist", nodeVersion: "22", buildVariables: { VITE_API_URL: "https://api.example.com" },
+  };
+
+  beforeEach(() => {
+    vi.stubEnv("PREVIEW_BUILDER_REPO", "ziki/ziki-preview-builder");
+    previewSettingsFindUnique.mockReset().mockResolvedValue(enabled);
+    previewBuildCreate.mockReset().mockResolvedValue({ id: "build1" });
+    previewBuildUpdate.mockReset().mockResolvedValue({});
+    githubSend.mockReset().mockResolvedValue({ workflow_run_id: 99, html_url: "https://github.com/ziki/ziki-preview-builder/actions/runs/99" });
+    installationIdForRepo.mockReset().mockResolvedValue("555");
+  });
+
+  it("starts the builder for a new commit with the project's settings", async () => {
+    expect(await startPreviewBuildIfDue(trigger)).toBe("started");
+    expect(previewBuildCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ bugId: "bug1", repository: "acme/web", pullNumber: 7, headSha: HEAD }),
+    }));
+    expect(installationIdForRepo).toHaveBeenCalledWith("ziki", "ziki-preview-builder");
+    const [, path, body] = githubSend.mock.calls[0];
+    expect(path).toBe("/repos/ziki/ziki-preview-builder/actions/workflows/preview.yml/dispatches");
+    expect(body.inputs).toMatchObject({
+      build_id: "build1", repository: "acme/web", ref: HEAD, pr: "7", install_command: "",
+      build_variables: JSON.stringify({ VITE_API_URL: "https://api.example.com" }),
+    });
+    expect(previewBuildUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "building", runId: "99" }) }));
+  });
+
+  it("builds nothing while previews are off, or for another repository or a closed pull request", async () => {
+    previewSettingsFindUnique.mockResolvedValueOnce({ ...enabled, enabled: false });
+    expect(await startPreviewBuildIfDue(trigger)).toBe("skipped");
+    expect(await startPreviewBuildIfDue({ ...trigger, pullRequestUrl: "https://github.com/acme/api/pull/7" })).toBe("skipped");
+    expect(await startPreviewBuildIfDue({ ...trigger, state: "closed" })).toBe("skipped");
+    expect(previewBuildCreate).not.toHaveBeenCalled();
+    expect(githubSend).not.toHaveBeenCalled();
+  });
+
+  it("starts one build per commit", async () => {
+    previewBuildCreate.mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" }));
+    expect(await startPreviewBuildIfDue(trigger)).toBe("skipped");
+    expect(githubSend).not.toHaveBeenCalled();
+  });
+
+  it("records the build as failed when the builder can't be started", async () => {
+    installationIdForRepo.mockResolvedValueOnce(null);
+    expect(await startPreviewBuildIfDue(trigger)).toBe("failed");
+    expect(previewBuildUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "failed" }) }));
   });
 });

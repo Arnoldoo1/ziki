@@ -145,6 +145,8 @@ import { SubmissionEvidence } from "@/components/submission-evidence";
 import { PullRequestChecks } from "@/components/pull-request-checks";
 import { GitHubStatusPanel, type GitHubStatusPanelProps } from "@/components/github-status-panel";
 import { storedGitHubStatus } from "@/lib/github/sync";
+import { lastReadyPreviewUrl, latestPreviewBuild } from "@/lib/previews/builds";
+import { PreviewCard, type PreviewCardProps } from "@/components/preview-card";
 import { githubStatusPowers } from "@/lib/github/status-access";
 import { voteDirection } from "@/lib/voting";
 import {
@@ -956,6 +958,19 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           ? { agentName: latestReport.agent.name, note: latestReport.note, at: latestReport.createdAt.toISOString() }
           : null,
     };
+  }
+
+  // #previews: Ziki's latest preview build of the linked pull request.
+  let previewCard: PreviewCardProps | null = null;
+  if (bug.pullRequestUrl && !bug.isDeleted) {
+    const pullRequestUrl = bug.pullRequestUrl;
+    const [previewBuild, lastReadyUrl] = await Promise.all([
+      loadOptional("preview build", null, () => latestPreviewBuild(bug.id, pullRequestUrl)),
+      loadOptional("last preview", null, () => lastReadyPreviewUrl(bug.id, pullRequestUrl)),
+    ]);
+    if (previewBuild) {
+      previewCard = { bugId: bug.id, build: previewBuild, lastReadyUrl, canFollow: Boolean(access.membershipRole) || access.admin };
+    }
   }
 
   // Comments on the issue itself, at every stage (lib/comment-placement.ts).
@@ -2034,6 +2049,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           {deliveredBanner ? <DeliveredBanner {...deliveredBanner} /> : null}
 
           {githubPanel ? <GitHubStatusPanel {...githubPanel} /> : null}
+          {previewCard ? <PreviewCard {...previewCard} /> : null}
 
               {/* Who has the issue, while it is the latest thing (In progress); the timeline below keeps the award after that. */}
               {(hold?.status === "active" || hold?.status === "planning") && bug.status === "in_progress" ? <AwardBox hold={hold} agentPaused={Boolean(workingAgent?.pausedAt)} bugId={bug.id} isWatching={isWatchingIssue} isIssueOwner={bug.reporterId === user.id} /> : null}

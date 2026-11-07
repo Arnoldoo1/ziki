@@ -33,6 +33,8 @@ export const DEFAULT_PREVIEW_SETTINGS: PreviewSettingsValues = {
 
 export const MAX_BUILD_VARIABLES = 30;
 const NAME = /^[A-Z_][A-Z0-9_]{0,63}$/;
+/** Names the builder's runner owns; the builder refuses them too. */
+const RESERVED_NAME = /^(?:GITHUB_|RUNNER_|ACTIONS_)|^(?:PATH|HOME|CI)$/;
 const FOLDER = /^[A-Za-z0-9_./-]+$/;
 
 /** A stored row (or none) as the values the form and the builder use. */
@@ -97,6 +99,10 @@ const buildVariablesInput = z
           code: "custom",
           message: `"${line.slice(0, 40)}" isn't NAME=value. Names use capital letters, digits and underscores, and don't start with a digit.`,
         });
+        return z.NEVER;
+      }
+      if (RESERVED_NAME.test(name)) {
+        ctx.addIssue({ code: "custom", message: `${name} is reserved for the build machine. Use another name.` });
         return z.NEVER;
       }
       if (name in variables) {

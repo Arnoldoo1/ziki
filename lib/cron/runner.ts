@@ -12,6 +12,7 @@ import { sweepOrphanedIssues } from "@/lib/orphaned-issues";
 import { sweepUndraftedIdeas } from "@/lib/cron/draft-structuring";
 import { processSearchOutbox, pruneProcessedSearchOutbox } from "@/lib/search-index";
 import { refreshMergeQueue } from "@/lib/github/sync";
+import { followPreviewBuilds } from "@/lib/previews/builds";
 
 export const FAILURE_ALERT_THRESHOLD = 3;
 const consecutiveFailures = new Map<string, number>();
@@ -61,6 +62,7 @@ export type PlatformSweepsResult = {
       error?: string;
     };
     githubStatus: { status: "ok" | "error"; checked?: number; moved?: number; failed?: number; error?: string };
+    previews: { status: "ok" | "error"; checked?: number; failed?: number; error?: string };
     deliveries: { status: "ok" | "error"; processed?: number; error?: string };
     retention: {
       status: "ok" | "error";
@@ -103,6 +105,7 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
         orphanedIssues: { status: "ok" },
         draftStructuring: { status: "ok" },
         githubStatus: { status: "ok" },
+        previews: { status: "ok" },
         deliveries: { status: "ok" },
         retention: { status: "ok" },
         searchIndex: { status: "ok" },
@@ -199,6 +202,16 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
     } catch (err) {
       recordSweepFailure("githubStatus", err);
       result.sweeps.githubStatus = { status: "error", error: err instanceof Error ? err.message : String(err) };
+    }
+
+    // 3a. Preview builds (#previews): follow the builder's unfinished runs.
+    try {
+      const res = await followPreviewBuilds();
+      recordSweepSuccess("previews");
+      result.sweeps.previews = { status: "ok", ...res };
+    } catch (err) {
+      recordSweepFailure("previews", err);
+      result.sweeps.previews = { status: "error", error: err instanceof Error ? err.message : String(err) };
     }
 
     // 4. Webhook Deliveries
