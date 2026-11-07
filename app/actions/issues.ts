@@ -462,6 +462,7 @@ export async function updateBugAction(
 
   const areaRaw = formData.get("areaId");
   const typeRaw = formData.get("typeId");
+  const dueDateRaw = formData.get("dueDate");
   const parsed = updateBugSchema.safeParse({
     status: requestedStatus,
     typeId: admin
@@ -475,6 +476,7 @@ export async function updateBugAction(
         ? null
         : areaRaw || undefined
       : undefined,
+    dueDate: dueDateRaw === null ? undefined : String(dueDateRaw),
   });
 
   if (!parsed.success) {
@@ -522,6 +524,7 @@ export async function updateBugAction(
     milestoneId?: string | null;
     isBoosted?: boolean;
     boostedAt?: Date | null;
+    dueDate?: Date | null;
   } = {};
 
   if (parsed.data.status && parsed.data.status !== existing.status) Object.assign(data, moveTo(entrySubstatus(existing.track, parsed.data.status)));
@@ -536,6 +539,9 @@ export async function updateBugAction(
   if (parsed.data.assigneeId !== undefined) {
     data.assigneeId =
       parsed.data.assigneeId === "" ? null : parsed.data.assigneeId;
+  }
+  if (parsed.data.dueDate !== undefined) {
+    data.dueDate = parsed.data.dueDate === "" || parsed.data.dueDate === null ? null : new Date(parsed.data.dueDate + "T00:00:00.000Z");
   }
 
   type PendingActivity = {
@@ -2017,6 +2023,74 @@ export async function toggleBoostBugAction(
  * Allows a user to assign an issue to themselves, or unassign if currently assigned.
  * Validates permission via canAssignTicket.
  */
+export async function setIssueDueDateAction(
+  bugId: string,
+  dueDate: string | null,
+): Promise<ActionResult & { dueDate?: string | null }> {
+  const user = await requireUser();
+  const access = await currentOrganisationAccess(user.id, user.role);
+
+  if (!bugId || typeof bugId !== "string" || bugId.trim().length === 0) {
+    return { error: "Invalid issue id" };
+  }
+
+  const organisationId = await currentOrganisationIdFor(user.id);
+  const existing = await prisma.bug.findUnique({
+    where: { id: bugId, ...bugInOrganisation(organisationId) },
+    select: { id: true, dueDate: true, isDeleted: true, assigneeId: true },
+  });
+  if (!existing || existing.isDeleted) {
+    return { error: "Issue not found" };
+  }
+
+  const isAssignee = existing.assigneeId === user.id;
+  if (!access.admin && !isAssignee) {
+    return { error: "Only the assignee or an admin can change the due date" };
+  }
+
+  const parsed = dueDate === null || dueDate === "" ? null : new Date(dueDate + "T00:00:00.000Z");
+  if (dueDate && dueDate !== "" && Number.isNaN(parsed?.getTime())) {
+    return { error: "Invalid due date" };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.bug.update({
+        where: { id: bugId },
+        data: { dueDate: parsed },
+      });
+      await tx.bugActivity.create({
+        data: {
+          bugId,
+          actorId: user.id,
+          type: "commented",
+          summary: parsed ? `Due date set to ${dueDate}` : "Due date cleared",
+          metadata: {
+            field: "dueDate",
+            from: existing.dueDate ? existing.dueDate.toISOString().slice(0, 10) : null,
+            to: dueDate || null,
+          } as Prisma.InputJsonValue,
+        },
+      });
+      await publishWebEvent(tx, {
+        bugId,
+        type: "issue.updated",
+        actorUserId: user.id,
+        payload: { dueDate: dueDate || null },
+      });
+    });
+  } catch (error) {
+    console.error("Failed to set issue due date:", error);
+    return { error: "Failed to update due date" };
+  }
+
+  revalidatePath("/[org]/[project]", "layout");
+  revalidateIssue();
+  revalidatePath("/bugs");
+  revalidatePath(`/bugs/${bugId}`);
+  return { ok: true, dueDate: dueDate || null };
+}
+
 export async function selfAssignBugAction(
   bugId: string,
   assign: boolean = true,
