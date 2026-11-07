@@ -8,6 +8,7 @@ import { newIssuePath, type ProjectRef } from "@/lib/project-paths";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { AgentClearanceToggle } from "@/components/security-finding-controls";
 import { PipelineSteps } from "@/components/pipeline-steps";
+import { filterSecurityFindingsByStage, parseSecurityStageFilter, SecurityStageFilterBar } from "@/components/security-stage-filter";
 import { LocalTime } from "@/components/local-time";
 import { WhimsicalEmptyState } from "@/components/whimsical-empty-state";
 import { OrgPageHeader, ReadOnlyNote, orgCard, orgListCard } from "../[org]/[project]/org/org-ui";
@@ -20,7 +21,7 @@ export const metadata = { title: "Security" };
  * the ones already disclosed. Owners and admins also choose which agents may
  * read private findings.
  */
-type SearchParams = Promise<{ severity?: string | string[] }>;
+type SearchParams = Promise<{ severity?: string | string[]; stage?: string | string[] }>;
 
 export default async function SecurityPage(props: {
   searchParams?: SearchParams;
@@ -28,6 +29,7 @@ export default async function SecurityPage(props: {
   const params = (await props.searchParams) ?? {};
   const severity = typeof params.severity === "string" ? params.severity.toLowerCase() : "";
   const selectedSeverity = isSecuritySeverity(severity) ? severity : "all";
+  const selectedStage = parseSecurityStageFilter(params.stage);
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) {
@@ -58,11 +60,15 @@ export default async function SecurityPage(props: {
     ? dashboard.disclosed
     : dashboard.disclosed.filter((f) => f.severity === selectedSeverity);
 
+  const visibleOpen = filterSecurityFindingsByStage(filteredOpen, selectedStage);
+  const stageQuery = selectedStage === "all" ? "" : `stage=${selectedStage}`;
   const findings = [...dashboard.open, ...dashboard.disclosed];
   const severitySteps = (["all", ...SECURITY_SEVERITIES] as const).map((level) => ({
     label: level === "all" ? "All" : SEVERITY_LABEL[level],
     count: level === "all" ? findings.length : findings.filter((finding) => finding.severity === level).length,
-    href: level === "all" ? "/security" : `/security?severity=${level}`,
+    href: "/security" + (level === "all"
+      ? (stageQuery ? `?${stageQuery}` : "")
+      : `?severity=${level}${stageQuery ? `&${stageQuery}` : ""}`),
     selected: selectedSeverity === level,
   }));
   const openCount = dashboard.open.length;
@@ -97,16 +103,19 @@ export default async function SecurityPage(props: {
       <section aria-labelledby="open-heading" className={orgCard}>
         <h2 id="open-heading" className="text-base font-semibold text-zk-text">Open findings</h2>
         <p className="text-xs text-zk-muted">Worst first, then oldest.</p>
-        {filteredOpen.length ? (
-          <FindingTable findings={filteredOpen} kind="open" />
+        <div className="mt-3">
+          <SecurityStageFilterBar findings={filteredOpen} selected={selectedStage} severity={selectedSeverity} />
+        </div>
+        {visibleOpen.length ? (
+          <FindingTable findings={visibleOpen} kind="open" />
         ) : (
           <div className="mt-4">
             <WhimsicalEmptyState
-              title={selectedSeverity === "all" ? "No open security findings" : "No open findings match this severity"}
-              description={selectedSeverity === "all" ? "Private reports appear here while they await disclosure." : "Clear the severity filter to see all open findings."}
+              title={selectedSeverity === "all" && selectedStage === "all" ? "No open security findings" : "No open findings match these filters"}
+              description={selectedSeverity === "all" && selectedStage === "all" ? "Private reports appear here while they await disclosure." : "Clear the filters to see all open findings."}
               clearHref="/security"
               createHref="/security"
-              showClear={selectedSeverity !== "all"}
+              showClear={selectedSeverity !== "all" || selectedStage !== "all"}
               showCreate={false}
             />
           </div>
