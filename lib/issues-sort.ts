@@ -90,7 +90,7 @@ export function parseBugSort(
 export function getBugOrderBy(
   sort: BugSortOption,
   /** Boosted issues pin to the top. Off for a personal list (#312). */
-  { boostFirst = true }: { boostFirst?: boolean } = {},
+  { boostFirst = true, pinFirst = true }: { boostFirst?: boolean; pinFirst?: boolean } = {},
 ): Prisma.BugOrderByWithRelationInput[] {
   const baseOrder: Prisma.BugOrderByWithRelationInput[] = (() => {
     switch (sort) {
@@ -128,9 +128,12 @@ export function getBugOrderBy(
   })();
 
   // Boosted tickets always take precedence at the top, followed by active sort
-  return boostFirst
+  const boosted = (boostFirst
     ? [{ isBoosted: "desc" }, { boostedAt: "desc" }, ...baseOrder]
-    : baseOrder;
+    : baseOrder) as Prisma.BugOrderByWithRelationInput[];
+  return pinFirst
+    ? ([{ isPinned: "desc" }, ...boosted] as Prisma.BugOrderByWithRelationInput[])
+    : boosted;
 }
 
 export function compareBoosted<

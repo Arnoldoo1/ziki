@@ -2017,6 +2017,67 @@ export async function toggleBoostBugAction(
  * Allows a user to assign an issue to themselves, or unassign if currently assigned.
  * Validates permission via canAssignTicket.
  */
+export async function togglePinIssueAction(
+  bugId: string,
+): Promise<ActionResult & { isPinned?: boolean }> {
+  const user = await requireUser();
+  const access = await currentOrganisationAccess(user.id, user.role);
+  if (!access.admin) {
+    return { error: "Only an admin can pin an issue" };
+  }
+
+  if (!bugId || typeof bugId !== "string" || bugId.trim().length === 0) {
+    return { error: "Invalid issue id" };
+  }
+
+  const organisationId = await currentOrganisationIdFor(user.id);
+  const existing = await prisma.bug.findUnique({
+    where: { id: bugId, ...bugInOrganisation(organisationId) },
+    select: { id: true, isPinned: true, isDeleted: true },
+  });
+  if (!existing || existing.isDeleted) {
+    return { error: "Issue not found" };
+  }
+
+  const next = !existing.isPinned;
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.bug.update({
+        where: { id: bugId },
+        data: { isPinned: next },
+      });
+      await tx.bugActivity.create({
+        data: {
+          bugId,
+          actorId: user.id,
+          type: "commented",
+          summary: next ? "Issue pinned" : "Issue unpinned",
+          metadata: {
+            field: "isPinned",
+            from: String(existing.isPinned),
+            to: String(next),
+          } as Prisma.InputJsonValue,
+        },
+      });
+      await publishWebEvent(tx, {
+        bugId,
+        type: "issue.updated",
+        actorUserId: user.id,
+        payload: { isPinned: next },
+      });
+    });
+  } catch (error) {
+    console.error("Failed to toggle pin:", error);
+    return { error: "Failed to update pin" };
+  }
+
+  revalidatePath("/[org]/[project]", "layout");
+  revalidateIssue();
+  revalidatePath("/bugs");
+  revalidatePath(`/bugs/${bugId}`);
+  return { ok: true, isPinned: next };
+}
+
 export async function selfAssignBugAction(
   bugId: string,
   assign: boolean = true,
