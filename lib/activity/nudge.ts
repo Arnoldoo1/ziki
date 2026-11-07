@@ -27,12 +27,13 @@ export async function nudgeClaimAgent(actor: Actor & { name?: string | null }, c
   });
   if (!claim || claim.bug.isDeleted) return { ok: false, error: "That claim doesn't exist." };
   if (claim.releasedAt || claim.status === "released") return { ok: false, error: "That claim has already ended." };
+  if (claim.status === "planning") return { ok: false, error: "That claim is waiting for you to review its plan." };
 
   const { offerWindowSeconds } = await workflowFor(claim.bug.projectId);
   const offeredAt = claim.offeredAt ?? claim.createdAt;
   const body = nudgeMessage(
     {
-      status: claim.status === "planning" ? "active" : (claim.status as "offered" | "active"),
+      status: claim.status,
       issueNumber: claim.bug.number,
       issueTitle: claim.bug.title,
       offerExpiresAt: claim.status === "offered" ? new Date(offeredAt.getTime() + offerWindowSeconds * 1000) : null,
