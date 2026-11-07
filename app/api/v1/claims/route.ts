@@ -9,7 +9,7 @@ export const runtime = "nodejs";
  * GET /api/v1/claims — returns active claims for the calling agent's owner (#643).
  */
 export async function GET(request: NextRequest) {
-  return agentIssueRequest(request, "claims.list", "observer", null, async (agent) => {
+  return agentIssueRequest(request, "claims.list", "read", null, async (agent) => {
     const params = request.nextUrl.searchParams;
     if (!params.get("projectId")) return NextResponse.json({ error: PROJECT_ID_REQUIRED }, { status: 400 });
     const scope = await issueProject(agent, params);
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
         beneficiaryUserId: agent.ownerId,
         status: "active",
         releasedAt: null,
-        bug: { tenantId: agent.tenantId, projectId: scope.projectId, isDeleted: false },
+        bug: { organisationId: agent.organisationId, projectId: scope.projectId, isDeleted: false },
       },
       select: {
         id: true,
