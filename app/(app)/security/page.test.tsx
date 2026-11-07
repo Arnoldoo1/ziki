@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import SecurityPage from "./page";
 
 vi.mock("@/lib/auth-helpers", () => ({
@@ -72,7 +73,7 @@ vi.mock("@/lib/security-dashboard", () => ({
         fixedLive: true,
       },
     ],
-    medianDaysToFix: 3,
+    medianDaysToDisclosure: 3,
     projects: [{ name: "Web", ref: "web" }],
   }),
 }));
@@ -104,11 +105,14 @@ describe("SecurityPage (/security)", () => {
     expect(React.isValidElement(pageWithFilter)).toBe(true);
   });
 
-  it("renders safe harbor and SLA disclosure policy", async () => {
-    const page = await SecurityPage({});
-    expect(page).toBeDefined();
-    // Verify component tree structure
-    const pageProps = page.props;
-    expect(pageProps.className).toContain("security-page");
+  it("shows matching open and disclosed findings while filtering out other severities", async () => {
+    const page = await SecurityPage({
+      searchParams: Promise.resolve({ severity: "critical" }),
+    });
+    const html = renderToStaticMarkup(page);
+
+    expect(html).toContain('href="/issues/2828"');
+    expect(html).toContain('href="/issues/2800"');
+    expect(html).not.toContain('href="/issues/2829"');
   });
 });
