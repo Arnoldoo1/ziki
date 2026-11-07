@@ -114,7 +114,9 @@ import { liveCheck, liveConfirmLabel, liveFactLabel, liveNextStep, liveStepState
 import { loadProdConfirmers } from "@/lib/live-confirm-data";
 import { PROD_CONFIRMATIONS_NEEDED } from "@/lib/live-confirm";
 import { LiveFlow } from "@/components/live-flow";
-import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
+import { latestPullRequestReport, gateReport, pullRequestStateView, type PullRequestStateView } from "@/lib/agent-api/pull-request-report";
+import { prGate, reportWanted } from "@/lib/agent-api/pr-gate";
+import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
 import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { DecisionCard } from "@/components/decision-card";
 import { decisionFor } from "@/lib/your-decision";
@@ -139,6 +141,7 @@ import { organisationMemberWhere } from "@/lib/organisation-mentions";
 import { readAgentResolution } from "@/lib/agent-resolution";
 import { AgentResolvedNotice } from "@/components/agent-resolved-notice";
 import { SubmissionEvidence } from "@/components/submission-evidence";
+import { PullRequestChecks } from "@/components/pull-request-checks";
 import { GitHubStatusPanel, type GitHubStatusPanelProps } from "@/components/github-status-panel";
 import { storedGitHubStatus } from "@/lib/github/sync";
 import { githubStatusPowers } from "@/lib/github/status-access";
@@ -1075,6 +1078,26 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     ? await loadOptional("merge review votes", null, () => mergeReviewVotes(prisma, reviewBug, workflow.managerVoteWeight))
     : null;
   const stale = bug.isDeleted ? null : (await loadOptional("stale hold", null, () => staleHold(bug.id)))?.kind ?? null;
+  // #pr-checks: the checks on the linked pull request, from the latest
+  // independent report, and why an agent should look again when it is stale.
+  // A load that fails says so rather than reading as a pass.
+  type IssuePrChecks = { report: PullRequestStateView | null; refreshHint: string | null; failed: boolean };
+  const prChecks: IssuePrChecks | null = bug.isDeleted || !bug.pullRequestUrl
+    ? null
+    : await loadOptional<IssuePrChecks>(
+        "pull request checks",
+        { report: null, refreshHint: null, failed: true },
+        async () => {
+          const report = await latestPullRequestReport(bug.id, bug.pullRequestUrl);
+          const project = await prisma.project.findUnique({ where: { id: bug.projectId }, select: { repoUrl: true } });
+          const gate = prGate(gateReport(report), {
+            pullRequestUrl: bug.pullRequestUrl,
+            pullRequestHeadSha: bug.pullRequestHeadSha ?? null,
+            repo: parseGitHubRepoUrl(project?.repoUrl),
+          });
+          return { report: pullRequestStateView(report), refreshHint: reportWanted(gate, report), failed: false };
+        },
+      );
   const abandonCheck = bug.isDeleted || bug.status !== "in_progress" ? null : await loadOptional("sense check", null, () => senseCheck(bug.id));
   const closeSuggestions = await loadOptional<CloseSuggestionsData | null>("close suggestions", null, () => closeSuggestionsFor(bug.id));
   // A decision other members made about the viewer's own issue (#your-decisions).
@@ -2312,6 +2335,16 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             bugId={bug.id}
             canEditPullRequest={canEditPullRequest}
           />
+
+          {prChecks && bug.pullRequestUrl && (prChecks.failed || prChecks.report?.reportedBy) ? (
+            <PullRequestChecks
+              report={prChecks.report}
+              pullRequestUrl={bug.pullRequestUrl}
+              refreshHint={prChecks.refreshHint}
+              refreshInstructions={prChecks.refreshHint ? agentInstructions : undefined}
+              failed={prChecks.failed}
+            />
+          ) : null}
 
           <SubmissionEvidence
             screenshots={submissionScreenshots}
