@@ -19,6 +19,7 @@ import { issueHref, issuePath, queryString } from "@/lib/issue-ref";
 import { findProjectIssue, parseIssueNumber } from "@/lib/project-issue";
 import { resolveSessionUserId } from "@/lib/session-user";
 import { LocalTime } from "@/components/local-time";
+import { IssueEstimate } from "@/components/issue-estimate";
 import { ClearDuplicateButton, MarkDuplicateButton } from "@/components/duplicate-controls";
 import { currentResolution, isFinishedStatus, type StatusChangeActivity } from "@/lib/resolution-note";
 import { statusLabel as resolutionStatusLabel } from "@/lib/labels";
@@ -1943,6 +1944,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 <span className={`${issueChipBaseClass} bg-zk-chip text-zk-text2`}>{bug.type.name}</span>
               </p>
             ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <IssueEstimate bugId={bug.id} estimate={bug.estimate} />
+            </div>
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2 self-start print:hidden">

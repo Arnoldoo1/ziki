@@ -88,6 +88,7 @@ export const updateBugSchema = z.object({
   typeId: z.string().nullable().optional().or(z.literal("")),
   assigneeId: userIdSchema.nullable().optional().or(z.literal("")),
   areaId: z.string().nullable().optional().or(z.literal("")),
+  estimate: z.coerce.number().int().optional().nullable().or(z.literal("")),
 });
 
 export const editBugContentSchema = z

@@ -475,6 +475,7 @@ export async function updateBugAction(
         ? null
         : areaRaw || undefined
       : undefined,
+    estimate: formData.get("estimate") ?? undefined,
   });
 
   if (!parsed.success) {
@@ -522,6 +523,7 @@ export async function updateBugAction(
     milestoneId?: string | null;
     isBoosted?: boolean;
     boostedAt?: Date | null;
+    estimate?: number | null;
   } = {};
 
   if (parsed.data.status && parsed.data.status !== existing.status) Object.assign(data, moveTo(entrySubstatus(existing.track, parsed.data.status)));
@@ -536,6 +538,10 @@ export async function updateBugAction(
   if (parsed.data.assigneeId !== undefined) {
     data.assigneeId =
       parsed.data.assigneeId === "" ? null : parsed.data.assigneeId;
+  }
+  if (parsed.data.estimate !== undefined) {
+    const raw = parsed.data.estimate;
+    data.estimate = raw === "" || raw === null ? null : Number(raw);
   }
 
   type PendingActivity = {
@@ -2017,6 +2023,78 @@ export async function toggleBoostBugAction(
  * Allows a user to assign an issue to themselves, or unassign if currently assigned.
  * Validates permission via canAssignTicket.
  */
+export async function setIssueEstimateAction(
+  bugId: string,
+  estimate: string | number | null,
+): Promise<ActionResult & { estimate?: number | null }> {
+  const user = await requireUser();
+  const access = await currentOrganisationAccess(user.id, user.role);
+
+  if (!bugId || typeof bugId !== "string" || bugId.trim().length === 0) {
+    return { error: "Invalid issue id" };
+  }
+
+  const organisationId = await currentOrganisationIdFor(user.id);
+  const existing = await prisma.bug.findUnique({
+    where: { id: bugId, ...bugInOrganisation(organisationId) },
+    select: { id: true, estimate: true, isDeleted: true, assigneeId: true },
+  });
+  if (!existing || existing.isDeleted) {
+    return { error: "Issue not found" };
+  }
+
+  const isAssignee = existing.assigneeId === user.id;
+  if (!access.admin && !isAssignee) {
+    return { error: "Only the assignee or an admin can change the estimate" };
+  }
+
+  let value: number | null = null;
+  if (estimate !== null && estimate !== "" && estimate !== undefined) {
+    const n = Number(estimate);
+    if (!Number.isInteger(n) || ![1, 2, 3, 5, 8, 13].includes(n)) {
+      return { error: "Invalid estimate" };
+    }
+    value = n;
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.bug.update({
+        where: { id: bugId },
+        data: { estimate: value },
+      });
+      await tx.bugActivity.create({
+        data: {
+          bugId,
+          actorId: user.id,
+          type: "commented",
+          summary: value === null ? "Estimate cleared" : `Estimate set to ${value} points`,
+          metadata: {
+            field: "estimate",
+            from: existing.estimate,
+            to: value,
+          } as Prisma.InputJsonValue,
+        },
+      });
+      await publishWebEvent(tx, {
+        bugId,
+        type: "issue.updated",
+        actorUserId: user.id,
+        payload: { estimate: value },
+      });
+    });
+  } catch (error) {
+    console.error("Failed to set issue estimate:", error);
+    return { error: "Failed to update estimate" };
+  }
+
+  revalidatePath("/[org]/[project]", "layout");
+  revalidateIssue();
+  revalidatePath("/bugs");
+  revalidatePath(`/bugs/${bugId}`);
+  return { ok: true, estimate: value };
+}
+
 export async function selfAssignBugAction(
   bugId: string,
   assign: boolean = true,

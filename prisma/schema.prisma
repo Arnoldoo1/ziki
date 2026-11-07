@@ -428,6 +428,8 @@ model Bug {
   /// #289: at most one milestone. Cleared, not cascaded, when it's deleted.
   milestoneId               String?
   milestone                 Milestone?              @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  /// Story-point estimate (#issue-estimate): optional size in points.
+  estimate                  Int?
   isDeleted                 Boolean                 @default(false)
   deletedAt                 DateTime?
   proofLinks                String[]                @default([])
