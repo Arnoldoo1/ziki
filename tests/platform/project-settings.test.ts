@@ -23,6 +23,7 @@ const organisationFindUnique = vi.hoisted(() => vi.fn());
 const redirect = vi.hoisted(() => vi.fn((to: string) => { throw new Error(`redirect:${to}`); }));
 const findFirst = vi.hoisted(() => vi.fn());
 const upsert = vi.hoisted(() => vi.fn());
+const previewUpsert = vi.hoisted(() => vi.fn());
 const auditCreate = vi.hoisted(() => vi.fn());
 const transaction = vi.hoisted(() => vi.fn());
 
@@ -45,6 +46,7 @@ vi.mock("@/lib/prisma", () => ({
     project: { findFirst, findMany: projectFindMany, create: projectCreate },
     organisation: { findUnique: organisationFindUnique },
     projectWorkflow: { upsert },
+    projectPreviewSettings: { upsert: previewUpsert },
     projectAuditEvent: { create: auditCreate },
     issueType: { findFirst: typeFindFirst, create: typeCreate, update: typeUpdate, delete: typeDelete },
     bug: { count: bugCount },
@@ -56,6 +58,8 @@ vi.mock("@/lib/prisma", () => ({
 
 import { createProjectAction } from "@/app/(app)/projects/actions";
 import { updateProjectWorkflowAction } from "@/app/(app)/projects/[slug]/settings/workflow-actions";
+import { updateProjectPreviewSettingsAction } from "@/app/(app)/projects/[slug]/settings/preview-actions";
+import { previewSettingsSchema } from "@/lib/validations/preview-settings";
 import {
   createMarketingIssueTypeAction,
   deleteMarketingIssueTypeAction,
@@ -382,5 +386,111 @@ describe("the marketing settings actions (M-UI-7)", () => {
       ok: true,
     });
     expect(bugActivityCreateMany).not.toHaveBeenCalled();
+  });
+});
+
+function previewForm(values: Record<string, string | boolean> = {}) {
+  const data = new FormData();
+  data.set("slug", "web");
+  const merged: Record<string, string | boolean> = {
+    enabled: true,
+    rootDir: ".",
+    installCommand: "",
+    buildCommand: "npm run build",
+    outputDir: "dist",
+    nodeVersion: "22",
+    buildVariables: "VITE_API_URL=https://staging.example.com",
+    ...values,
+  };
+  for (const [key, value] of Object.entries(merged)) {
+    if (typeof value === "boolean") {
+      if (value) data.set(key, "on");
+    } else {
+      data.set(key, value);
+    }
+  }
+  return data;
+}
+
+describe("updateProjectPreviewSettingsAction (#previews)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireUser.mockResolvedValue({ id: "admin" });
+    isAdminOfOrganisation.mockResolvedValue(true);
+    currentOrganisationIdFor.mockResolvedValue("organisation-1");
+    findFirst.mockResolvedValue({ id: "project-1", slug: "web", repoUrl: "https://github.com/acme/web", previewSettings: null });
+    transaction.mockImplementation(async (run: (tx: unknown) => unknown) =>
+      run({ projectPreviewSettings: { upsert: previewUpsert }, projectAuditEvent: { create: auditCreate } }),
+    );
+  });
+
+  it("refuses a member who is not an admin before reading the project", async () => {
+    isAdminOfOrganisation.mockResolvedValue(false);
+    await expect(updateProjectPreviewSettingsAction(undefined, previewForm())).resolves.toMatchObject({ ok: false });
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses to turn previews on for a project with no main repository", async () => {
+    findFirst.mockResolvedValue({ id: "project-1", slug: "web", repoUrl: null, previewSettings: null });
+    await expect(updateProjectPreviewSettingsAction(undefined, previewForm())).resolves.toMatchObject({
+      ok: false,
+      fieldErrors: { enabled: expect.any(String) },
+    });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("saves the settings with their build variables, and audits the change", async () => {
+    await expect(updateProjectPreviewSettingsAction(undefined, previewForm())).resolves.toEqual({ ok: true });
+    const saved = previewUpsert.mock.calls[0][0];
+    expect(saved.where).toEqual({ projectId: "project-1" });
+    expect(saved.create).toMatchObject({
+      projectId: "project-1",
+      enabled: true,
+      installCommand: null,
+      outputDir: "dist",
+      buildVariables: { VITE_API_URL: "https://staging.example.com" },
+    });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        organisationId: "organisation-1",
+        projectId: "project-1",
+        actorUserId: "admin",
+        action: "previews.updated",
+        changes: {
+          enabled: { from: false, to: true },
+          buildVariables: { from: {}, to: { VITE_API_URL: "https://staging.example.com" } },
+        },
+      }),
+    });
+    expect(revalidatePath).toHaveBeenCalledWith("/projects/web/settings");
+  });
+
+  it("does not touch a project outside the organisation", async () => {
+    findFirst.mockResolvedValue(null);
+    await expect(updateProjectPreviewSettingsAction(undefined, previewForm())).resolves.toMatchObject({ ok: false });
+    expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("previewSettingsSchema (#previews)", () => {
+  const valid = {
+    enabled: true,
+    rootDir: ".",
+    installCommand: "",
+    buildCommand: "npm run build",
+    outputDir: "dist",
+    nodeVersion: "22",
+    buildVariables: "",
+  };
+
+  it("refuses folders that leave the repository", () => {
+    expect(previewSettingsSchema.safeParse({ ...valid, outputDir: "../secrets" }).success).toBe(false);
+    expect(previewSettingsSchema.safeParse({ ...valid, rootDir: "/etc" }).success).toBe(false);
+  });
+
+  it("refuses a malformed or repeated build variable", () => {
+    expect(previewSettingsSchema.safeParse({ ...valid, buildVariables: "not a variable" }).success).toBe(false);
+    expect(previewSettingsSchema.safeParse({ ...valid, buildVariables: "A=1\nA=2" }).success).toBe(false);
   });
 });
