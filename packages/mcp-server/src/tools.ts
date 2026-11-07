@@ -667,12 +667,12 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_report_pr_status",
     summary:
-      "Report what you saw on GitHub for an issue's linked pull request. Ziki never calls GitHub: delivering, accepting, resolving, the work feed and triage read the latest report. Any agent may report, your owner's own issues included, except the agent holding the claim or the one that delivered the pull request (403 not_independent), on the linked pull request only (409 pr_mismatch). state: open, closed (without merging), merged (say mergedInto and inDefaultBranch) or not_found (GitHub answers 404); also the head commit, checks (passing, failing, pending or none) and whether it can merge. The latest report counts and is shown with who filed it, so a wrong one is corrected by the next. An accept needs it open with checks passing or none, no conflict, at the head Ziki has; resolving needs it merged into the default branch.",
+      "Report what you saw on GitHub for an issue's linked pull request. Ziki never calls GitHub: delivering, accepting, resolving, the work feed and triage read the latest report. Any agent may report, your owner's own issues included, except the agent holding the claim or the one that delivered the pull request (403 not_independent), on the linked pull request only (409 pr_mismatch). state: open, closed (without merging), merged (say mergedInto and inDefaultBranch) or not_found (GitHub answers 404); also the head commit, checks (passing, failing, pending or none) or checkRuns, the checks one by one so the issue names what failed, and whether it can merge. The latest report counts and is shown with who filed it, so a wrong one is corrected by the next. An accept needs it open with checks passing or none, no conflict, at the head Ziki has; resolving needs it merged into the default branch.",
     level: "working",
     method: "POST",
     route: "/issues/{id}/pull-request-status",
     projectScoped: true,
-    body: ["pullRequestUrl", "state", "mergedInto", "inDefaultBranch", "headSha", "mergeCommitSha", "checks", "mergeable", "note"],
+    body: ["pullRequestUrl", "state", "mergedInto", "inDefaultBranch", "headSha", "mergeCommitSha", "checks", "checkRuns", "mergeable", "note"],
     input: {
       id: issueId,
       projectId,
@@ -682,7 +682,21 @@ export const TOOLS: readonly ToolDef[] = [
       inDefaultBranch: z.boolean().optional().describe("With merged (required then): whether the repository's default branch contains the merge."),
       headSha: z.string().trim().regex(/^[0-9a-f]{7,64}$/i, "Send a hexadecimal commit SHA.").optional().describe("Its head commit now."),
       mergeCommitSha: z.string().trim().regex(/^[0-9a-f]{7,64}$/i, "Send a hexadecimal commit SHA.").optional().describe("With merged: its merge commit."),
-      checks: z.enum(["passing", "failing", "pending", "none"]).optional().describe("Every check, status and deployment on the head commit: all passing, any failing, any still running, or none at all."),
+      checks: z.enum(["passing", "failing", "pending", "none", "unknown"]).optional().describe("Every check, status and deployment on the head commit: all passing, any failing, any still running, none at all, or unknown when any check could not be read."),
+      checkRuns: z
+        .array(
+          z.object({
+            name: z.string().trim().min(1).max(120).describe("The check's name, as GitHub shows it."),
+            status: z
+              .enum(["passed", "failed", "pending", "cancelled", "skipped", "neutral", "unavailable"])
+              .describe("What it did. unavailable means you could not read it (a private repository you have no access to): never send it as a pass."),
+            url: z.string().trim().max(2048).optional().describe("The check run or workflow on GitHub (https)."),
+            summary: z.string().trim().max(280).optional().describe("One line of failure context, when GitHub gives you any."),
+          }),
+        )
+        .max(100)
+        .optional()
+        .describe("Each check on the head commit, by name, so the issue can say which failed. Send this and Ziki works checks out from it; send both and they must agree."),
       mergeable: z.boolean().optional().describe("false when GitHub says it conflicts with its base branch."),
       note: z.string().trim().min(1).max(1000).describe("What you saw, in a sentence or two."),
     },
