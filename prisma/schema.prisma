@@ -269,6 +269,7 @@ model User {
   featurePlans              FeaturePlan[]
   savedIssueViews           SavedIssueView[]
   id                        String                  @id @default(cuid())
+  securityVerifications SecurityVerification[]
   securityFindingsReported  SecurityFinding[]       @relation("SecurityFindingReporter")
   name                      String
   email                     String                  @unique
@@ -720,6 +721,7 @@ model Attachment {
   @@index([securityFindingId])
   @@index([redesignProposalId])
   @@index([uploaderId, createdAt])
+  securityVerifications SecurityVerification[]
 }
 
 /// One person marking an issue important (#importance; once "upvotes").
@@ -2988,8 +2990,28 @@ model SecurityFinding {
   updatedAt     DateTime         @updatedAt
   attachments   Attachment[]
 
+  verifications SecurityVerification[]
+
   @@index([organisationId, disclosedAt])
   @@index([projectId])
+}
+
+model SecurityVerification {
+  id           String @id @default(cuid())
+  findingId    String
+  reviewerId   String?
+  evidenceId   String?
+  passed       Boolean
+  notes        String
+  reopened     Boolean @default(false)
+  createdAt    DateTime @default(now())
+  finding      SecurityFinding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  reviewer     User? @relation(fields: [reviewerId], references: [id], onDelete: SetNull)
+  evidence     Attachment? @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+
+  @@index([findingId, createdAt])
+  @@index([reviewerId])
+  @@index([evidenceId])
 }
 
 /// Status of a support thread raised about a stuck fix (#requests).

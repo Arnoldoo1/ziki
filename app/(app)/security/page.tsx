@@ -40,7 +40,12 @@ export default async function SecurityPage(props: {
   if (!access.organisationId) {
     return (
       <div className="space-y-4">
-        <OrgPageHeader heading="h1" title="Security" actions={<SecuritySettingsLink />}>Report and track security findings.</OrgPageHeader>
+        <OrgPageHeader heading="h1" title="Security" actions={
+          <div className="flex items-center gap-2">
+            <Link href="/security/activity" className="text-sm font-semibold text-zk-accent hover:underline">Activity</Link>
+            <SecuritySettingsLink />
+          </div>
+        }>Report and track security findings.</OrgPageHeader>
         <ReadOnlyNote>Join or create a workspace to report and track security findings.</ReadOnlyNote>
         <SecurityStageFilterBar findings={[]} selected={selectedStage} severity={selectedSeverity} />
       </div>
@@ -81,6 +86,7 @@ export default async function SecurityPage(props: {
     <div className="flex w-full flex-col gap-4 pb-10 sm:gap-6">
       <OrgPageHeader heading="h1" title="Security" actions={
         <div className="flex flex-wrap items-center gap-2">
+          <Link href="/security/activity" className="text-sm font-semibold text-zk-accent hover:underline">Activity</Link>
           <SecuritySettingsLink />
           <ReportButton projects={dashboard.projects} />
         </div>
