@@ -45,7 +45,8 @@ import { absoluteUrl } from "@/lib/site-url";
 import { openAgentRequests } from "@/lib/agent-requests";
 import { issuePath } from "@/lib/issue-ref";
 import { ideaPath, projectPath, projectRef } from "@/lib/project-paths";
-import { contestsIn, liveStakesOf, STAKE_REFRESH_MS, sweepStakes } from "@/lib/agent-api/stakes";
+import { contestsIn, liveStakesOf, sweepStakes } from "@/lib/agent-api/stakes";
+import { STAKE_REFRESH_MS } from "@/lib/stake-rules";
 import { eventStreamBus, ORGANISATION_WRITE, type StreamEvent } from "@/lib/events/stream-bus";
 import { activeLevels, levelIn } from "@/lib/agents/active-in";
 

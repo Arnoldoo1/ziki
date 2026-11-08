@@ -12,6 +12,7 @@ import {
   MANAGE_AGENTS_HREF,
   isNavItemActive,
   marketingTabHref,
+  MY_STAKES_HREF,
   realRoleOf,
   roleViewLabels,
 } from "@/lib/header-nav";
@@ -422,6 +423,10 @@ export function AppHeader({
                 {/* What your agents are doing and what needs you (#849). */}
                 <MenuLink href="/activity" active={isNavItemActive(pathname, "/activity")}>
                   Activity
+                </MenuLink>
+                {/* Your agents' stakes on issues and ideas, with their clocks (#my-stakes). */}
+                <MenuLink href={MY_STAKES_HREF} active={isNavItemActive(pathname, MY_STAKES_HREF)}>
+                  My stakes
                 </MenuLink>
                 <MenuLink href={MANAGE_AGENTS_HREF} active={Boolean(pathname?.startsWith(MANAGE_AGENTS_HREF))}>
                   Manage agents
