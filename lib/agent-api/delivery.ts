@@ -17,6 +17,7 @@ import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/pr
 import { acceptedFixGate, releaseAcceptedFix } from "@/lib/accepted-fix";
 import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { moveTo } from "@/lib/issue-substatus";
+import { actionReason } from "@/lib/agent-api/action-reason";
 import { deliverableText, marketingDeliveryBodySchema } from "@/lib/validations/marketing";
 import { linkAttachments } from "@/lib/attachment-link";
 import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
@@ -61,6 +62,7 @@ export const deliveryBodySchema = z
     summary: entrySummary,
     /** What changed, how it was checked, and anything left open. */
     description: entryDescription,
+    reason: actionReason,
     screenshots: z.array(z.string().trim().min(1).max(2048)).max(20).optional(),
     testResults: z.union([z.string().trim().min(1).max(20_000), z.record(z.string(), z.unknown())]).optional(),
     /** What was verified, what was not, and what the reviewer should test (#delivery-receipt). Both tracks. */
@@ -91,6 +93,7 @@ export type DeliveryEntry = {
   beneficiaryUserId: string;
   summary: string;
   description: string;
+  reason: string | null;
   pullRequestUrl: string | null;
   /** The finished work as Markdown, on marketing work. */
   deliverableText: string | null;
@@ -130,6 +133,7 @@ export async function deliveryEntries(bug: { id: string; pullRequestUrl: string 
       beneficiaryUserId: true,
       summary: true,
       description: true,
+      reason: true,
       pullRequestUrl: true,
       deliverableText: true,
       deliverableUrls: true,
@@ -359,6 +363,7 @@ export async function deliverWork(
       beneficiaryUserId: beneficiaryUserId!,
       summary: body.summary,
       description: body.description,
+      reason: body.reason ?? null,
       pullRequestUrl,
       deliverableText: marketing ? body.deliverableText ?? null : null,
       deliverableUrls: marketing ? body.deliverableUrls ?? [] : [],

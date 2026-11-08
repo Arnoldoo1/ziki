@@ -7,6 +7,7 @@ import { SECURITY_SEVERITIES, SEVERITY_GUIDE, SEVERITY_LABEL } from "@/lib/secur
 import { newIssuePath, type ProjectRef } from "@/lib/project-paths";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { AgentClearanceToggle } from "@/components/security-finding-controls";
+import { SecuritySettingsLink } from "@/components/security/security-settings-link";
 import {
   filterSecurityFindingsByStage,
   parseSecurityStageFilter,
@@ -40,9 +41,12 @@ export default async function SecurityPage({ searchParams }: Props) {
   if (!access.organisationId) {
     return (
       <div className="security-page mx-auto flex w-full max-w-5xl flex-col gap-6 pb-10">
-        <header className="space-y-1.5">
-          <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-zk-text">Security</h1>
-          <p className="text-sm text-zk-text2">Join or create a workspace to report and track security findings.</p>
+        <header className="flex flex-wrap items-start justify-between gap-4">
+          <div className="space-y-1.5">
+            <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-zk-text">Security</h1>
+            <p className="text-sm text-zk-text2">Join or create a workspace to report and track security findings.</p>
+          </div>
+          <SecuritySettingsLink />
         </header>
         <SecurityStageFilterBar findings={[]} selected={selectedStage} severity={selectedSeverity} />
       </div>
@@ -82,7 +86,10 @@ export default async function SecurityPage({ searchParams }: Props) {
             admins, and agents cleared for security work until the fix is live. Then they are published for everyone.
           </p>
         </div>
-        <ReportButton projects={dashboard.projects} />
+        <div className="flex shrink-0 items-center gap-2">
+          <SecuritySettingsLink />
+          <ReportButton projects={dashboard.projects} />
+        </div>
       </header>
 
       <SecurityStageFilterBar findings={dashboard.open} selected={selectedStage} severity={selectedSeverity} />
@@ -134,7 +141,7 @@ export default async function SecurityPage({ searchParams }: Props) {
           {dashboard.open.length === 1 ? "finding" : "findings"}
         </p>
         {visibleOpenFindings.length ? (
-          <FindingTable findings={visibleOpenFindings} kind="open" />
+          <FindingTable findings={visibleOpenFindings} kind="open" filterHref={securityFilterHref(selectedSeverity, selectedStage)} />
         ) : selectedStage === "all" && selectedSeverity === "all" ? (
           <p className="mt-3 text-sm text-zk-text2">No open security findings. Found something? Report it privately.</p>
         ) : selectedSeverity === "all" ? (
@@ -157,7 +164,7 @@ export default async function SecurityPage({ searchParams }: Props) {
       <section aria-labelledby="disclosed-heading" className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
         <h2 id="disclosed-heading" className="text-lg font-bold text-zk-text">Disclosed</h2>
         {filteredDisclosed.length ? (
-          <FindingTable findings={filteredDisclosed} kind="disclosed" />
+          <FindingTable findings={filteredDisclosed} kind="disclosed" filterHref={securityFilterHref(selectedSeverity, selectedStage)} />
         ) : (
           <p className="mt-3 text-sm text-zk-text2">Findings appear here once their fix is live and their details are published.</p>
         )}
@@ -250,7 +257,7 @@ function Stat({ label, value, hint, alert = false }: { label: string; value: str
   );
 }
 
-function FindingTable({ findings, kind }: { findings: DashboardFinding[]; kind: "open" | "disclosed" }) {
+function FindingTable({ findings, kind, filterHref }: { findings: DashboardFinding[]; kind: "open" | "disclosed"; filterHref: string }) {
   return (
     <div className="mt-3 overflow-x-auto">
       <table className="security-table w-full min-w-[560px] text-left text-sm">
@@ -268,7 +275,7 @@ function FindingTable({ findings, kind }: { findings: DashboardFinding[]; kind: 
             <tr key={finding.id}>
               <td className="py-2 pr-3 align-top"><SeverityChip severity={finding.severity} /></td>
               <td className="py-2 pr-3 align-top">
-                <Link href={finding.href} className="font-semibold text-zk-accent hover:underline">{finding.ref}</Link>{" "}
+                <Link href={finding.canView ? "/security/findings/" + finding.id + filterHref.slice("/security".length) : finding.href} className="font-semibold text-zk-accent hover:underline">{finding.ref}</Link>{" "}
                 {finding.title ? (
                   <span className="text-zk-text">{finding.title}</span>
                 ) : (
