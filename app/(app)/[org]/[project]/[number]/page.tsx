@@ -1,3 +1,5 @@
+import { AskAboutFix } from "@/components/ask-about-fix";
+import { ASKABLE_STATUSES } from "@/lib/validations/support-thread";
 import { MergerTransparencyCard } from "@/components/merger-transparency-card";
 import { requireProject } from "@/lib/project-route";
 import Link from "next/link";
@@ -8,6 +10,7 @@ import { entryReplySelect, toEntryReplies } from "@/lib/agent-api/entry-fields";
 import Image from "next/image";
 import { Suspense } from "react";
 import type { Metadata } from "next";
+import { SITE_NAME } from "@/lib/seo/site";
 import { notFound, permanentRedirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { agentMentionId } from "@/lib/mentions";
@@ -17,6 +20,7 @@ import { issueHref, issuePath, queryString } from "@/lib/issue-ref";
 import { findProjectIssue, parseIssueNumber } from "@/lib/project-issue";
 import { resolveSessionUserId } from "@/lib/session-user";
 import { LocalTime } from "@/components/local-time";
+import { IssuePrioritySelect } from "@/components/issue-priority-select";
 import { ClearDuplicateButton, MarkDuplicateButton } from "@/components/duplicate-controls";
 import { currentResolution, isFinishedStatus, type StatusChangeActivity } from "@/lib/resolution-note";
 import { statusLabel as resolutionStatusLabel } from "@/lib/labels";
@@ -67,6 +71,7 @@ import { BidButton } from "@/components/bid-button";
 import { awardingAgentOf } from "@/lib/bid-award-permission";
 import { bidHistoryEntries } from "@/lib/agent-api/bid";
 import { markAtCapacity } from "@/lib/agent-api/capacity";
+import { bidderRecordsForBids } from "@/lib/bidder-record-data";
 import { testVerdictEntries } from "@/lib/agent-api/test-verdict";
 import { deliveryEntries } from "@/lib/agent-api/delivery";
 import { mergeReviewEntries } from "@/lib/agent-api/merge";
@@ -108,6 +113,8 @@ import { SelfAssignButton } from "@/components/self-assign-button";
 import { IssueActionsMenu } from "@/components/issue-actions-menu";
 import { CopyIssueSummaryButton } from "@/components/copy-issue-summary-button";
 import { EditableIssueDescription } from "@/components/editable-issue-description";
+import { SecurityFindingPanel } from "@/components/security-finding-panel";
+import { findingForBug, findingView } from "@/lib/security-findings";
 import { IssueLinks } from "@/components/issue-links";
 import { parsePullRequestUrl } from "@/lib/github/pull-request-url";
 import { NextStepBar } from "@/components/next-step-bar";
@@ -118,6 +125,8 @@ import { LiveFlow } from "@/components/live-flow";
 import { latestPullRequestReport, gateReport, pullRequestStateView, type PullRequestStateView } from "@/lib/agent-api/pull-request-report";
 import { prGate, reportWanted } from "@/lib/agent-api/pr-gate";
 import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
+import { mergeChecklist } from "@/lib/merge-checklist";
+import { MergeChecklistCard } from "@/components/merge-checklist";
 import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { DecisionCard } from "@/components/decision-card";
 import { decisionFor } from "@/lib/your-decision";
@@ -157,6 +166,8 @@ import "./issue-detail.css";
 import { stateLabel } from "@/lib/labels";
 import { IssueRewardPanel } from "@/components/issue-reward-panel";
 import { rewardEstimatesFor } from "@/lib/agent-api/reward-estimates";
+import { IssueBlockersPanel } from "@/components/issue-blockers-panel";
+import type { IssueBlockerCandidate } from "@/app/actions/issue-blockers";
 import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
 type BugPageProps = {
@@ -255,7 +266,7 @@ export async function generateMetadata({
       description,
       url: canonical,
       type: "article",
-      siteName: "Ziki",
+      siteName: SITE_NAME,
       modifiedTime: bug.updatedAt.toISOString(),
       images: [{ ...SHARE_IMAGE, url: image }],
     },
@@ -310,7 +321,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
     return (
       <div className="issue-detail-scope mx-auto max-w-2xl space-y-4 py-10">
-        <p className="text-sm text-zk-muted">Ziki Issues</p>
+        <p className="text-sm text-zk-muted">Ziki</p>
         <h1 className="text-2xl font-extrabold text-zk-text">{bug.title}</h1>
         <div className="flex flex-wrap gap-2">
           <Badge className={`${issueChipBaseClass} ${issueStatusChipClass[bug.substatus]}`}>
@@ -443,11 +454,29 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     return issueLoadError(loadedBug.reference);
   }
   const bug = loadedBug.bug;
+  // #security-findings: the private details, shown only to who may see them.
+  const securityFinding = bug ? await findingForBug(bug.id) : null;
+  const securityView = bug && securityFinding
+    ? findingView(securityFinding, { kind: "person", userId: user.id, organisationId: bug.organisationId, organisationAdmin: access.admin })
+    : null;
 
   if (!bug || (bug.isDeleted && !canDelete)) {
     notFound();
   }
 
+  const blockerRows = organisationId ? await loadOptional("issue blockers", [], () =>
+    prisma.issueBlocker.findMany({
+      where: { OR: [{ blockedBugId: bug.id }, { blockerBugId: bug.id }] },
+      select: {
+        blockedBugId: true,
+        blockerBugId: true,
+        blockedBug: { select: { id: true, number: true, title: true, status: true, substatus: true } },
+        blockerBug: { select: { id: true, number: true, title: true, status: true, substatus: true } },
+      },
+    }),
+  ) : [];
+  const blockedBy = blockerRows.filter((row) => row.blockedBugId === bug.id).map((row) => row.blockerBug) satisfies IssueBlockerCandidate[];
+  const blocking = blockerRows.filter((row) => row.blockerBugId === bug.id).map((row) => row.blockedBug) satisfies IssueBlockerCandidate[];
   // These tables arrived after the issue row. A missing one must not blank the page.
   const [redesignProposals, membership] = organisationId ? await Promise.all([
     loadOptional("redesigns", [], () =>
@@ -475,7 +504,17 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     // While Open, an open bid whose bidder is at the project's capacity says so (#bidder-capacity).
     loadOptional<BidEntryView[]>("bids", [], async () => {
       const entries = await bidHistoryEntries({ id: bug.id, areaId: bug.areaId ?? null });
-      return bug.status === "open" ? markAtCapacity({ organisationId: bug.organisationId, projectId: bug.projectId }, entries) : entries;
+      const [withCapacity, records] = await Promise.all([
+        bug.status === "open" ? markAtCapacity({ organisationId: bug.organisationId, projectId: bug.projectId }, entries) : entries,
+        bidderRecordsForBids(
+          { organisationId: bug.organisationId, areaId: bug.areaId ?? null, areaName: bug.area?.name ?? null },
+          entries,
+        ).catch((error: unknown) => {
+          logLoadFailure("[issue] bidder records query failed", error);
+          return null;
+        }),
+      ]);
+      return withCapacity.map((entry) => ({ ...entry, record: records?.get(entry.beneficiaryUserId) }));
     }),
     // Every offer or claim, newest first: the timeline's Award step (#issue-timeline) is the
     // newest, held or since released; the Activity panel lists each award and release.
@@ -819,6 +858,17 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   const confirming = !bug.isDeleted && takesConfirmations(bug.substatus, confirmationsData?.confirmed ?? pastConfirmation);
   // Anyone may confirm their own issue (#confirmation-weights): it counts 1.
   const confirmationBlock: ConfirmationBlock = null;
+  const activeSupportThread =
+    isOrgMember && !bug.isDeleted && (ASKABLE_STATUSES as readonly string[]).includes(bug.status)
+      ? await prisma.supportThread.findFirst({
+          where: {
+            bugId: bug.id,
+            requesterUserId: user.id,
+            status: { in: ["open", "taken"] },
+          },
+          select: { id: true },
+        })
+      : null;
   // #close-reasons: the issue's owner may withdraw it while it is not closed or live.
   const canWithdraw = !bug.isDeleted && bug.status !== "closed" && bug.status !== "resolved" && ownsIssue(bug, user.id);
   const isAssignee = !!userId && bug.assigneeId === userId;
@@ -1134,6 +1184,21 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   // the delivered pull request), so the bar says what will actually move it.
   const judgementCount = bug.status === "done" && !bug.isDeleted
     ? await loadOptional("judgement count", null, () => countedJudgements(prisma, bug.id))
+    : null;
+  // #merge-checklist: while delivered work is judged, reviewed or waiting to
+  // merge, the checks before "good to merge", from the latest pull request report.
+  const checklist = !bug.isDeleted && (bug.status === "done" || bug.status === "merge") && bug.pullRequestUrl
+    ? await loadOptional("merge checklist", null, async () => {
+        const [report, project] = await Promise.all([
+          latestPullRequestReport(bug.id, bug.pullRequestUrl),
+          prisma.project.findUnique({ where: { id: bug.projectId }, select: { repoUrl: true } }),
+        ]);
+        return mergeChecklist(report, {
+          pullRequestUrl: bug.pullRequestUrl ?? null,
+          pullRequestHeadSha: bug.pullRequestHeadSha ?? null,
+          repo: parseGitHubRepoUrl(project?.repoUrl),
+        });
+      })
     : null;
   // #live-check: on a Live issue, where its fix really is, from the latest
   // independent check of its pull request rather than the Live label.
@@ -1919,6 +1984,9 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 <span className={`${issueChipBaseClass} bg-zk-chip text-zk-text2`}>{bug.type.name}</span>
               </p>
             ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <IssuePrioritySelect bugId={bug.id} priority={bug.priority} />
+            </div>
           </div>
 
           <div className="flex shrink-0 flex-wrap items-center gap-2 self-start print:hidden">
@@ -1980,12 +2048,13 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
           {/* #1446: the progress report's stage filters the Conversation (#186). */}
           <IssueStageProvider initialStage={currentStage}>
+          {securityView ? <SecurityFindingPanel view={securityView} canDisclose={access.admin} kind="issue" /> : null}
           <EditableIssueDescription
             bugId={bug.id}
             initialTitle={bug.title}
             initialDescription={bug.description}
             summary={bug.summary}
-            canEdit={canEdit}
+            canEdit={canEdit && !(securityView && !securityView.disclosed)}
             users={users}
             lastEditedAt={lastRevision?.editedAt ?? null}
             historyHref={issueHref(bug, "/history")}
@@ -2045,6 +2114,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
           <NextStepBar step={liveFix ? liveNextStep(liveFix.check, liveFix.repo) : nextStep} agentInstructions={agentInstructions} />
           {yourDecision ? <DecisionCard issueId={bug.id} decision={yourDecision} /> : null}
+
+          <IssueBlockersPanel
+            projectSlug={refOf(bug.project)}
+            issueId={bug.id}
+            blockedBy={blockedBy}
+            blocking={blocking}
+            canEdit={canTriage && !bug.isDeleted}
+          />
 
           {deliveredBanner ? <DeliveredBanner {...deliveredBanner} /> : null}
 
@@ -2264,6 +2341,20 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                 {bug.closeEvidence}
               </p>
             ) : null}
+            {/* createSupportThreadAction accepts organisation members only, so nobody else is offered the button. */}
+            {isOrgMember && !bug.isDeleted && (ASKABLE_STATUSES as readonly string[]).includes(bug.status) ? (
+              activeSupportThread ? (
+                <Link
+                  href={`/inbox?tab=requests&thread=${activeSupportThread.id}`}
+                  className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-zk-border bg-zk-chip/40 px-3 text-xs font-semibold text-zk-text hover:bg-zk-chip"
+                >
+                  <span aria-hidden="true">💬</span>
+                  <span>View your request</span>
+                </Link>
+              ) : (
+                <AskAboutFix issueId={bug.id} issueNumber={bug.number} issueTitle={bug.title} />
+              )
+            ) : null}
             {/* The reporter or the person it is for cancels their own issue (#close-reasons). */}
             {canWithdraw ? (
               <form action={withdrawIssueAction} data-testid="issue-withdraw">
@@ -2280,6 +2371,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               </form>
             ) : null}
           </section>
+          {checklist ? <MergeChecklistCard checklist={checklist} /> : null}
           {/* #rewards: the reward, your estimate, and everyone's. */}
           {rewardRow ? (
             <IssueRewardPanel

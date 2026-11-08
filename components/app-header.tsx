@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useMarketingArea } from "@/components/marketing/marketing-area";
-import { ideasPath, type ProjectRef } from "@/lib/project-paths";
+import { ideasPath, orgPath, type ProjectRef } from "@/lib/project-paths";
 import { useProjectRef } from "@/lib/use-project-ref";
 import { SignOutButton } from "@/components/sign-out-button";
 import { OrganisationSwitcher, type OrganisationOption, type ExternalProjectChoice } from "@/components/organisation-switcher";
@@ -16,6 +16,9 @@ import {
   roleViewLabels,
 } from "@/lib/header-nav";
 import { type AppRole } from "@/lib/roles";
+import { type OrganisationRole } from "@/lib/organisation-role";
+import { roleAccessFor, type RoleAccess } from "@/lib/role-access";
+import { RoleAccessBadge } from "@/components/role-access-tooltip";
 import { Avatar } from "@/components/avatar";
 import { AccountThemeSelector } from "@/components/theme-toggle";
 import { CookieSettingsLink } from "@/components/consent-banner";
@@ -288,6 +291,7 @@ export function AppHeader({
   organisationOptions = [],
   externalProjects = [],
   activeOrganisationId = null,
+  organisationRole = null,
   reportFormUrl,
   defaultProjectSlug = null,
   earned = null,
@@ -313,6 +317,8 @@ export function AppHeader({
   organisationOptions?: OrganisationOption[];
   externalProjects?: ExternalProjectChoice[];
   activeOrganisationId?: string | null;
+  /** The person's role in the organisation they are in, for the role tooltip in the account menu. */
+  organisationRole?: OrganisationRole | null;
   reportFormUrl?: string;
 }) {
   const pathname = usePathname();
@@ -330,6 +336,12 @@ export function AppHeader({
   }
 
   const realRole = realRoleOf({ isRealSuperAdmin, isRealAdmin });
+  // The workspace the header $ is for, named so the amount is never read as the total (#862).
+  const activeOrganisationName = organisationOptions.find((organisation) => organisation.id === activeOrganisationId)?.name ?? null;
+  const roleAccess = roleAccessFor(organisationRole, realRole);
+  // There is no request form yet: the members page names the admins who can change a role.
+  const requestAccessHref = projectSlug ? orgPath(projectSlug, "members") : "/organisations";
+  const earningsWorkspaceName = organisationOptions.find((organisation) => organisation.id === earningsOrganisationId)?.name ?? null;
 
   return (
     // Sticky only from lg: on phones and tablets the toolbar wraps onto rows,
@@ -366,10 +378,11 @@ export function AppHeader({
               <Link
                 href={projectSlug ? `/earnings?in=${projectSlug}` : "/earnings"}
                 aria-current={isNavItemActive(pathname, "/earnings") ? "page" : undefined}
+                title={earningsWorkspaceName ? `Earned in ${earningsWorkspaceName}. Your earnings adds up every workspace.` : undefined}
                 className={`rounded-full px-2.5 py-1 text-sm font-bold tabular-nums text-zk-text hover:bg-zk-chip ${linkFocus}`}
               >
                 {formatZ(earned)}
-                <span className="sr-only"> earned: Your earnings</span>
+                <span className="sr-only"> earned{earningsWorkspaceName ? ` in ${earningsWorkspaceName}` : ""}: Your earnings</span>
               </Link>
               <WithdrawWindow earned={earned} organisationId={earningsOrganisationId} className={`inline-flex items-center justify-center rounded-full bg-electric-blue-strong px-3 py-1.5 text-xs font-bold text-white hover:bg-[#2552af] max-sm:h-8 max-sm:w-8 max-sm:p-0 ${linkFocus}`}>
                 {/* Phones: a wallet icon; tablets and up: the word. Either way it is called Withdraw. */}
@@ -413,6 +426,9 @@ export function AppHeader({
                   userName={userName}
                   userImage={userImage}
                   realRole={realRole}
+                  roleAccess={roleAccess}
+                  organisationName={activeOrganisationName}
+                  requestAccessHref={requestAccessHref}
                 />
                 <AccountThemeSelector />
                 <div className="mx-2 h-px bg-zk-divider" />
@@ -462,19 +478,31 @@ function AccountSummary({
   userName,
   userImage,
   realRole,
+  roleAccess,
+  organisationName,
+  requestAccessHref,
 }: {
   userName?: string | null;
   userImage?: string | null;
   realRole: AppRole;
+  /** What the role can do, when there is a summary for it; the badge then explains itself on hover. */
+  roleAccess: RoleAccess | null;
+  organisationName: string | null;
+  requestAccessHref: string;
 }) {
   const roleLabel = realRole === "user" ? "Member" : roleViewLabels[realRole];
   return (
-    <div className="flex items-center gap-3 rounded-[14px] bg-zk-tint p-3">
+    // Relative: the role tooltip is positioned against this row, so it is as wide as the menu.
+    <div className="relative flex items-center gap-3 rounded-[14px] bg-zk-tint p-3">
       <Avatar name={userName} image={userImage} size="lg" variant="solid" />
       <div className="min-w-0">
         <p className="truncate text-base font-extrabold text-zk-text">{userName}</p>
         <p className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
-          <span className="rounded-full bg-zk-surface px-2 py-0.5 font-bold text-zk-text2">{roleLabel}</span>
+          {roleAccess ? (
+            <RoleAccessBadge label={roleLabel} access={roleAccess} organisationName={organisationName} requestHref={requestAccessHref} />
+          ) : (
+            <span className="rounded-full bg-zk-surface px-2 py-0.5 font-bold text-zk-text2">{roleLabel}</span>
+          )}
         </p>
       </div>
     </div>

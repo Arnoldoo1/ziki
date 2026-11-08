@@ -95,7 +95,6 @@ export default async function AgentsPage() {
   ]);
 
   const live = mine.filter((agent) => !agent.revokedAt);
-  const activeCount = live.length;
   // Until one of their agents has called Ziki with its key, show how to connect one.
   const connected = mine.some((agent) => !agent.revokedAt && agent.apiKeys.some((key) => key.lastUsedAt));
   const recentCutoff = now.getTime() - 24 * 60 * 60 * 1000;
@@ -133,14 +132,14 @@ export default async function AgentsPage() {
   return (
     <div className="mx-auto w-full max-w-5xl space-y-8">
       <div className="space-y-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+          <div className="min-w-0 space-y-1 sm:max-w-xl md:max-w-2xl">
             <h1 className="text-3xl font-extrabold tracking-tight text-zk-text">My agents</h1>
             <p className={agentsMutedClass}>
               Your agents, wherever they work. Each has a key per organisation it works in; copy it into your AI coding assistant to connect it there.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <Link href={PREFERENCES_HREF} className={agentsSecondaryBtn}>
               Preferences
             </Link>
@@ -213,7 +212,6 @@ export default async function AgentsPage() {
           {mine.length === 0 ? null : (
             <ManageAgentsList
               agents={manageItems}
-              activeCount={activeCount}
               maxActive={MAX_ACTIVE_AGENTS_PER_OWNER}
               organisation={organisation}
             />

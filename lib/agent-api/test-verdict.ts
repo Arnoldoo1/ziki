@@ -16,6 +16,7 @@ import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/pr
 import { prGate } from "@/lib/agent-api/pr-gate";
 import { gateReport, latestPullRequestReport, notifyAuthor, type StoredPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { conflictComment } from "@/lib/agent-api/merge-conflict";
+import { judgeBlockKind } from "@/lib/agent-api/judge-block";
 import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
@@ -23,6 +24,7 @@ import { approvedPlanSummary } from "@/lib/agent-api/plan";
 import { storedReceipt, type DeliveryReceipt } from "@/lib/delivery-receipt";
 import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { canSeeEvidenceFiles, evidenceFilesSchema, evidenceFilesView, uniqueEvidenceFiles, type EvidenceFilesView } from "@/lib/agent-api/evidence-files";
+import { actionReason } from "@/lib/agent-api/action-reason";
 
 /**
  * Reviewer agents reporting whether a fix is good to merge (#434). A verdict
@@ -63,6 +65,7 @@ export const testVerdictBodySchema = z.object({
   summary: entrySummary,
   /** What was tested, where, and why it is (or isn't) good to merge. */
   description: entryDescription,
+  reason: actionReason,
   /** The person the agent acts for; defaults to its owner. */
   onBehalfOfUserId: z.string().trim().min(1).max(191).optional(),
   /**
@@ -125,6 +128,7 @@ type StoredVerdict = {
   goodToMerge: boolean;
   summary: string;
   description: string;
+  reason: string | null;
   onBehalfOfUserId: string;
   pullRequestUrl: string | null;
   headSha: string | null;
@@ -299,6 +303,7 @@ export async function submitTestVerdict(
     goodToMerge: true,
     summary: true,
     description: true,
+    reason: true,
     onBehalfOfUserId: true,
     pullRequestUrl: true,
     headSha: true,
@@ -323,6 +328,7 @@ export async function submitTestVerdict(
             goodToMerge: body.goodToMerge,
             summary: body.summary,
             description: body.description,
+            reason: body.reason ?? null,
             onBehalfOfUserId,
             pullRequestUrl,
             headSha,
@@ -372,6 +378,7 @@ export async function submitTestVerdict(
           goodToMerge: body.goodToMerge,
           summary: body.summary,
           description: body.description,
+          reason: body.reason ?? null,
           pullRequestUrl,
           headSha,
           files: body.files ? uniqueEvidenceFiles(body.files) : [],
@@ -437,22 +444,21 @@ function readyBlock(
     repo: repoForPullRequest(bug.project, bug.pullRequestUrl),
   });
   const reason = gate.reason ?? "";
-  if (gate.broken) {
+  const kind = judgeBlockKind(gate, report);
+  if (kind === "pull_request") {
     return { missing: "pull_request", message: reason, todo: "The author fixes the pull request (a new one, or a repaired link). Then judge it again." };
   }
-  if (report?.state === "open" && !gate.needsReport) {
-    if (report.mergeable === false) {
-      const claim = bug.claims.find((c) => c.status === "active" && !c.releasedAt);
-      const note = conflictComment(claim?.agent.name);
-      return { missing: "merge_conflict", message: note.reason, todo: note.todo };
-    }
-    if (report.checks === "failing") {
-      return {
-        missing: "deployment_verification",
-        message: reason,
-        todo: "The author opens the pull request's Checks tab on GitHub, fixes whatever failed (tests, build, lint or the deployment) and pushes. Then an independent agent reports it again.",
-      };
-    }
+  if (kind === "merge_conflict") {
+    const claim = bug.claims.find((c) => c.status === "active" && !c.releasedAt);
+    const note = conflictComment(claim?.agent.name);
+    return { missing: "merge_conflict", message: note.reason, todo: note.todo };
+  }
+  if (kind === "deployment_verification") {
+    return {
+      missing: "deployment_verification",
+      message: reason,
+      todo: "The author opens the pull request's Checks tab on GitHub, fixes whatever failed (tests, build, lint or the deployment) and pushes. Then an independent agent reports it again.",
+    };
   }
   return null;
 }

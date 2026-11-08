@@ -1,5 +1,6 @@
 "use server";
 
+import { closeSupportThreadsForIssue } from "@/lib/support-threads";
 import { revalidatePath } from "next/cache";
 import { activeIn } from "@/lib/agents/active-in";
 import { revalidateIssue } from "@/lib/revalidate-issue";
@@ -114,6 +115,8 @@ import {
 import { ideaPath, refOf } from "@/lib/project-paths";
 import { moveTo } from "@/lib/issue-substatus";
 import { entrySubstatus } from "@/lib/marketing/track";
+import { createFinding, isSecuritySeverity, placeholderTitle, PLACEHOLDER_DESCRIPTION, PLACEHOLDER_SUMMARY, isPrivateFinding, PRIVATE_FINDING_EDIT_MESSAGE } from "@/lib/security-findings";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 
 export type ActionResult = {
   error?: string;
@@ -278,6 +281,20 @@ export async function createBugAction(
     return { error: "You must be a member of this project to submit issues." };
   }
 
+  // #secret-protection: checked before anything else reads it, the idea-writing model included.
+  const secrets = await checkPostForSecrets({
+    organisationId,
+    projectId,
+    actor: { kind: "user", userId },
+    source: "idea",
+    url: null,
+    fields: { title: parsed.data.title, description: parsed.data.description, rationale, proofLinks: parsed.data.proofLinks.join("\n") },
+    noun: "this idea",
+  });
+  if (!secrets.ok) {
+    return fieldError(secrets.field === "description" || secrets.field === "proofLinks" || secrets.field === "rationale" ? secrets.field : "title", secrets.message);
+  }
+
   if (typeId) {
     const issueType = await issueTypeForCreate(typeId, organisationId);
     if (!issueType || !issueType.isActive) {
@@ -298,10 +315,19 @@ export async function createBugAction(
   const areaId = parsed.data.areaId && parsed.data.areaId.length > 0
     ? parsed.data.areaId
     : null;
+  // #security-findings: a private security report. Its details go to SecurityFinding and
+  // the idea keeps a placeholder, so nothing else in Ziki can show them before the fix is live.
+  const security = formData.get("security") === "on" || formData.get("security") === "true";
+  const rawSeverity = formData.get("severity");
+  if (security && !isSecuritySeverity(rawSeverity)) {
+    return fieldError("severity", "Choose how serious it is: Critical, High, Medium or Low.");
+  }
+  const severity = security && isSecuritySeverity(rawSeverity) ? rawSeverity : null;
   // #idea-intake: Claude writes what they typed up as a clear idea (title and the standard
   // headings) before it is saved. Without the key, or if that fails, it is saved as typed.
   // A marketing task is kept as written: the structuring writes a product report's headings.
-  const structured = track === "product"
+  // A security report is saved as typed: its details are not sent to any outside service.
+  const structured = track === "product" && !severity
     ? await structureIdea({ title: parsed.data.title, description: parsed.data.description })
     : null;
   const ideaTitle = structured?.title ?? parsed.data.title;
@@ -325,18 +351,33 @@ export async function createBugAction(
           projectId,
           beneficiaryUserId: userId,
           reporterId: userId,
-          title: ideaTitle,
-          description,
+          title: severity ? placeholderTitle(severity) : ideaTitle,
+          description: severity ? PLACEHOLDER_DESCRIPTION : description,
+          ...(severity ? { summary: PLACEHOLDER_SUMMARY } : {}),
           track,
           rationale,
           typeId,
-          proofLinks: parsed.data.proofLinks,
+          // Proof links can point at the exploit, so a private finding keeps them in its description.
+          proofLinks: severity ? [] : parsed.data.proofLinks,
           areaId,
         },
         select: { id: true, number: true },
       });
+      const finding = severity
+        ? await createFinding(tx, {
+            organisationId,
+            projectId,
+            ideaId: created.id,
+            reporterId: userId,
+            severity,
+            title: ideaTitle,
+            description: parsed.data.proofLinks.length
+              ? `${description}\n\n**Proof links**\n${parsed.data.proofLinks.map((link) => `- ${link}`).join("\n")}`
+              : description,
+          })
+        : null;
       // Files uploaded while writing the report (#215), and images pasted
-      // or dropped into the description (#305).
+      // or dropped into the description (#305). A finding's files stay with the finding.
       await linkAttachments(tx, {
         ids: [
           ...new Set([
@@ -345,7 +386,7 @@ export async function createBugAction(
           ]),
         ],
         uploaderId: userId,
-        ideaId: created.id,
+        ...(finding ? { securityFindingId: finding.id } : { ideaId: created.id }),
       });
       // #600 / #534: agents hear about ideas people file.
       await publish(tx, {
@@ -359,6 +400,7 @@ export async function createBugAction(
           reporterId: userId,
           beneficiaryUserId: userId,
           isReport,
+          ...(severity ? { security: { severity } } : {}),
           actor: { kind: "user", id: userId, name: user.name ?? null },
         },
       });
@@ -521,6 +563,7 @@ export async function updateBugAction(
     milestoneId?: string | null;
     isBoosted?: boolean;
     boostedAt?: Date | null;
+    priority?: string;
   } = {};
 
   if (parsed.data.status && parsed.data.status !== existing.status) Object.assign(data, moveTo(entrySubstatus(existing.track, parsed.data.status)));
@@ -535,6 +578,9 @@ export async function updateBugAction(
   if (parsed.data.assigneeId !== undefined) {
     data.assigneeId =
       parsed.data.assigneeId === "" ? null : parsed.data.assigneeId;
+  }
+  if (parsed.data.priority !== undefined) {
+    data.priority = parsed.data.priority;
   }
 
   type PendingActivity = {
@@ -672,6 +718,14 @@ export async function updateBugAction(
         metadata: { field: "milestone", from: fromTitle, to: toTitle },
       });
     }
+  }
+
+  if (data.priority !== undefined && data.priority !== existing.priority) {
+    pending.push({
+      type: "commented",
+      summary: `Priority changed to ${data.priority}`,
+      metadata: { field: "priority", from: existing.priority, to: data.priority },
+    });
   }
 
   if (pending.length === 0 && Object.keys(data).length === 0) {
@@ -982,6 +1036,10 @@ export async function editBugContentAction(
   if (!existing || existing.isDeleted) {
     return { error: TICKET_EDIT_ERRORS.notFound };
   }
+  // #security-findings: the shared row of a private finding only ever holds the placeholder.
+  if (await isPrivateFinding({ bugId: existing.id })) {
+    return { error: PRIVATE_FINDING_EDIT_MESSAGE };
+  }
 
   if (
     !canEditTicket({
@@ -1002,6 +1060,17 @@ export async function editBugContentAction(
   if (!parsed.success) {
     return fromZodError(parsed.error);
   }
+
+  // #secret-protection: an edit is a post too.
+  const secrets = await checkPostForSecrets({
+    organisationId: existing.organisationId,
+    actor: { kind: "user", userId },
+    source: "issue",
+    bugId: existing.id,
+    fields: { title: parsed.data.title, description: parsed.data.description },
+    noun: "this issue",
+  });
+  if (!secrets.ok) return fieldError(secrets.field === "title" ? "title" : "description", secrets.message);
 
   const normalizedDescription = await resolveOrganisationMentions(prisma, existing.organisationId, parsed.data.description);
   const changedFields = getChangedEditFields(existing, {
@@ -1564,6 +1633,18 @@ export async function addCommentAction(
     return { error: "You must be a member of this project to comment." };
   }
 
+  // #secret-protection: stopped before it is saved, or sent to anyone watching.
+  const secrets = await checkPostForSecrets({
+    organisationId: bug.organisationId,
+    projectId: bug.projectId,
+    actor: { kind: "user", userId },
+    source: "comment",
+    bugId: bug.id,
+    fields: { body: parsed.data.body },
+    noun: "this comment",
+  });
+  if (!secrets.ok) return fieldError("body", secrets.message);
+
   // One rule for where a comment may go, as for agents (lib/comment-placement.ts).
   let placement: CommentPlacement;
   try {
@@ -1830,6 +1911,7 @@ export async function deleteBugAction(bugId: string): Promise<ActionResult> {
           deletedAt: new Date(),
         },
       });
+      await closeSupportThreadsForIssue(tx, { bugId, reason: "issue_closed" });
       // Release any unreleased claims on the soft-deleted issue (#627), a plan review's planning claim included.
       await tx.issueClaim.updateMany({
         where: { bugId, releasedAt: null, status: { in: ["active", "offered", "planning"] } },
@@ -2015,6 +2097,72 @@ export async function toggleBoostBugAction(
  * Allows a user to assign an issue to themselves, or unassign if currently assigned.
  * Validates permission via canAssignTicket.
  */
+export async function setIssuePriorityAction(
+  bugId: string,
+  priority: string,
+): Promise<ActionResult & { priority?: string }> {
+  const user = await requireUser();
+  const access = await currentOrganisationAccess(user.id, user.role);
+
+  if (!bugId || typeof bugId !== "string" || bugId.trim().length === 0) {
+    return { error: "Invalid issue id" };
+  }
+  if (!["low", "medium", "high", "urgent"].includes(priority)) {
+    return { error: "Invalid priority" };
+  }
+
+  const organisationId = await currentOrganisationIdFor(user.id);
+  const existing = await prisma.bug.findUnique({
+    where: { id: bugId, ...bugInOrganisation(organisationId) },
+    select: { id: true, priority: true, isDeleted: true, assigneeId: true },
+  });
+  if (!existing || existing.isDeleted) {
+    return { error: "Issue not found" };
+  }
+
+  const isAssignee = existing.assigneeId === user.id;
+  if (!access.admin && !isAssignee) {
+    return { error: "Only the assignee or an admin can change priority" };
+  }
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.bug.update({
+        where: { id: bugId },
+        data: { priority },
+      });
+      await tx.bugActivity.create({
+        data: {
+          bugId,
+          actorId: user.id,
+          type: "commented",
+          summary: `Priority changed to ${priority}`,
+          metadata: {
+            field: "priority",
+            from: existing.priority,
+            to: priority,
+          } as Prisma.InputJsonValue,
+        },
+      });
+      await publishWebEvent(tx, {
+        bugId,
+        type: "issue.updated",
+        actorUserId: user.id,
+        payload: { priority },
+      });
+    });
+  } catch (error) {
+    console.error("Failed to set issue priority:", error);
+    return { error: "Failed to update priority" };
+  }
+
+  revalidatePath("/[org]/[project]", "layout");
+  revalidateIssue();
+  revalidatePath("/bugs");
+  revalidatePath(`/bugs/${bugId}`);
+  return { ok: true, priority };
+}
+
 export async function selfAssignBugAction(
   bugId: string,
   assign: boolean = true,

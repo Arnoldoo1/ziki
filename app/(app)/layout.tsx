@@ -5,6 +5,8 @@ import { auth } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
 import { isLinkPreviewBot } from "@/lib/link-preview";
 import { isPublicAgentPath } from "@/lib/public-agent-paths";
+import { projectOverviewSegments } from "@/lib/project-slug";
+import { publicIntakeSegments } from "@/lib/public-project-paths";
 import { AppHeader } from "@/components/app-header";
 import { getUnreadCount } from "@/lib/lookups";
 import { MAIN_CONTENT_ID, SkipLink } from "@/components/skip-link";
@@ -16,6 +18,7 @@ import { prisma } from "@/lib/prisma";
 import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { firstProjectRefFor } from "@/lib/project-route";
 import { organisationsForUser } from "@/lib/organisations";
+import type { OrganisationRole } from "@/lib/organisation-role";
 import { countPendingEscalations } from "@/lib/agent-questions";
 import { loadOwnAgents } from "@/lib/dashboard-overview";
 import { AgentsDock, type DockAgent } from "@/components/agents-dock";
@@ -56,11 +59,28 @@ export default async function AppLayout({
     }
   }
 
-  // #agent-profile: a guest on a public agent page (a profile, the directory)
-  // gets a plain shell with a way to sign in, not the sign-in redirect.
   const reqPath = (await headers()).get("x-ziki-path") ?? "";
+  const intakeSegments = !session?.user ? publicIntakeSegments(reqPath) : null;
+  const overviewSegments = !session?.user ? projectOverviewSegments(reqPath) ?? intakeSegments : null;
+  const overviewProject = overviewSegments
+    ? await prisma.project.findFirst({
+        where: {
+          slug: overviewSegments.projectSlug,
+          // Only a public project gets the guest shell. A private one sends a
+          // guest to sign in, the same as an address that names no project, so
+          // the shell doesn't tell outsiders which private projects exist.
+          visibility: "public",
+          archivedAt: null,
+          ...(intakeSegments?.kind === "report" ? { acceptsGuestIdeas: true } : {}),
+          organisation: { slug: overviewSegments.orgSlug, archivedAt: null },
+        },
+        select: { id: true },
+      })
+    : null;
+  // Guests may read a project's public overview. The page itself decides
+  // whether the project is public or the viewer is a member.
   const isPublicSkillsPath = reqPath === "/skills" || reqPath.startsWith("/skills/");
-  if (!session?.user && (isPublicAgentPath(reqPath) || reqPath === "/discover" || isPublicSkillsPath)) {
+  if (!session?.user && (isPublicAgentPath(reqPath) || reqPath === "/discover" || isPublicSkillsPath || overviewProject)) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
         <header className="border-b border-zk-border bg-zk-surface">
@@ -88,6 +108,7 @@ export default async function AppLayout({
   let externalProjects: ExternalProjectChoice[] = [];
   let activeOrganisationId: string | null = null;
   let organisationId: string | null = null;
+  let organisationRole: OrganisationRole | null = null;
   try {
     organisationId = await currentOrganisationIdFor(user.id);
     activeOrganisationId = organisationId;
@@ -134,6 +155,8 @@ export default async function AppLayout({
       list.push({ id: p.id, name: p.name, slug: p.slug });
       projectsByOrg.set(p.organisationId, list);
     }
+
+    organisationRole = activeOrganisations.find((organisation) => organisation.id === activeOrganisationId)?.role ?? null;
 
     organisationOptions = activeOrganisations.map((organisation) => ({
       id: organisation.id,
@@ -225,7 +248,7 @@ export default async function AppLayout({
   }
 
   return (
-    // data-app-shell switches the page (and its dialogs and toasts) to Inter; see globals.css.
+    // data-app-shell marks the signed-in app shell for the on-screen guide.
     <div data-app-shell="" className="flex min-h-screen flex-col bg-zk-bg">
       <SkipLink />
       <div className="flex min-w-0 flex-1 flex-col">
@@ -241,6 +264,7 @@ export default async function AppLayout({
           organisationOptions={organisationOptions}
           externalProjects={externalProjects}
           activeOrganisationId={activeOrganisationId}
+          organisationRole={organisationRole}
           defaultProjectSlug={defaultProjectSlug}
           earned={earned}
           earningsOrganisationId={earningsOrganisationId}
