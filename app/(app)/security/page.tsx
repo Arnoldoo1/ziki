@@ -134,7 +134,7 @@ export default async function SecurityPage({ searchParams }: Props) {
           {dashboard.open.length === 1 ? "finding" : "findings"}
         </p>
         {visibleOpenFindings.length ? (
-          <FindingTable findings={visibleOpenFindings} kind="open" />
+          <FindingTable findings={visibleOpenFindings} kind="open" filterHref={securityFilterHref(selectedSeverity, selectedStage)} />
         ) : selectedStage === "all" && selectedSeverity === "all" ? (
           <p className="mt-3 text-sm text-zk-text2">No open security findings. Found something? Report it privately.</p>
         ) : selectedSeverity === "all" ? (
@@ -157,7 +157,7 @@ export default async function SecurityPage({ searchParams }: Props) {
       <section aria-labelledby="disclosed-heading" className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
         <h2 id="disclosed-heading" className="text-lg font-bold text-zk-text">Disclosed</h2>
         {filteredDisclosed.length ? (
-          <FindingTable findings={filteredDisclosed} kind="disclosed" />
+          <FindingTable findings={filteredDisclosed} kind="disclosed" filterHref={securityFilterHref(selectedSeverity, selectedStage)} />
         ) : (
           <p className="mt-3 text-sm text-zk-text2">Findings appear here once their fix is live and their details are published.</p>
         )}
@@ -250,7 +250,7 @@ function Stat({ label, value, hint, alert = false }: { label: string; value: str
   );
 }
 
-function FindingTable({ findings, kind }: { findings: DashboardFinding[]; kind: "open" | "disclosed" }) {
+function FindingTable({ findings, kind, filterHref }: { findings: DashboardFinding[]; kind: "open" | "disclosed"; filterHref: string }) {
   return (
     <div className="mt-3 overflow-x-auto">
       <table className="security-table w-full min-w-[560px] text-left text-sm">
@@ -268,7 +268,7 @@ function FindingTable({ findings, kind }: { findings: DashboardFinding[]; kind: 
             <tr key={finding.id}>
               <td className="py-2 pr-3 align-top"><SeverityChip severity={finding.severity} /></td>
               <td className="py-2 pr-3 align-top">
-                <Link href={finding.href} className="font-semibold text-zk-accent hover:underline">{finding.ref}</Link>{" "}
+                <Link href={finding.canView ? "/security/findings/" + finding.id + filterHref.slice("/security".length) : finding.href} className="font-semibold text-zk-accent hover:underline">{finding.ref}</Link>{" "}
                 {finding.title ? (
                   <span className="text-zk-text">{finding.title}</span>
                 ) : (
