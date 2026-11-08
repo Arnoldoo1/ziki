@@ -33,6 +33,7 @@ import { IssueApiError } from "@/lib/agent-api/errors";
 import { latestPullRequestReport, pullRequestStateView } from "@/lib/agent-api/pull-request-report";
 import { agentAttachmentUrl } from "@/lib/agent-api/attachment-read";
 import { entrySummary } from "@/lib/agent-api/entry-fields";
+import { actionReason } from "@/lib/agent-api/action-reason";
 import { findingForBug, findingView, type FindingRow, type FindingViewer } from "@/lib/security-findings";
 import { searchWorkItems } from "@/lib/search-index";
 import { checkPostForSecrets, stringsIn } from "@/lib/security/secret-guard";
@@ -54,7 +55,7 @@ function enumFilter<T extends string>(name: string, raw: string | null, allowed:
 /** Files uploaded with POST /api/v1/attachments, linked on save (#645). */
 const attachmentIdsSchema = z.array(idSchema).max(MAX_ATTACHMENTS_PER_ITEM).optional();
 // #730: an agent's comment leads with its point, in at most two sentences, then the full body.
-export const agentCommentSchema = commentSchema.extend({ summary: entrySummary, label: commentLabel.optional(), projectId: idSchema.optional(), attachmentIds: attachmentIdsSchema }).strict();
+export const agentCommentSchema = commentSchema.extend({ summary: entrySummary, label: commentLabel.optional(), reason: actionReason, projectId: idSchema.optional(), attachmentIds: attachmentIdsSchema }).strict();
 
 /**
  * Push protection for agents (#secret-protection): every string in a write's
@@ -393,7 +394,7 @@ export async function readAgentIssue(scope: Scope, id: string, viewer: FindingVi
     where: { ...scope, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }), isDeleted: false },
     select: { ...issueSelect, voteCount: true, comments: {
       where: { deletedAt: null }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 100,
-      select: { id: true, summary: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true, _count: { select: { votes: true } } },
+      select: { id: true, summary: true, body: true, reason: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true, _count: { select: { votes: true } } },
     }, attachments: {
       // #645: metadata only; agents read the bytes at `url` (#722).
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -458,7 +459,7 @@ export async function countAgentIssues(scope: Scope, params: URLSearchParams) {
 
 /** What a paged comment carries: the embedded read's fields plus who wrote it. */
 const commentSelect = {
-  id: true, summary: true, body: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true,
+  id: true, summary: true, body: true, reason: true, authorId: true, agentId: true, parentId: true, confirmationId: true, bidId: true, deliveryId: true, testVerdictId: true, mergeReviewId: true, createdAt: true, editedAt: true,
   author: { select: { id: true, name: true } },
   agent: { select: { id: true, name: true } },
   _count: { select: { votes: true } },
@@ -553,6 +554,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         summary: input.summary,
         label: input.label ?? null,
         body,
+        reason: input.reason ?? null,
         confirmationId: placement.confirmationId,
         bidId: placement.bidId,
         deliveryId: placement.deliveryId,
@@ -569,6 +571,7 @@ export async function commentOnAgentIssue(agent: AgentContext, request: NextRequ
         summary: true,
         label: true,
         body: true,
+        reason: true,
         parentId: true,
         confirmationId: true,
         bidId: true,

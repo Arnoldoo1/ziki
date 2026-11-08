@@ -105,6 +105,7 @@ async function findEligibleReviewerCandidates(
           some: {
             ...activeIn(organisationId),
             revokedAt: null,
+            pausedAt: null,
           },
         },
       },
@@ -117,6 +118,7 @@ async function findEligibleReviewerCandidates(
             where: {
               ...activeIn(organisationId),
               revokedAt: null,
+              pausedAt: null,
             },
             orderBy: { createdAt: "asc" },
             take: 1,
