@@ -29,7 +29,14 @@ export const metadata = { title: "Security" };
  * the ones already disclosed. Owners and admins also choose which agents may
  * read private findings.
  */
-type SearchParams = Promise<{ severity?: string | string[]; stage?: string | string[] }>;
+type SearchParams = Promise<{
+  severity?: string | string[];
+  stage?: string | string[];
+  q?: string | string[];
+  project?: string | string[];
+  assignee?: string | string[];
+  reporter?: string | string[];
+}>;
 
 export default async function SecurityPage(props: {
   searchParams?: SearchParams;
