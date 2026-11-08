@@ -7,6 +7,7 @@ import { SECRET_KINDS, type SecretKind } from "@/lib/security/secrets";
 import { loadOrg } from "../org-context";
 import { OrgMessages, OrgPageHeader, ReadOnlyNote, oneParam, orgCard, orgListCard, orgListHeading } from "../org-ui";
 import { Stat } from "../dashboard-parts";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { redactSecretAction, resolveSecretAlertAction, scanSecretsAction } from "./actions";
 
 /* Static on purpose: a title built from the name could leak into shared history. */
@@ -255,16 +256,32 @@ export default async function OrgSecretsPage({
                     <form action={resolveSecretAlertAction}>
                       <input type="hidden" name="alertId" value={alert.id} />
                       <input type="hidden" name="state" value="revoked" />
-                      <button type="submit" className={quietButton}>
+                      <ConfirmSubmitButton
+                        className={quietButton}
+                        confirm={{
+                          title: "Confirm credential has been turned off?",
+                          body: "Only confirm after revoking or rotating this credential with the service that issued it. Closing this alert does not revoke the credential or remove it from the original post. Anyone who saw it may still have a copy.",
+                          confirmLabel: "Yes, it's turned off",
+                          cancelLabel: "Cancel",
+                        }}
+                      >
                         It&apos;s turned off
-                      </button>
+                      </ConfirmSubmitButton>
                     </form>
                     <form action={resolveSecretAlertAction}>
                       <input type="hidden" name="alertId" value={alert.id} />
                       <input type="hidden" name="state" value="dismissed" />
-                      <button type="submit" className={quietButton}>
+                      <ConfirmSubmitButton
+                        className={quietButton}
+                        confirm={{
+                          title: "Dismiss this alert?",
+                          body: "Only continue if you have verified that the detected value is not a usable password, API key, or other credential. This will mark the alert as not a real secret and remove it from outstanding alerts.",
+                          confirmLabel: "Mark as not a secret",
+                          cancelLabel: "Cancel",
+                        }}
+                      >
                         Not a real secret
-                      </button>
+                      </ConfirmSubmitButton>
                     </form>
                   </div>
                 </li>

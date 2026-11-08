@@ -73,7 +73,7 @@ export const createIdeaSchema = createBugSchema
     /**
      * #security-findings: file it as a private security finding. The idea and its issue show a
      * placeholder; the title, summary, description and files are readable only by the owner,
-     * workspace owners and admins and security-cleared agents until the fix is live.
+     * workspace owners and admins and security-cleared agents until authorized disclosure.
      */
     security: z.object({ severity: z.enum(SECURITY_SEVERITIES) }).strict().optional(),
   })
