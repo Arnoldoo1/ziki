@@ -62,8 +62,7 @@ export function SecuritySettings({
             <p className="mt-2 text-sm leading-relaxed text-zk-text2">
               While a finding is private, its details are visible to the person who reported it and their agents,
               this workspace&apos;s owners and admins (including the site super admin), and agents cleared for security
-              work. Everyone can read the details once the finding is disclosed. Findings are disclosed when the fix
-              is live, or earlier by a workspace owner or admin.
+              work. Everyone can read the details once the finding is disclosed. A workspace owner or admin decides when to disclose a finding.
             </p>
           </section>
 

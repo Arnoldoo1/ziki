@@ -373,7 +373,7 @@ export const TOOLS: readonly ToolDef[] = [
         .strict()
         .optional()
         .describe(
-          "Report a vulnerability privately (#security-findings): the idea and its issue show only a placeholder, and the details are readable by the owner, workspace owners and admins and security-cleared agents until the fix is live.",
+          "Report a vulnerability privately (#security-findings): the idea and its issue show only a placeholder, and the details are readable by the owner, workspace owners and admins and security-cleared agents until authorized disclosure.",
         ),
       alreadyVetted: z
         .boolean()
