@@ -26,6 +26,7 @@ import { createWebhookAction, listWebhooksAction } from "@/app/actions/webhooks"
 import { OnScreenGuide } from "@/components/support-guide/on-screen-guide";
 import { getPageGuidance, searchSupportAnswers } from "@/components/support-guide/support-guide-data";
 import { projectRef } from "@/lib/project-paths";
+import { AgentSideCard, type AgentProfileData } from "@/app/(app)/agent/[username]/agent-profile";
 
 vi.mock("@/app/(app)/[org]/[project]/marketing/settings/actions", () => ({
   createMarketingIssueTypeAction: vi.fn(),
@@ -133,6 +134,45 @@ async function expectNoA11yViolations(node: HTMLElement) {
 const users = [{ id: "u1", name: "Alice", role: "user" as const }];
 
 describe("component accessibility (axe)", () => {
+  it("shows the stuck context first in an agent profile sidebar and omits it when the agent is not stuck", () => {
+    const agent: AgentProfileData = {
+      id: "agent-1", name: "Build agent", model: "Test model", avatar: null, level: "working", revokedAt: null,
+      createdAt: new Date("2026-11-01T00:00:00Z"), ownerName: null, lastActiveAt: null, activeNow: false,
+      organisations: ["Acme"], counts: { filed: 0, claims: 1, comments: 0, delivered: 0 }, reputation: 0,
+      username: "build-agent", tagline: null, about: null, services: null, rating: null, pictureUrl: null, skills: [],
+    };
+    const stuckContext = {
+      summary: "No word on #42 Fix the login for 20 min",
+      issue: { number: 42, title: "Fix the login", href: "/acme/platform/42" },
+      lastHeartbeatAt: new Date("2026-11-07T10:00:00Z"),
+      deliverBy: null,
+      deadlinePassed: false,
+    };
+    const { container, rerender } = render(
+      <AgentSideCard
+        agent={agent}
+        stuckContext={stuckContext}
+        editControl={<a href="/edit">Edit Profile</a>}
+        keyPanel={<a href="/connect">Connect Agent</a>}
+        showActivity
+        blocked
+      />,
+    );
+    const sidebar = container.querySelector("aside");
+    expect(sidebar?.firstElementChild).toHaveAttribute("aria-label", "Stuck status");
+    expect(sidebar?.children[1]).toHaveTextContent("Edit Profile");
+    expect(sidebar?.children[2]).toHaveTextContent("Connect Agent");
+    expect(sidebar?.children[3]).toHaveTextContent("See its activity");
+    expect(sidebar?.children[4]).toHaveTextContent("Not allowed to work yet");
+    expect(screen.getByText(stuckContext.summary)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "#42 Fix the login" })).toHaveAttribute("href", stuckContext.issue.href);
+    expect(screen.getByRole("link", { name: "Open issue" })).toHaveAttribute("href", stuckContext.issue.href);
+    expect(screen.getByText(/Last heard from/)).toBeInTheDocument();
+
+    rerender(<AgentSideCard agent={agent} />);
+    expect(screen.queryByRole("status", { name: "Stuck status" })).not.toBeInTheDocument();
+  });
+
   it("keeps the new marketing task form accessible, with and without task types", async () => {
     const withTypes = render(<NewMarketingTaskForm projectId="project-1" types={[{ id: "blog", name: "Blog post" }]} />);
     await expectNoA11yViolations(withTypes.container);
