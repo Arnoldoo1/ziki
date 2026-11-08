@@ -360,6 +360,8 @@ model User {
   reviewedSkillSubmissions  SkillSubmission[]       @relation("SkillSubmissionReviewedBy")
   userSessions              UserSession[]
   loginHistory              LoginHistory[]
+  /// #time-tracking: time this person logged against issues.
+  timeEntries               TimeEntry[]
 }
 
 /// Single-use password reset tokens (~30 min TTL). Store only the SHA-256 hash.
@@ -528,6 +530,8 @@ model Bug {
   goalAllocations           GoalAllocation[]
   mistakes                  AgentMistake[]
   supportThreads            SupportThread[]
+  /// #time-tracking: time logged against this issue.
+  timeEntries               TimeEntry[]
 
   /// #517: issue numbers are per organisation, so two organisations can both have a #1.
   @@unique([organisationId, number])
@@ -550,6 +554,26 @@ model Bug {
   // so the list can be read in index order instead of sorting every row.
   @@index([isDeleted, isBoosted(sort: Desc), boostedAt(sort: Desc), voteCount(sort: Desc), updatedAt(sort: Desc), createdAt(sort: Desc)], map: "Bug_list_top_votes_idx")
   @@index([isDeleted, isBoosted(sort: Desc), boostedAt(sort: Desc), createdAt(sort: Desc), id(sort: Desc)], map: "Bug_list_newest_idx")
+}
+
+/// Time a person logged against an issue (#time-tracking). Minutes are whole
+/// minutes; the total is summed from the entries so the record stays auditable.
+model TimeEntry {
+  id        String   @id @default(cuid())
+  bugId     String
+  bug       Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Whole minutes spent, 1..1440 per entry.
+  minutes   Int
+  /// What the time was spent on.
+  note      String?
+  /// The day the work happened (defaults to when the entry was logged).
+  spentOn   DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([bugId, spentOn])
+  @@index([userId, spentOn])
 }
 
 /// A dependency that explains why an issue cannot proceed until another issue is resolved.
