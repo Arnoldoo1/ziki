@@ -1014,12 +1014,22 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
   let previewCard: PreviewCardProps | null = null;
   if (bug.pullRequestUrl && !bug.isDeleted) {
     const pullRequestUrl = bug.pullRequestUrl;
-    const [previewBuild, lastReadyUrl] = await Promise.all([
+    const [previewBuild, lastReadyUrl, previewsOn] = await Promise.all([
       loadOptional("preview build", null, () => latestPreviewBuild(bug.id, pullRequestUrl)),
       loadOptional("last preview", null, () => lastReadyPreviewUrl(bug.id, pullRequestUrl)),
+      loadOptional("preview settings", false, () =>
+        prisma.projectPreviewSettings.findUnique({ where: { projectId: bug.projectId }, select: { enabled: true } }).then((row) => Boolean(row?.enabled)),
+      ),
     ]);
-    if (previewBuild) {
-      previewCard = { bugId: bug.id, build: previewBuild, lastReadyUrl, canFollow: Boolean(access.membershipRole) || access.admin };
+    // A build already made shows even after previews are turned off; otherwise only while they're on.
+    if (previewBuild || previewsOn) {
+      previewCard = {
+        bugId: bug.id,
+        pullNumber: parsePullRequestUrl(pullRequestUrl)?.number ?? null,
+        build: previewBuild,
+        lastReadyUrl,
+        canFollow: Boolean(access.membershipRole) || access.admin,
+      };
     }
   }
 

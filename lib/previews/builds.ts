@@ -237,7 +237,7 @@ async function followBuild(builder: Builder, client: GitHubClient, build: OpenBu
     data: {
       ...base,
       status: "failed",
-      error: run.conclusion === "cancelled" ? "The preview build was cancelled." : "The preview build failed. Its run log says why.",
+      error: run.conclusion === "cancelled" ? "The preview build was cancelled." : "The preview build failed. Check that the install and build commands and the output folder in the project's preview settings match the repository.",
       completedAt: new Date(),
     },
   });
