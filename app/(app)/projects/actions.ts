@@ -129,6 +129,8 @@ export async function updateProjectAction(
         data: {
           ...parsed.data,
           ...(rewardConfig !== undefined ? { rewardConfig } : {}),
+          // Opened to contributors just now: the Earn banner names it and comes back for it (#earnings).
+          ...(parsed.data.isOpenForContributors && !project.isOpenForContributors ? { openedForContributorsAt: new Date() } : {}),
         },
       });
       await tx.projectAuditEvent.create({
@@ -290,6 +292,7 @@ export async function createProjectAction(
         stagingUrl: parsed.data.stagingUrl,
         visibility,
         isOpenForContributors,
+        openedForContributorsAt: isOpenForContributors ? new Date() : null,
         acceptsGuestIdeas,
         contributorGuidelines: parsed.data.contributorGuidelines,
         rewardConfig: rewardConfig ?? undefined,
