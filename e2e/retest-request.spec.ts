@@ -4,11 +4,20 @@ import { emailFor } from "./users";
 
 test("requests a retest on a Live issue and keeps its workflow and payout history", async ({ page, width }) => {
   const prisma = e2eDb();
-  const number = width === "mobile" ? 151 : 150;
-  const issue = await prisma.bug.findUniqueOrThrow({
-    where: { organisationId_number: { organisationId: "fx-organisation", number } },
+  const liveIssues = await prisma.bug.findMany({
+    where: {
+      organisationId: "fx-organisation",
+      status: "resolved",
+      claims: { some: {} },
+      deliveries: { some: {} },
+      testVerdicts: { some: {} },
+      mergeReviews: { some: {} },
+    },
+    orderBy: { number: "asc" },
     select: { id: true, number: true, title: true, status: true, substatus: true, reporterId: true, heldPayout: true, payoutReleasedAt: true },
   });
+  const issue = liveIssues[width === "mobile" ? 1 : 0];
+  if (!issue) throw new Error("The Demo E2E fixtures need two Live issues with complete review history.");
   const requester = await prisma.user.findUniqueOrThrow({ where: { email: emailFor("user", width) }, select: { id: true } });
   // `e2e:seed` makes the test accounts members of Zedu, but not Demo. Add only
   // this requester to the fixture tenant so the issue route and workspace

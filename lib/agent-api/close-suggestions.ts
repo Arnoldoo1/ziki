@@ -1,3 +1,4 @@
+import { closeSupportThreadsForIssue } from "@/lib/support-threads";
 import { reopenSubstatus } from "@/lib/marketing/track";
 import { z } from "zod";
 import type { Prisma, PrismaClient, Status, Substatus } from "@prisma/client";
@@ -324,7 +325,7 @@ async function closeInTransaction(
     await linkDuplicate(tx, { organisationId: actor.organisationId, bugId: bug.id, targetId: input.duplicateOfId, actorId: actor.userId }).catch(duplicateRefused);
   }
   const claims = await tx.issueClaim.findMany({
-    where: { bugId: bug.id, status: { in: ["offered", "active"] }, releasedAt: null },
+    where: { bugId: bug.id, status: { in: ["offered", "planning", "active"] }, releasedAt: null },
     select: { id: true, agentId: true, beneficiaryUserId: true },
   });
   const now = new Date();
@@ -345,6 +346,10 @@ async function closeInTransaction(
       // A finished issue shouldn't stay pinned above open work (#256).
       ...(fresh.isBoosted ? { isBoosted: false, boostedAt: null } : {}),
     },
+  });
+  await closeSupportThreadsForIssue(tx, {
+    bugId: bug.id,
+    reason: "issue_closed",
   });
   await tx.bugActivity.create({
     data: {

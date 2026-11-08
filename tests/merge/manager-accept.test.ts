@@ -25,6 +25,8 @@ const db = vi.hoisted(() => ({
   bugActivity: { create: vi.fn() },
   comment: { create: vi.fn() },
   testVerdict: { findMany: vi.fn() },
+  // #plan-review: the accept looks for the delivering claim's approved plan; none here.
+  plan: { findFirst: vi.fn(async () => null) },
   mergeReview: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
   pullRequestReport: { findFirst: vi.fn() },
   issueConfirmation: { findMany: vi.fn() },
@@ -38,6 +40,8 @@ const db = vi.hoisted(() => ({
   projectWorkflow: { findUnique: vi.fn() },
   project: { findFirst: vi.fn() },
   agentMistake: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), findMany: vi.fn() },
+  supportThread: { findMany: vi.fn(async () => []), updateMany: vi.fn() },
+  notification: { createMany: vi.fn() },
   $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 }));

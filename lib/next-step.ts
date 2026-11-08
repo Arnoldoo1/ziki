@@ -48,7 +48,9 @@ export type IssueNextStepInput = {
   confirmations: number;
   confirmationsNeeded: number;
   /** Who has it (its claim), if anyone. */
-  holder: { agentName: string; personName: string; status: "offered" | "active"; offeredAt?: Date | string | null } | null;
+  holder: { agentName: string; personName: string; status: "offered" | "planning" | "active"; offeredAt?: Date | string | null } | null;
+  /** #plan-review: where the plan is while the issue is at In progress · Plan review. */
+  plan?: { submitted: boolean; decision: "approved" | "sent_back" | null; round: number; reviewBy: Date | string | null } | null;
   openBids: number;
   /** Judgements saying good to merge, and how many the project needs. */
   goodToMerge: number;
@@ -153,6 +155,28 @@ export function issueNextStep(input: IssueNextStepInput): NextStep {
         actor: "Working agents",
         action: "please bid on it with a summary and a plan for fixing it.",
       };
+    case "plan_review": {
+      const who = input.holder?.agentName ?? "The agent awarded it";
+      const owner = input.holder?.personName ?? "its owner";
+      if (!input.plan?.submitted || input.plan.decision === "sent_back") {
+        return {
+          tone: "warn",
+          title: input.plan?.decision === "sent_back" ? `Plan sent back to ${who}` : `Awarded to ${who}: plan review`,
+          detail: input.plan?.decision === "sent_back"
+            ? `${owner} edited the steps and sent the plan back (round ${input.plan.round}). The award lapses if the window runs out.`
+            : `This is a complex issue: ${who} writes its plan before the work starts. The award lapses if the window runs out.`,
+          actor: who,
+          action: input.plan?.decision === "sent_back" ? "resubmit the plan with the owner's changes, or refuse it." : "submit your plan: how you read the task, your assumptions, the steps, an estimate, risk and confidence.",
+        };
+      }
+      return {
+        tone: "warn",
+        title: `Plan waiting for ${owner}`,
+        detail: `${who} submitted its plan (round ${input.plan.round}). Only ${owner} can approve it or send it back.`,
+        actor: owner,
+        action: "read the plan, edit its steps if needed, then approve it or send it back.",
+      };
+    }
     case "in_progress":
       if (input.senseCheck) {
         return {
@@ -263,7 +287,34 @@ export type IdeaNextStepInput = {
   /** True when its owner withdrew it (#idea-withdraw) rather than a manager agent archiving it. */
   withdrawn?: boolean;
   governance?: NextStepGovernance | null;
+  /** Why it was rejected (e.g. "it doesn't align with the product's vision"). */
+  rejectReason?: string | null;
 };
+
+/** "Idea rejected because it doesn't align with the product's vision." */
+export function formatRejectDetail(reason: string): string {
+  const trimmed = reason.trim();
+  if (!trimmed) {
+    return "A manager agent rejected it. It takes no more verdicts.";
+  }
+  let body = trimmed;
+  if (/^idea rejected because\s+/i.test(body)) {
+    body = body.replace(/^idea rejected because\s+/i, "");
+  } else if (/^because\s+/i.test(body)) {
+    body = body.replace(/^because\s+/i, "");
+  }
+  body = body.trim();
+  if (!body) {
+    return "A manager agent rejected it. It takes no more verdicts.";
+  }
+  if (/^[A-Z][a-z]/.test(body)) {
+    body = body.charAt(0).toLowerCase() + body.slice(1);
+  }
+  if (!body.endsWith(".")) {
+    body = `${body}.`;
+  }
+  return `Idea rejected because ${body}`;
+}
 
 export function ideaNextStep(input: IdeaNextStepInput): NextStep {
   const governance = input.governance?.thresholdOnly ? input.governance : null;
@@ -280,7 +331,11 @@ export function ideaNextStep(input: IdeaNextStepInput): NextStep {
       return {
         tone: "bad",
         title: "Idea rejected",
-        detail: governance ? "Its verdicts rejected it. It takes no more verdicts." : "A manager agent rejected it. It takes no more verdicts.",
+        detail: input.rejectReason
+          ? formatRejectDetail(input.rejectReason)
+          : governance
+            ? "Its verdicts rejected it. It takes no more verdicts."
+            : "A manager agent rejected it. It takes no more verdicts.",
         actor: null,
         action: null,
       };

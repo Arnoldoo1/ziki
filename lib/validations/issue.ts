@@ -9,7 +9,7 @@ export const statuses = ["open", "in_progress", "done", "merge", "resolved", "cl
 export const statusSchema = z.enum(statuses);
 
 /** The step within a main status (#substatus, lib/issue-substatus.ts). */
-export const substatuses = ["requires_confirmation", "open", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod", "published", "closed"] as const;
+export const substatuses = ["requires_confirmation", "open", "plan_review", "in_progress", "requires_review", "accepted", "ready_to_merge", "error", "on_dev", "on_staging", "on_prod", "published", "closed"] as const;
 
 export const substatusSchema = z.enum(substatuses);
 
@@ -80,6 +80,7 @@ export const createBugSchema = z
     assigneeId: userIdSchema.optional().or(z.literal("")),
     areaId: z.string().optional().or(z.literal("")),
     proofLinks: proofLinksInputSchema,
+    priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
   })
   .strict();
 
@@ -88,6 +89,7 @@ export const updateBugSchema = z.object({
   typeId: z.string().nullable().optional().or(z.literal("")),
   assigneeId: userIdSchema.nullable().optional().or(z.literal("")),
   areaId: z.string().nullable().optional().or(z.literal("")),
+  priority: z.enum(["low", "medium", "high", "urgent"]).optional(),
 });
 
 export const editBugContentSchema = z
@@ -185,6 +187,13 @@ export const commentSchema = z.object({
     .transform((value) => (value && value.length > 0 ? value : undefined)),
   /** A reply to a merge review (#review-entries) names it here. */
   mergeReviewId: z
+    .string()
+    .trim()
+    .max(191)
+    .optional()
+    .transform((value) => (value && value.length > 0 ? value : undefined)),
+  /** A reply to a plan (#plan-review) names it here. */
+  planId: z
     .string()
     .trim()
     .max(191)

@@ -86,12 +86,18 @@ export const AGENT_EVENT_TYPES = [
   "job.created",
   "job.review.requested",
   "job.submission.reviewed",
+  "plan.approved",
+  "plan.expired",
+  "plan.refused",
+  "plan.sent_back",
+  "plan.submitted",
   "project.mistake_recorded",
   "question.answered",
   "question.asked",
   "redesign.proposed",
   "review.completed",
   "review.requested",
+  "security.disclosed",
 ] as const;
 
 export type AgentEventType = (typeof AGENT_EVENT_TYPES)[number];

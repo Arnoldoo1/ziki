@@ -7,6 +7,7 @@ import { reviewerConflict, ReviewerNotIndependentError, type ReviewedBug } from 
 import { hasLevel } from "@/lib/agents/levels";
 import type { AgentContext } from "@/lib/agents/require-agent";
 import { IssueApiError } from "@/lib/agent-api/errors";
+import { approvedPlanSummary, planPayoutFor } from "@/lib/agent-api/plan";
 import { publish } from "@/lib/agent-api/events";
 import { isConfirmed } from "@/lib/agent-api/confirmations";
 import { countedMergeVerdicts, deliveredClaim, MANAGER_VERDICT_WEIGHT } from "@/lib/agent-api/merge-verdicts";
@@ -24,12 +25,15 @@ import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly, thresholdDecision, type ThresholdDecision } from "@/lib/governance";
 import { mergeReviewTally } from "@/lib/agent-api/merge-review-tally";
 import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
+import { reopenOriginalAfterRevert } from "@/lib/take-it-back-server";
+import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { recordMistake, recordMistakeSchema, type RecordMistakeInput } from "@/lib/agent-api/mistakes";
 import { prGate, type PrGate } from "@/lib/agent-api/pr-gate";
 import { gateReport, latestPullRequestReport, notifyAuthor } from "@/lib/agent-api/pull-request-report";
 import { conflictComment } from "@/lib/agent-api/merge-conflict";
 import { moveTo } from "@/lib/issue-substatus";
 import { activeLevels, levelIn } from "@/lib/agents/active-in";
+import { closeSupportThreadsForIssue } from "@/lib/support-threads";
 
 /**
  * A merger accepting a fix (#434). The gate: the issue is confirmed, no
@@ -82,7 +86,7 @@ export const mergeBugSelect = {
   reporterId: true,
   createdByAgentId: true,
   createdByAgent: { select: { ownerUserId: true } },
-  project: { select: { repoUrl: true } },
+  project: { select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } },
   claims: {
     select: {
       id: true,
@@ -448,7 +452,7 @@ async function reviewFix(
   const gate = prGate(gateReport(report), {
     pullRequestUrl: bug.pullRequestUrl,
     pullRequestHeadSha: bug.pullRequestHeadSha,
-    repo: parseGitHubRepoUrl(bug.project?.repoUrl),
+    repo: repoForPullRequest(bug.project, bug.pullRequestUrl),
   });
   const block = acceptBlock(gate, report?.mergeable === false ? conflictComment(claim?.agent.name).todo : undefined);
   if (block) {
@@ -668,6 +672,8 @@ export type MarketingAcceptAwardsInput = {
   dispatcherPoints: number;
   /** The agent that gave each reviewer's good-to-merge judgement. */
   judgingAgent?: ReadonlyMap<string, string>;
+  /** #plan-review: the plan's award for the claim that delivered the work, when it ran under an approved plan. */
+  planAward?: PointAward | null;
 };
 
 /**
@@ -721,6 +727,7 @@ export function marketingAcceptAwards(input: MarketingAcceptAwardsInput): PointA
       agentId: input.judgingAgent?.get(userId) ?? null,
     });
   }
+  if (input.planAward) awards.push(input.planAward);
   return awards;
 }
 
@@ -742,6 +749,7 @@ async function acceptMarketing(
 ): Promise<AcceptFixResult> {
   const moved = moveTo(trackRules(bug.track).acceptMovesTo);
   await tx.bug.update({ where: { id: bug.id }, data: moved });
+  await closeSupportThreadsForIssue(tx, { bugId: bug.id, reason: "fix_live" });
   await tx.bugActivity.create({
     data: {
       bugId: bug.id,
@@ -792,6 +800,7 @@ async function acceptMarketing(
     reviewerPoints: calculateReviewerPoints(rewardConfig),
     dispatcherPoints: platform.dispatcher,
     judgingAgent,
+    planAward: await planPayoutFor(tx, bug, claim),
   });
   // Direct, not held: marketing work has no deployment reports to release a hold.
   for (const entry of awards) await award(tx, entry);
@@ -855,6 +864,7 @@ export async function finalizeResolved(tx: Prisma.TransactionClient, input: Fina
   const rewardedReviewerUserIds = [...input.rewardedReviewerUserIds];
   const record = input.record ?? {};
   await tx.bug.update({ where: { id: bug.id }, data: moveTo("on_dev") });
+  await closeSupportThreadsForIssue(tx, { bugId: bug.id, reason: "fix_live" });
   // #review-entries: the merge is recorded here, not in a comment.
   await tx.bugActivity.create({
     data: {
@@ -900,6 +910,9 @@ export async function finalizeResolved(tx: Prisma.TransactionClient, input: Fina
   if (claim?.dispatcherUserId) {
     payout.push({ organisationId: bug.organisationId, bugId: bug.id, userId: claim.dispatcherUserId, role: "dispatcher", points: platform.dispatcher, sourceKey: `dispatcher:${bug.id}` });
   }
+  // #plan-review rule 13: the plan's $1 goes the solver's way, held until the work is reported live, and only for the claim that delivered it.
+  const planAward = await planPayoutFor(tx, bug, claim);
+  if (planAward) payout.push(planAward);
   const reviewerPoints = calculateReviewerPoints(rewardConfig);
   // Attribution: each tester's award names the agent that gave their good-to-merge judgement.
   const judgements = rewardedReviewerUserIds.length
@@ -958,6 +971,8 @@ export async function finalizeResolved(tx: Prisma.TransactionClient, input: Fina
     actorAgentId: agent.agentId,
     bugId: bug.id,
   });
+  // #851: a merged revert returns the original issue to Open.
+  await reopenOriginalAfterRevert(tx, bug.id);
 }
 
 /** A threshold-only project's merge-review vote (#vote-governance): the threshold and the manager weight. */
@@ -1237,6 +1252,8 @@ export async function listMergeReviews(scope: { organisationId: string; projectI
     substatus: bug.substatus,
     pullRequestUrl: bug.pullRequestUrl,
     headSha: bug.pullRequestHeadSha,
+    // #plan-review rule 12: on a complex issue, the approved plan the delivery is reviewed against.
+    plan: await approvedPlanSummary(bug.id),
     reviews: await mergeReviewEntries(bug),
   };
 }
