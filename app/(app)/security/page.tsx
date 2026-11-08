@@ -102,16 +102,16 @@ export default async function SecurityPage({ searchParams }: Props) {
       <form action="/security" className="grid gap-3 rounded-[20px] border border-zk-border bg-zk-surface p-4 sm:grid-cols-2 lg:grid-cols-4">
         {selectedSeverity !== "all" ? <input type="hidden" name="severity" value={selectedSeverity} /> : null}
         {selectedStage !== "all" ? <input type="hidden" name="stage" value={selectedStage} /> : null}
-        <label className="space-y-1 text-sm text-zk-text2">Finding title or ID<Input name="q" defaultValue={search.q} maxLength={200} /></label>
-        <label className="space-y-1 text-sm text-zk-text2">Project
-          <Select name="project" defaultValue={search.project}>
+        <label htmlFor="security-q" className="space-y-1 text-sm text-zk-text2">Finding title or ID<Input id="security-q" name="q" defaultValue={search.q} maxLength={200} /></label>
+        <label htmlFor="security-project" className="space-y-1 text-sm text-zk-text2">Project
+          <Select id="security-project" name="project" defaultValue={search.project}>
             <option value="">All projects</option>
             {dashboard.projects.map((project) => <option key={project.ref} value={project.ref.split("/").at(-1)}>{project.name}</option>)}
           </Select>
         </label>
-        <label className="space-y-1 text-sm text-zk-text2">Assignee<Input name="assignee" defaultValue={search.assignee} placeholder="Name or unassigned" maxLength={200} /></label>
-        <label className="space-y-1 text-sm text-zk-text2">Reporter
-          <Select name="reporter" defaultValue={search.reporter}>
+        <label htmlFor="security-assignee" className="space-y-1 text-sm text-zk-text2">Assignee<Input id="security-assignee" name="assignee" defaultValue={search.assignee} placeholder="Name or unassigned" maxLength={200} /></label>
+        <label htmlFor="security-reporter" className="space-y-1 text-sm text-zk-text2">Reporter
+          <Select id="security-reporter" name="reporter" defaultValue={search.reporter}>
             <option value="">Everyone</option>
             <option value="person">Person</option>
             <option value="agent">Agent</option>
