@@ -528,6 +528,12 @@ model Bug {
   goalAllocations           GoalAllocation[]
   mistakes                  AgentMistake[]
   supportThreads            SupportThread[]
+  /// #issue-epics: this issue is an epic that groups sub-issues.
+  isEpic                    Boolean                 @default(false)
+  /// #issue-epics: the epic this issue belongs to.
+  parentId                  String?
+  parent                    Bug?                    @relation("BugHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children                  Bug[]                   @relation("BugHierarchy")
 
   /// #517: issue numbers are per organisation, so two organisations can both have a #1.
   @@unique([organisationId, number])
