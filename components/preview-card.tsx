@@ -163,10 +163,13 @@ export function PreviewCard({ bugId, pullNumber, build: initialBuild, lastReadyU
   const running = build?.status === "queued" || build?.status === "building";
   const waitingForFirst = !build && now - openedAt < FIRST_BUILD_WAIT_MS;
 
-  useEffect(() => {
+  // A fresh server render (router refresh) replaces what polling found.
+  const [shownProps, setShownProps] = useState({ initialBuild, initialLastReady });
+  if (shownProps.initialBuild !== initialBuild || shownProps.initialLastReady !== initialLastReady) {
+    setShownProps({ initialBuild, initialLastReady });
     setBuild(initialBuild);
     setLastReadyUrl(initialLastReady);
-  }, [initialBuild, initialLastReady]);
+  }
 
   // Keep asking while it builds, or briefly while the first build may be starting.
   useEffect(() => {
