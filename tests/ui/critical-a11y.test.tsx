@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 "use client";
 
+import Link from "next/link";
+
 import axe from "axe-core";
 import { NewMarketingTaskForm } from "@/components/marketing/tasks/new-marketing-task-form";
 import "@testing-library/jest-dom/vitest";
@@ -270,8 +272,8 @@ describe("component accessibility (axe)", () => {
       <AgentSideCard
         agent={agent}
         stuckContext={stuckContext}
-        editControl={<a href="/edit">Edit Profile</a>}
-        keyPanel={<a href="/connect">Connect Agent</a>}
+        editControl={<Link href="/edit">Edit Profile</Link>}
+        keyPanel={<Link href="/connect">Connect Agent</Link>}
         showActivity
         blocked
       />,
