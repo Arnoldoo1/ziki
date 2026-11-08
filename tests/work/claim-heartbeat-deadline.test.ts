@@ -6,6 +6,7 @@ const db = vi.hoisted(() => ({
   agentApiKey: { findUnique: vi.fn() }, agentActivation: { findUnique: vi.fn() }, agentAuditEvent: { create: vi.fn() },
   agentEvent: { create: vi.fn() }, webhookSubscription: { findMany: vi.fn() },
   webhookDelivery: { createMany: vi.fn() },
+  bugActivity: { createMany: vi.fn() },
   project: { findFirst: vi.fn(), findUnique: vi.fn() },
   issueClaim: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn(), create: vi.fn(), groupBy: vi.fn() },
   membership: { findMany: vi.fn(), findUnique: vi.fn() },
@@ -38,7 +39,7 @@ import { loadAgentStuckContext } from "@/app/(app)/agent/[username]/data";
 const now = new Date("2026-10-19T12:00:00Z");
 const cutoff = new Date(now.getTime() - DEFAULT_PROJECT_WORKFLOW.heartbeatMinutes * 60 * 1000);
 const stale = new Date(cutoff.getTime() - 1);
-const claim = { id: "claim", bugId: "issue", agentId: "agent", beneficiaryUserId: "owner", status: "active", releasedAt: null, claimedAt: stale, lastHeartbeatAt: stale };
+const claim = { id: "claim", bugId: "issue", agentId: "agent", beneficiaryUserId: "owner", status: "active", releasedAt: null, claimedAt: stale, lastHeartbeatAt: stale, bug: { pullRequestUrl: null, project: { ownerWaitCapMinutes: null }, assignee: { name: "Owner" } } };
 const context = { params: Promise.resolve({ id: "issue" }) };
 function request(query = "?projectId=project", key = true) {
   return new NextRequest(`http://localhost/api/v1/issues/issue/heartbeat${query}`, { method: "POST", headers: key ? { authorization: "Bearer ziki_test" } : {} });
@@ -60,6 +61,7 @@ beforeEach(() => {
   db.issueClaim.count.mockResolvedValue(0);
   db.issueClaim.create.mockResolvedValue({ id: "claim-next", bugId: "issue", offeredAt: now });
   db.issueClaim.groupBy.mockResolvedValue([]);
+  db.bugActivity.createMany.mockResolvedValue({ count: 2 });
   db.agentInboxItem.findMany.mockResolvedValue([]);
   db.agent.findFirst.mockResolvedValue({ id: "agent", pausedAt: null });
   db.agent.findMany.mockResolvedValue([]);
@@ -108,6 +110,10 @@ describe("stale claim release", () => {
       payload: expect.objectContaining({ claimId: "claim", issueId: "issue", projectId: "project", beneficiaryUserId: "owner", reason: "silence" }),
     }) }));
     expect(db.bug.updateMany).toHaveBeenCalledWith({ where: { id: "issue", projectId: "project", organisationId: "organisation", isDeleted: false, assigneeId: "owner", status: "in_progress", pullRequestUrl: null }, data: { assigneeId: null, status: "open", substatus: "open" } });
+    expect(db.bugActivity.createMany).toHaveBeenCalledWith({ data: expect.arrayContaining([
+      expect.objectContaining({ bugId: "issue", actorId: "admin", type: "assignee_changed", metadata: { field: "assignee", from: "owner", to: null } }),
+      expect.objectContaining({ bugId: "issue", actorId: "admin", type: "status_changed", metadata: { field: "status", from: "in_progress", to: "open" } }),
+    ]) });
     expect(db.agentAuditEvent.create).toHaveBeenCalledWith({ data: expect.objectContaining({ action: "claim.released", agentId: "agent", actorUserId: "admin", bugId: "issue", payload: { claimId: "claim", reason: "silence", projectId: "project" } }) });
     expect(mocks.notifyLater).toHaveBeenCalledWith({
       kind: "status_changed", actorId: "ziki-system", actorName: "Ziki", bugId: "issue", bugTitle: "Bug", reporterId: "reporter", from: "in_progress", to: "open",
@@ -120,6 +126,12 @@ describe("stale claim release", () => {
     expect(db.issueClaim.update).not.toHaveBeenCalled();
     expect(db.bug.updateMany).not.toHaveBeenCalled();
     expect(db.agentEvent.create).not.toHaveBeenCalled();
+  });
+  it("does not log a reopen when the guarded issue update no longer matches", async () => {
+    db.bug.updateMany.mockResolvedValueOnce({ count: 0 });
+    expect(await releaseStaleClaims("project")).toEqual({ released: 1 });
+    expect(db.bugActivity.createMany).not.toHaveBeenCalled();
+    expect(mocks.notifyLater).not.toHaveBeenCalled();
   });
   it.each([cutoff, new Date(cutoff.getTime() + 1), now])("keeps a heartbeat at or after the 15-minute boundary (%s)", async (lastHeartbeatAt) => {
     db.issueClaim.findFirst.mockResolvedValueOnce({ ...claim, lastHeartbeatAt });
