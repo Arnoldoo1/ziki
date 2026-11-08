@@ -4,13 +4,13 @@ import { sweepExpiredOffers } from "@/lib/agent-api/offer";
 import { sweepPlanWindows } from "@/lib/agent-api/plan";
 import { sweepStakes } from "@/lib/agent-api/stakes";
 import { sweepJobReviewOffers } from "@/lib/jobs/review";
+import { sweepReviewOffers } from "@/lib/agent-api/review-offer";
 import { sweepStaleClaims } from "@/lib/agent-api/availability";
 import { dispatchDueDeliveries } from "@/lib/webhooks/deliver";
 import { pruneAgentRows, type AgentRetentionCounts } from "@/lib/agent-retention";
 import { sweepOrphanedAttachments } from "@/lib/attachment-retention";
 import { sweepOrphanedIssues } from "@/lib/orphaned-issues";
 import { sweepUndraftedIdeas } from "@/lib/cron/draft-structuring";
-import { discloseLiveFindings } from "@/lib/security-findings";
 import { processSearchOutbox, pruneProcessedSearchOutbox } from "@/lib/search-index";
 import { refreshMergeQueue } from "@/lib/github/sync";
 
@@ -51,6 +51,7 @@ export type PlatformSweepsResult = {
     plans: { status: "ok" | "error"; expired?: number; error?: string };
     stakes: { status: "ok" | "error"; settled?: number; error?: string };
     jobReviewOffers: { status: "ok" | "error"; expired?: number; offered?: number; error?: string };
+    reviewOffers: { status: "ok" | "error"; expired?: number; error?: string };
     claims: { status: "ok" | "error"; released?: number; error?: string };
     orphanedIssues: { status: "ok" | "error"; reopened?: number; error?: string };
     draftStructuring: {
@@ -63,7 +64,6 @@ export type PlatformSweepsResult = {
     };
     githubStatus: { status: "ok" | "error"; checked?: number; moved?: number; failed?: number; error?: string };
     deliveries: { status: "ok" | "error"; processed?: number; error?: string };
-    securityDisclosures: { status: "ok" | "error"; disclosed?: number; error?: string };
     retention: {
       status: "ok" | "error";
       pruned?: RetentionPruneCounts;
@@ -101,12 +101,12 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
         plans: { status: "ok" },
         stakes: { status: "ok" },
         jobReviewOffers: { status: "ok" },
+        reviewOffers: { status: "ok" },
         claims: { status: "ok" },
         orphanedIssues: { status: "ok" },
         draftStructuring: { status: "ok" },
         githubStatus: { status: "ok" },
         deliveries: { status: "ok" },
-        securityDisclosures: { status: "ok" },
         retention: { status: "ok" },
         searchIndex: { status: "ok" },
       },
@@ -150,6 +150,19 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
     } catch (err) {
       recordSweepFailure("jobReviewOffers", err);
       result.sweeps.jobReviewOffers = {
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+
+    // 1c. PR Review Offers (#592)
+    try {
+      const res = await sweepReviewOffers();
+      recordSweepSuccess("reviewOffers");
+      result.sweeps.reviewOffers = { status: "ok", expired: res.expired };
+    } catch (err) {
+      recordSweepFailure("reviewOffers", err);
+      result.sweeps.reviewOffers = {
         status: "error",
         error: err instanceof Error ? err.message : String(err),
       };
@@ -214,16 +227,6 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
       result.sweeps.deliveries = { status: "error", error: err instanceof Error ? err.message : String(err) };
     }
 
-    // 4b. Security findings (#security-findings): disclose those whose fix is live.
-    try {
-      const disclosed = await discloseLiveFindings();
-      recordSweepSuccess("securityDisclosures");
-      result.sweeps.securityDisclosures = { status: "ok", disclosed };
-    } catch (err) {
-      recordSweepFailure("securityDisclosures", err);
-      result.sweeps.securityDisclosures = { status: "error", error: err instanceof Error ? err.message : String(err) };
-    }
-
     // 5. Retention Prunes
     try {
       const agentPrune = await pruneAgentRows(prisma, { sweep: true });
@@ -256,6 +259,7 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
     logger.info("[cron] Platform sweeps finished", {
       offers: result.sweeps.offers,
       jobReviewOffers: result.sweeps.jobReviewOffers,
+      reviewOffers: result.sweeps.reviewOffers,
       claims: result.sweeps.claims,
       orphanedIssues: result.sweeps.orphanedIssues,
       draftStructuring: result.sweeps.draftStructuring,

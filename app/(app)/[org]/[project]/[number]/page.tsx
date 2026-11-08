@@ -166,6 +166,7 @@ import { IssueRewardPanel } from "@/components/issue-reward-panel";
 import { RetestRequest } from "@/components/retest-request";
 import { rewardEstimatesFor } from "@/lib/agent-api/reward-estimates";
 import { IssueBlockersPanel } from "@/components/issue-blockers-panel";
+import { IssueTimeTracking } from "@/components/issue-time-tracking";
 import type { IssueBlockerCandidate } from "@/app/actions/issue-blockers";
 import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
@@ -2108,6 +2109,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             blocking={blocking}
             canEdit={canTriage && !bug.isDeleted}
           />
+
+          <IssueTimeTracking bugId={bug.id} canEdit={canUpdateStatus && !bug.isDeleted} />
 
           {deliveredBanner ? <DeliveredBanner {...deliveredBanner} /> : null}
 
