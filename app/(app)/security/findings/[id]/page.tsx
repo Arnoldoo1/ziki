@@ -18,7 +18,7 @@ export const metadata = { title: "Security finding" };
 
 export default async function FindingPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ severity?: string; stage?: string }>;
+  searchParams: Promise<{ severity?: string; stage?: string; q?: string; project?: string; assignee?: string; reporter?: string }>;
 }) {
   const [{ id }, filters, user] = await Promise.all([params, searchParams, requireUser()]);
   const access = await currentOrganisationAccess(user.id, user.role);
@@ -53,7 +53,7 @@ export default async function FindingPage({ params, searchParams }: {
   })) notFound();
 
   const query = new URLSearchParams();
-  for (const key of ["severity", "stage"] as const) {
+  for (const key of ["severity", "stage", "q", "project", "assignee", "reporter"] as const) {
     if (typeof filters[key] === "string") query.set(key, filters[key]);
   }
   const back = query.size ? "/security?" + query.toString() : "/security";

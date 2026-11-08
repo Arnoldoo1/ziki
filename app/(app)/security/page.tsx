@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { prisma } from "@/lib/prisma";
@@ -26,7 +29,14 @@ export const metadata = { title: "Security" };
  * the ones already disclosed. Owners and admins also choose which agents may
  * read private findings.
  */
-type SearchParams = Promise<{ severity?: string | string[]; stage?: string | string[] }>;
+type SearchParams = Promise<{
+  severity?: string | string[];
+  stage?: string | string[];
+  q?: string | string[];
+  project?: string | string[];
+  assignee?: string | string[];
+  reporter?: string | string[];
+}>;
 
 export default async function SecurityPage(props: {
   searchParams?: SearchParams;
@@ -35,6 +45,13 @@ export default async function SecurityPage(props: {
   const severity = typeof params.severity === "string" ? params.severity.toLowerCase() : "";
   const selectedSeverity = isSecuritySeverity(severity) ? severity : "all";
   const selectedStage = parseSecurityStageFilter(params.stage);
+  const search = {
+    q: typeof params.q === "string" ? params.q.trim().slice(0, 200) : "",
+    project: typeof params.project === "string" ? params.project : "",
+    assignee: typeof params.assignee === "string" ? params.assignee.trim().slice(0, 200) : "",
+    reporter: params.reporter === "person" || params.reporter === "agent" ? params.reporter : "",
+  };
+  const searchQuery = new URLSearchParams(Object.entries(search).filter(([, value]) => value));
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) {
@@ -52,7 +69,7 @@ export default async function SecurityPage(props: {
     );
   }
   const organisationId = access.organisationId;
-  const dashboard = await loadSecurityDashboard(organisationId, { kind: "person", userId: user.id, organisationId, organisationAdmin: access.admin });
+  const dashboard = await loadSecurityDashboard(organisationId, { kind: "person", userId: user.id, organisationId, organisationAdmin: access.admin }, undefined, search);
   const agents = access.admin
     ? (
         await prisma.agentActivation.findMany({
@@ -76,7 +93,7 @@ export default async function SecurityPage(props: {
   const severitySteps = (["all", ...SECURITY_SEVERITIES] as const).map((level) => ({
     label: level === "all" ? "All" : SEVERITY_LABEL[level],
     count: level === "all" ? findings.length : findings.filter((finding) => finding.severity === level).length,
-    href: securityFilterHref(level, selectedStage),
+    href: securityFilterHref(level, selectedStage, searchQuery),
     selected: selectedSeverity === level,
   }));
   const openCount = dashboard.open.length;
@@ -94,6 +111,29 @@ export default async function SecurityPage(props: {
         Report vulnerabilities privately. A workspace owner or admin decides when to publish them.
       </OrgPageHeader>
 
+      <form action="/security" className="grid gap-3 rounded-[20px] border border-zk-border bg-zk-surface p-4 sm:grid-cols-2 lg:grid-cols-4">
+        {selectedSeverity !== "all" ? <input type="hidden" name="severity" value={selectedSeverity} /> : null}
+        {selectedStage !== "all" ? <input type="hidden" name="stage" value={selectedStage} /> : null}
+        <label htmlFor="security-q" className="space-y-1 text-sm text-zk-text2">Finding title or ID<Input id="security-q" name="q" defaultValue={search.q} maxLength={200} /></label>
+        <label htmlFor="security-project" className="space-y-1 text-sm text-zk-text2">Project
+          <Select id="security-project" name="project" defaultValue={search.project}>
+            <option value="">All projects</option>
+            {dashboard.projects.map((project) => <option key={project.ref} value={project.ref.split("/").at(-1)}>{project.name}</option>)}
+          </Select>
+        </label>
+        <label htmlFor="security-assignee" className="space-y-1 text-sm text-zk-text2">Assignee<Input id="security-assignee" name="assignee" defaultValue={search.assignee} placeholder="Name or unassigned" maxLength={200} /></label>
+        <label htmlFor="security-reporter" className="space-y-1 text-sm text-zk-text2">Reporter
+          <Select id="security-reporter" name="reporter" defaultValue={search.reporter}>
+            <option value="">Everyone</option>
+            <option value="person">Person</option>
+            <option value="agent">Agent</option>
+          </Select>
+        </label>
+        <div className="flex items-center gap-3 sm:col-span-2">
+          <Button type="submit">Apply filters</Button>
+          {searchQuery.size ? <Link href={securityFilterHref(selectedSeverity, selectedStage)} className="text-sm font-semibold text-zk-accent hover:underline">Clear search filters</Link> : null}
+        </div>
+      </form>
       <section aria-label="Summary" className={`${orgListCard} grid grid-cols-2 sm:grid-cols-4`}>
         <Stat label="Open findings" value={String(openCount)} hint={openCount ? "Private until published" : "Nothing open"} />
         <Stat
@@ -118,7 +158,7 @@ export default async function SecurityPage(props: {
         <h2 id="open-heading" className="text-base font-semibold text-zk-text">Open findings</h2>
         <p className="text-xs text-zk-muted">Worst first, then oldest.</p>
         <div className="mt-3">
-          <SecurityStageFilterBar findings={dashboard.open} selected={selectedStage} severity={selectedSeverity} />
+          <SecurityStageFilterBar findings={dashboard.open} selected={selectedStage} severity={selectedSeverity} search={searchQuery} />
         </div>
         {selectedStage !== "all" || selectedSeverity !== "all" ? (
           <p className="mt-3 text-sm text-zk-text2">
@@ -126,10 +166,10 @@ export default async function SecurityPage(props: {
           </p>
         ) : null}
         {visibleOpen.length ? (
-          <FindingTable findings={visibleOpen} kind="open" filterHref={securityFilterHref(selectedSeverity, selectedStage)} />
-        ) : selectedStage === "all" && selectedSeverity === "all" ? (
+          <FindingTable findings={visibleOpen} kind="open" filterHref={securityFilterHref(selectedSeverity, selectedStage, searchQuery)} />
+        ) : selectedStage === "all" && selectedSeverity === "all" && !searchQuery.size ? (
           <p className="mt-3 text-sm text-zk-text2">No open security findings. Found something? Report it privately.</p>
-        ) : selectedSeverity === "all" ? (
+        ) : selectedSeverity === "all" && !searchQuery.size ? (
           <p className="mt-3 text-sm text-zk-text2">
             No open findings in this stage yet.{" "}
             <Link href="/security" className="font-semibold text-zk-accent hover:underline">
@@ -149,7 +189,7 @@ export default async function SecurityPage(props: {
       <section aria-labelledby="disclosed-heading" className={orgCard}>
         <h2 id="disclosed-heading" className="text-base font-semibold text-zk-text">Disclosed</h2>
         {filteredDisclosed.length ? (
-          <FindingTable findings={filteredDisclosed} kind="disclosed" filterHref={securityFilterHref(selectedSeverity, selectedStage)} />
+          <FindingTable findings={filteredDisclosed} kind="disclosed" filterHref={securityFilterHref(selectedSeverity, selectedStage, searchQuery)} />
         ) : (
           <p className="mt-3 text-sm text-zk-text2">Findings appear here after a workspace owner or admin publishes them.</p>
         )}
@@ -206,11 +246,12 @@ export default async function SecurityPage(props: {
   );
 }
 
-function securityFilterHref(severity: "all" | (typeof SECURITY_SEVERITIES)[number], stage: SecurityStageFilter) {
-  const query = new URLSearchParams();
-  if (severity !== "all") query.set("severity", severity);
-  if (stage !== "all") query.set("stage", stage);
-  return query.size ? "/security?" + query.toString() : "/security";
+function securityFilterHref(severity: "all" | (typeof SECURITY_SEVERITIES)[number], stage: SecurityStageFilter, search?: URLSearchParams) {
+  const params = new URLSearchParams(search);
+  if (severity !== "all") params.set("severity", severity);
+  if (stage !== "all") params.set("stage", stage);
+  const query = params.toString();
+  return query ? `/security?${query}` : "/security";
 }
 
 function Stat({ label, value, hint, alert = false }: { label: string; value: string; hint: string; alert?: boolean }) {
