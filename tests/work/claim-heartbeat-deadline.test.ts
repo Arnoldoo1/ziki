@@ -253,7 +253,7 @@ describe("agent status for its owner", () => {
       viewer: { id: "member" },
       now,
     })).resolves.toMatchObject({
-      summary: "No word on #42 Stalled work for 20 min",
+      summary: "No word on #42 for 20 min",
       issue: { number: 42, title: "Stalled work", href: "/acme/platform/42" },
       lastHeartbeatAt: heartbeat,
       deadlinePassed: false,
