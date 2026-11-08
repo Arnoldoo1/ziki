@@ -528,6 +528,8 @@ model Bug {
   goalAllocations           GoalAllocation[]
   mistakes                  AgentMistake[]
   supportThreads            SupportThread[]
+  /// #custom-fields: values stored for this issue.
+  customFieldValues         IssueCustomFieldValue[]
 
   /// #517: issue numbers are per organisation, so two organisations can both have a #1.
   @@unique([organisationId, number])
@@ -550,6 +552,41 @@ model Bug {
   // so the list can be read in index order instead of sorting every row.
   @@index([isDeleted, isBoosted(sort: Desc), boostedAt(sort: Desc), voteCount(sort: Desc), updatedAt(sort: Desc), createdAt(sort: Desc)], map: "Bug_list_top_votes_idx")
   @@index([isDeleted, isBoosted(sort: Desc), boostedAt(sort: Desc), createdAt(sort: Desc), id(sort: Desc)], map: "Bug_list_newest_idx")
+}
+
+/// A project-defined custom field on issues (#custom-fields). Admins define the
+/// field; each issue stores one value per field.
+model CustomField {
+  id         String   @id @default(cuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name       String
+  /// text | number | select | date | checkbox
+  type       String   @default("text")
+  options    String[] @default([])
+  required   Boolean  @default(false)
+  position   Int      @default(0)
+  archivedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  values     IssueCustomFieldValue[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+}
+
+/// The value an issue holds for one custom field (#custom-fields).
+model IssueCustomFieldValue {
+  id        String      @id @default(cuid())
+  fieldId   String
+  field     CustomField @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  bugId     String
+  bug       Bug         @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  value     String      @default("")
+  updatedAt DateTime    @updatedAt
+
+  @@unique([fieldId, bugId])
+  @@index([bugId])
 }
 
 /// A dependency that explains why an issue cannot proceed until another issue is resolved.
@@ -892,6 +929,8 @@ model Project {
   bugs                  Bug[]
   ideas                 Idea[]
   areas                 ProjectArea[]
+  /// #custom-fields: fields defined for this project.
+  customFields          CustomField[]
   redesigns             RedesignProposal[]
   testMissions          TestMission[]
   auditEvents           ProjectAuditEvent[]

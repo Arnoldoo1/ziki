@@ -165,6 +165,7 @@ import { stateLabel } from "@/lib/labels";
 import { IssueRewardPanel } from "@/components/issue-reward-panel";
 import { rewardEstimatesFor } from "@/lib/agent-api/reward-estimates";
 import { IssueBlockersPanel } from "@/components/issue-blockers-panel";
+import { IssueCustomFields } from "@/components/issue-custom-fields";
 import type { IssueBlockerCandidate } from "@/app/actions/issue-blockers";
 import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
@@ -2107,6 +2108,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             blocking={blocking}
             canEdit={canTriage && !bug.isDeleted}
           />
+
+          <IssueCustomFields bugId={bug.id} canEdit={canTriage && !bug.isDeleted} />
 
           {deliveredBanner ? <DeliveredBanner {...deliveredBanner} /> : null}
 
