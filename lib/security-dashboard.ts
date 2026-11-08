@@ -1,6 +1,6 @@
 import type { Prisma, SecuritySeverity, Status, Substatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { canViewFinding, daysBetween, discloseLiveFindings, type FindingViewer } from "@/lib/security-findings";
+import { canViewFinding, daysBetween, type FindingViewer } from "@/lib/security-findings";
 import { SECURITY_SEVERITIES } from "@/lib/security-severity";
 import { refOf, ideaPath, type ProjectRef } from "@/lib/project-paths";
 import { issuePath } from "@/lib/issue-ref";
@@ -38,7 +38,7 @@ export type SecurityDashboard = {
   disclosed: DashboardFinding[];
   openBySeverity: Record<SecuritySeverity, number>;
   /** Median days from report to fix for findings disclosed because their fix went live; null with none. */
-  medianDaysToFix: number | null;
+  medianDaysToDisclosure: number | null;
   projects: { name: string; ref: ProjectRef }[];
 };
 
@@ -62,8 +62,6 @@ export function median(values: number[]): number | null {
 export type SecuritySearch = { q: string; project: string; assignee: string; reporter: string };
 
 export async function loadSecurityDashboard(organisationId: string, viewer: FindingViewer, now: Date = new Date(), search?: SecuritySearch): Promise<SecurityDashboard> {
-  // A finding whose fix went live since the last sweep is published before the page reads it.
-  await discloseLiveFindings({ organisationId });
   const filters: Prisma.SecurityFindingWhereInput[] = [];
   if (search && (search.q || search.project || search.assignee || search.reporter)) {
     // Filter only findings whose details the dashboard viewer may read.
@@ -146,7 +144,7 @@ export async function loadSecurityDashboard(organisationId: string, viewer: Find
     open,
     disclosed,
     openBySeverity,
-    medianDaysToFix: median(disclosed.filter((finding) => finding.fixedLive).map((finding) => finding.days)),
+    medianDaysToDisclosure: median(disclosed.map((finding) => finding.days)),
     projects: projects.map((project) => ({ name: project.name, ref: refOf(project) })),
   };
 }
