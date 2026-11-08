@@ -8,7 +8,7 @@ const db = vi.hoisted(() => ({
   webhookDelivery: { createMany: vi.fn() },
   project: { findFirst: vi.fn(), findUnique: vi.fn() },
   issueClaim: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn(), create: vi.fn(), groupBy: vi.fn() },
-  membership: { findMany: vi.fn() },
+  membership: { findMany: vi.fn(), findUnique: vi.fn() },
   agentQuestion: { findFirst: vi.fn(), updateMany: vi.fn() },
   agentInboxItem: { findMany: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn(), create: vi.fn() },
   agent: { findFirst: vi.fn(), findMany: vi.fn(), update: vi.fn() },
@@ -33,6 +33,7 @@ import { agentIssueRequest } from "@/lib/agent-api/issues";
 import { currentHold } from "@/lib/issue-holders";
 import { staleHold } from "@/lib/agent-api/stale-hold";
 import { classifyAgentStatus, isClaimStalled } from "@/lib/dashboard-overview";
+import { loadAgentStuckContext } from "@/app/(app)/agent/[username]/data";
 
 const now = new Date("2026-10-19T12:00:00Z");
 const cutoff = new Date(now.getTime() - DEFAULT_PROJECT_WORKFLOW.heartbeatMinutes * 60 * 1000);
@@ -222,6 +223,95 @@ describe("agent status for its owner", () => {
     expect(isClaimStalled({ ...claim, deliverBy: new Date(now.getTime() - 60_000) })).toBe(true);
     expect(isClaimStalled({ ...claim, quiet: true, pullRequestUrl: "https://github.com/o/r/pull/1" })).toBe(false);
     expect(isClaimStalled({ ...claim, quiet: true, waitingOnOwnerSince: now })).toBe(false);
+  });
+
+  it("ignores another organisation's issue-linked question while showing this organisation's stuck issue", async () => {
+    const heartbeat = new Date(now.getTime() - 20 * 60_000);
+    db.membership.findUnique.mockResolvedValue({ userId: "member" });
+    db.agent.findFirst.mockResolvedValueOnce({
+      // The organisation-scoped Prisma selection excludes issue-linked questions from other organisations.
+      questions: [],
+      claims: [{
+        claimedAt: heartbeat,
+        lastHeartbeatAt: heartbeat,
+        deliverBy: new Date(now.getTime() + 60 * 60_000),
+        waitingOnOwnerSince: null,
+        bug: {
+          number: 42,
+          title: "Stalled work",
+          status: "in_progress",
+          isDeleted: false,
+          pullRequestUrl: null,
+          project: { slug: "platform", organisation: { slug: "acme" } },
+        },
+      }],
+    });
+
+    await expect(loadAgentStuckContext({
+      agentId: "agent",
+      organisationId: "organisation",
+      viewer: { id: "member" },
+      now,
+    })).resolves.toMatchObject({
+      summary: "No word on #42 for 20 min",
+      issue: { number: 42, title: "Stalled work", href: "/acme/platform/42" },
+      lastHeartbeatAt: heartbeat,
+      deadlinePassed: false,
+    });
+    expect(db.agent.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: "agent",
+        activations: { some: { organisationId: "organisation", deactivatedAt: null } },
+      }),
+      select: expect.objectContaining({
+        questions: expect.objectContaining({
+          where: {
+            answeredAt: null,
+            OR: [{ bug: { organisationId: "organisation" } }, { bugId: null }],
+          },
+        }),
+        claims: expect.objectContaining({ where: expect.objectContaining({ bug: { organisationId: "organisation" } }) }),
+      }),
+    }));
+  });
+
+  it("lets an unanswered unlinked question in this organisation take precedence over a stuck claim", async () => {
+    db.membership.findUnique.mockResolvedValue({ userId: "member" });
+    db.agent.findFirst.mockResolvedValueOnce({
+      questions: [{ id: "unlinked-question" }],
+      claims: [{
+        claimedAt: stale,
+        lastHeartbeatAt: stale,
+        deliverBy: new Date(now.getTime() + 60 * 60_000),
+        waitingOnOwnerSince: null,
+        bug: {
+          number: 42,
+          title: "Stalled work",
+          status: "in_progress",
+          isDeleted: false,
+          pullRequestUrl: null,
+          project: { slug: "platform", organisation: { slug: "acme" } },
+        },
+      }],
+    });
+
+    await expect(loadAgentStuckContext({
+      agentId: "agent",
+      organisationId: "organisation",
+      viewer: { id: "member" },
+      now,
+    })).resolves.toBeNull();
+  });
+
+  it("does not read stuck issue details for a non-member", async () => {
+    db.membership.findUnique.mockResolvedValue(null);
+    await expect(loadAgentStuckContext({
+      agentId: "agent",
+      organisationId: "organisation",
+      viewer: { id: "guest" },
+      now,
+    })).resolves.toBeNull();
+    expect(db.agent.findFirst).not.toHaveBeenCalled();
   });
 });
 
