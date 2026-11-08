@@ -46,6 +46,7 @@ export default async function SecurityPage({ searchParams }: Props) {
             <h1 className="text-[28px] font-extrabold tracking-[-0.02em] text-zk-text">Security</h1>
             <p className="text-sm text-zk-text2">Join or create a workspace to report and track security findings.</p>
           </div>
+          <Link href="/security/activity" className="text-sm font-semibold text-zk-accent hover:underline">Activity</Link>
           <SecuritySettingsLink />
         </header>
         <SecurityStageFilterBar findings={[]} selected={selectedStage} severity={selectedSeverity} />

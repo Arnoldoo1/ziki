@@ -22,7 +22,7 @@ describe("finding details access", () => {
       organisationId: "org", reporterId: "viewer", disclosedAt: null,
       title: "Finding", severity: "high", createdAt: new Date(),
       reporter: { name: "Reporter" }, project: { name: "Web", slug: "web", organisation: { slug: "org" } },
-      idea: { number: 1, status: "open", isDeleted: false }, bug: null, attachments: [],
+      idea: { number: 1, status: "open", isDeleted: false }, bug: null, attachments: [], verifications: [],
     });
     await expect(FindingPage(props)).resolves.toBeDefined();
   });
