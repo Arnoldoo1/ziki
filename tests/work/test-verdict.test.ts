@@ -14,12 +14,26 @@ type Row = {
   changedAt?: Date | null;
 };
 
-const state = vi.hoisted(() => ({ verdicts: [] as Row[] }));
+const state = vi.hoisted(() => ({ verdicts: [] as Row[], reviewOffers: [] as Array<{
+  id: string;
+  bugId: string;
+  beneficiaryUserId: string;
+  agentId: string;
+  status: string;
+  offeredAt: Date;
+  deadlineAt: Date | null;
+  pullRequestUrl: string;
+  headSha: string | null;
+  expiredAt?: Date;
+}> }));
 
 const db = vi.hoisted(() => ({
   bug: { findFirst: vi.fn() },
   delivery: { findFirst: vi.fn(), findMany: vi.fn() },
-  membership: { findUnique: vi.fn() },
+  membership: { findUnique: vi.fn(), findMany: vi.fn() },
+  issueClaim: { groupBy: vi.fn() },
+  projectWorkflow: { findUnique: vi.fn() },
+  reviewOffer: { findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn(), create: vi.fn(), groupBy: vi.fn() },
   testVerdict: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
   pullRequestReport: { findFirst: vi.fn() },
   agentAuditEvent: { create: vi.fn() },
@@ -28,11 +42,11 @@ const db = vi.hoisted(() => ({
   agentEvent: { create: vi.fn() },
   webhookSubscription: { findMany: vi.fn() },
   webhookDelivery: { createMany: vi.fn() },
+  $queryRaw: vi.fn(),
   jobSubmission: { findUnique: vi.fn(), update: vi.fn() },
   jobReview: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
   jobReviewOffer: { findFirst: vi.fn(), update: vi.fn() },
   pointEntry: { createMany: vi.fn() },
-  $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
@@ -69,6 +83,7 @@ function report(overrides: Record<string, unknown> = {}) {
 }
 
 import { submitTestVerdict } from "@/lib/agent-api/test-verdict";
+import { REVIEW_DEADLINE_MS, REVIEW_OFFER_TTL_MS, sweepReviewOffers } from "@/lib/agent-api/review-offer";
 import { reviewJobSubmission } from "@/lib/jobs/review";
 import { judgeBlockKind } from "@/lib/agent-api/judge-block";
 import type { PrGate } from "@/lib/agent-api/pr-gate";
@@ -103,11 +118,25 @@ const notGood = (description: string) => ({ goodToMerge: false, summary: "Not go
 beforeEach(() => {
   vi.clearAllMocks();
   state.verdicts = [];
+  state.reviewOffers = [];
   db.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(db));
   db.bug.findFirst.mockResolvedValue(bugRow());
   db.delivery.findFirst.mockResolvedValue(null);
   db.delivery.findMany.mockResolvedValue([]);
   db.membership.findUnique.mockResolvedValue({ id: "m1" });
+  db.membership.findMany.mockResolvedValue([]);
+  db.issueClaim.groupBy.mockResolvedValue([]);
+  db.projectWorkflow.findUnique.mockResolvedValue(null);
+  db.reviewOffer.findMany.mockResolvedValue([]);
+  db.reviewOffer.findUnique.mockResolvedValue(null);
+  db.reviewOffer.updateMany.mockResolvedValue({ count: 0 });
+  db.reviewOffer.groupBy.mockResolvedValue([]);
+  db.reviewOffer.create.mockImplementation(async ({ data }: { data: Omit<(typeof state.reviewOffers)[number], "id"> }) => {
+    const row = { id: `review${state.reviewOffers.length + 1}`, ...data };
+    state.reviewOffers.push(row);
+    return row;
+  });
+  db.$queryRaw.mockResolvedValue([{ id: "bug1" }]);
   db.comment.create.mockResolvedValue({ id: "c1" });
   db.bugActivity.create.mockResolvedValue({});
   db.pullRequestReport.findFirst.mockResolvedValue(report());
@@ -577,5 +606,82 @@ describe("judgeBlockKind", () => {
   });
   it("waits for a fresh report before blocking on a stale one", () => {
     expect(judgeBlockKind(blockGate({ needsReport: true }), blockReport({ mergeable: false }))).toBeNull();
+  });
+});
+
+describe("durable PR review offer expiry (#592)", () => {
+  beforeEach(() => {
+    db.reviewOffer.findMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if (Array.isArray(where.OR)) {
+        const now = Date.now();
+        return state.reviewOffers
+          .filter((offer) =>
+            (offer.status === "offered" && now - offer.offeredAt.getTime() >= REVIEW_OFFER_TTL_MS) ||
+            (offer.status === "accepted" && (offer.deadlineAt === null || offer.deadlineAt.getTime() <= now)),
+          )
+          .map(({ id }) => ({ id }));
+      }
+      if (where.status && typeof where.status === "object" && "in" in where.status) {
+        const statuses = (where.status as { in: string[] }).in;
+        return state.reviewOffers
+          .filter((offer) => statuses.includes(offer.status))
+          .map(({ beneficiaryUserId, status, offeredAt, deadlineAt }) => ({ beneficiaryUserId, status, offeredAt, deadlineAt }));
+      }
+      if (where.beneficiaryUserId) {
+        return state.reviewOffers.map(({ beneficiaryUserId, offeredAt }) => ({ beneficiaryUserId, offeredAt }));
+      }
+      return [];
+    });
+    db.reviewOffer.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) => {
+      const row = state.reviewOffers.find((offer) => offer.id === where.id);
+      return row ? { ...row } : null;
+    });
+    db.reviewOffer.updateMany.mockImplementation(async ({ where, data }: {
+      where: { id: string; status: string };
+      data: Partial<(typeof state.reviewOffers)[number]>;
+    }) => {
+      const row = state.reviewOffers.find((offer) => offer.id === where.id && offer.status === where.status);
+      if (!row) return { count: 0 };
+      Object.assign(row, data);
+      return { count: 1 };
+    });
+  });
+
+  it("expires persisted offered and accepted rows once after their in-process timers are gone", async () => {
+    const now = Date.now();
+    state.reviewOffers = [
+      {
+        id: "offered-during-restart", bugId: "bug1", beneficiaryUserId: "reviewer-1", agentId: "agent-1",
+        status: "offered", offeredAt: new Date(now - REVIEW_OFFER_TTL_MS - 1), deadlineAt: null,
+        pullRequestUrl: PR, headSha: "head1",
+      },
+      {
+        id: "accepted-during-restart", bugId: "bug1", beneficiaryUserId: "reviewer-2", agentId: "agent-2",
+        status: "accepted", offeredAt: new Date(now - REVIEW_OFFER_TTL_MS * 2), deadlineAt: new Date(now - REVIEW_DEADLINE_MS - 1),
+        pullRequestUrl: PR, headSha: "head1",
+      },
+    ];
+    db.bug.findFirst.mockResolvedValue(bugRow({ status: "closed" }));
+
+    await expect(sweepReviewOffers()).resolves.toEqual({ expired: 2 });
+    expect(state.reviewOffers.map(({ status }) => status)).toEqual(["expired", "expired"]);
+    await expect(sweepReviewOffers()).resolves.toEqual({ expired: 0 });
+  });
+
+  it("offers a replacement reviewer as part of the durable expiry transition", async () => {
+    state.reviewOffers = [{
+      id: "expired-accepted", bugId: "bug1", beneficiaryUserId: "reviewer-1", agentId: "agent-1",
+      status: "accepted", offeredAt: new Date(Date.now() - REVIEW_OFFER_TTL_MS * 2),
+      deadlineAt: new Date(Date.now() - REVIEW_DEADLINE_MS - 1), pullRequestUrl: PR, headSha: "head1",
+    }];
+    db.membership.findMany.mockResolvedValue([
+      { userId: "reviewer-2", user: { agents: [{ id: "agent-2" }] } },
+    ]);
+
+    await expect(sweepReviewOffers()).resolves.toEqual({ expired: 1 });
+    expect(state.reviewOffers.map(({ status }) => status)).toEqual(["expired", "offered"]);
+    expect(db.reviewOffer.create).toHaveBeenCalledTimes(1);
+    await expect(sweepReviewOffers()).resolves.toEqual({ expired: 0 });
+    expect(db.reviewOffer.create).toHaveBeenCalledTimes(1);
   });
 });
