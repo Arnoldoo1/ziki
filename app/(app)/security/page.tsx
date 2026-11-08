@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { prisma } from "@/lib/prisma";
@@ -21,6 +24,10 @@ type Props = {
   searchParams?: Promise<{
     severity?: string | string[];
     stage?: string | string[];
+    q?: string;
+    project?: string;
+    assignee?: string;
+    reporter?: string;
   }>;
 };
 
@@ -35,6 +42,13 @@ export default async function SecurityPage({ searchParams }: Props) {
   const requestedSeverity = typeof params.severity === "string" ? params.severity.toLowerCase() : "";
   const selectedSeverity = SECURITY_SEVERITIES.find((severity) => severity === requestedSeverity) ?? "all";
   const selectedStage = parseSecurityStageFilter(params.stage);
+  const search = {
+    q: typeof params.q === "string" ? params.q.trim().slice(0, 200) : "",
+    project: typeof params.project === "string" ? params.project : "",
+    assignee: typeof params.assignee === "string" ? params.assignee.trim().slice(0, 200) : "",
+    reporter: params.reporter === "person" || params.reporter === "agent" ? params.reporter : "",
+  };
+  const searchQuery = new URLSearchParams(Object.entries(search).filter(([, value]) => value));
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) {
@@ -49,7 +63,7 @@ export default async function SecurityPage({ searchParams }: Props) {
     );
   }
   const organisationId = access.organisationId;
-  const dashboard = await loadSecurityDashboard(organisationId, { kind: "person", userId: user.id, organisationId, organisationAdmin: access.admin });
+  const dashboard = await loadSecurityDashboard(organisationId, { kind: "person", userId: user.id, organisationId, organisationAdmin: access.admin }, undefined, search);
   const agents = access.admin
     ? (
         await prisma.agentActivation.findMany({
@@ -85,7 +99,30 @@ export default async function SecurityPage({ searchParams }: Props) {
         <ReportButton projects={dashboard.projects} />
       </header>
 
-      <SecurityStageFilterBar findings={dashboard.open} selected={selectedStage} severity={selectedSeverity} />
+      <form action="/security" className="grid gap-3 rounded-[20px] border border-zk-border bg-zk-surface p-4 sm:grid-cols-2 lg:grid-cols-4">
+        {selectedSeverity !== "all" ? <input type="hidden" name="severity" value={selectedSeverity} /> : null}
+        {selectedStage !== "all" ? <input type="hidden" name="stage" value={selectedStage} /> : null}
+        <label className="space-y-1 text-sm text-zk-text2">Finding title or ID<Input name="q" defaultValue={search.q} maxLength={200} /></label>
+        <label className="space-y-1 text-sm text-zk-text2">Project
+          <Select name="project" defaultValue={search.project}>
+            <option value="">All projects</option>
+            {dashboard.projects.map((project) => <option key={project.ref} value={project.ref.split("/").at(-1)}>{project.name}</option>)}
+          </Select>
+        </label>
+        <label className="space-y-1 text-sm text-zk-text2">Assignee<Input name="assignee" defaultValue={search.assignee} placeholder="Name or unassigned" maxLength={200} /></label>
+        <label className="space-y-1 text-sm text-zk-text2">Reporter
+          <Select name="reporter" defaultValue={search.reporter}>
+            <option value="">Everyone</option>
+            <option value="person">Person</option>
+            <option value="agent">Agent</option>
+          </Select>
+        </label>
+        <div className="flex items-center gap-3 sm:col-span-2">
+          <Button type="submit">Apply filters</Button>
+          {searchQuery.size ? <Link href={securityFilterHref(selectedSeverity, selectedStage)} className="text-sm font-semibold text-zk-accent hover:underline">Clear search filters</Link> : null}
+        </div>
+      </form>
+      <SecurityStageFilterBar search={searchQuery} findings={dashboard.open} selected={selectedStage} severity={selectedSeverity} />
 
       <section aria-label="Summary" className="security-stats grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Open findings" value={String(openCount)} hint={openCount ? "Private until fixed" : "Nothing open"} />
@@ -115,7 +152,7 @@ export default async function SecurityPage({ searchParams }: Props) {
               return (
                 <Link
                   key={level}
-                  href={securityFilterHref(level, selectedStage)}
+                  href={securityFilterHref(level, selectedStage, searchQuery)}
                   aria-current={active ? "page" : undefined}
                   className={`rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
                     active
@@ -135,7 +172,7 @@ export default async function SecurityPage({ searchParams }: Props) {
         </p>
         {visibleOpenFindings.length ? (
           <FindingTable findings={visibleOpenFindings} kind="open" />
-        ) : selectedStage === "all" && selectedSeverity === "all" ? (
+        ) : selectedStage === "all" && selectedSeverity === "all" && !searchQuery.size ? (
           <p className="mt-3 text-sm text-zk-text2">No open security findings. Found something? Report it privately.</p>
         ) : selectedSeverity === "all" ? (
           <p className="mt-3 text-sm text-zk-text2">
@@ -232,8 +269,8 @@ export default async function SecurityPage({ searchParams }: Props) {
   );
 }
 
-function securityFilterHref(severity: "all" | (typeof SECURITY_SEVERITIES)[number], stage: SecurityStageFilter) {
-  const params = new URLSearchParams();
+function securityFilterHref(severity: "all" | (typeof SECURITY_SEVERITIES)[number], stage: SecurityStageFilter, search?: URLSearchParams) {
+  const params = new URLSearchParams(search);
   if (severity !== "all") params.set("severity", severity);
   if (stage !== "all") params.set("stage", stage);
   const query = params.toString();
