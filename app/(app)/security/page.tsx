@@ -10,7 +10,6 @@ import { AgentClearanceToggle } from "@/components/security-finding-controls";
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { filterSecurityFindingsByStage, parseSecurityStageFilter, SecurityStageFilterBar } from "@/components/security-stage-filter";
 import { LocalTime } from "@/components/local-time";
-import { WhimsicalEmptyState } from "@/components/whimsical-empty-state";
 import { OrgPageHeader, ReadOnlyNote, orgCard, orgListCard } from "../[org]/[project]/org/org-ui";
 
 export const metadata = { title: "Security" };
@@ -104,21 +103,31 @@ export default async function SecurityPage(props: {
         <h2 id="open-heading" className="text-base font-semibold text-zk-text">Open findings</h2>
         <p className="text-xs text-zk-muted">Worst first, then oldest.</p>
         <div className="mt-3">
-          <SecurityStageFilterBar findings={filteredOpen} selected={selectedStage} severity={selectedSeverity} />
+          <SecurityStageFilterBar findings={dashboard.open} selected={selectedStage} severity={selectedSeverity} />
         </div>
+        {selectedStage !== "all" || selectedSeverity !== "all" ? (
+          <p className="mt-3 text-sm text-zk-text2">
+            Showing {visibleOpen.length} of {openCount} open {openCount === 1 ? "finding" : "findings"}
+          </p>
+        ) : null}
         {visibleOpen.length ? (
           <FindingTable findings={visibleOpen} kind="open" />
+        ) : selectedStage === "all" && selectedSeverity === "all" ? (
+          <p className="mt-3 text-sm text-zk-text2">No open security findings. Found something? Report it privately.</p>
+        ) : selectedSeverity === "all" ? (
+          <p className="mt-3 text-sm text-zk-text2">
+            No open findings in this stage yet.{" "}
+            <Link href="/security" className="font-semibold text-zk-accent hover:underline">
+              Show all
+            </Link>
+          </p>
         ) : (
-          <div className="mt-4">
-            <WhimsicalEmptyState
-              title={selectedSeverity === "all" && selectedStage === "all" ? "No open security findings" : "No open findings match these filters"}
-              description={selectedSeverity === "all" && selectedStage === "all" ? "Private reports appear here while they await disclosure." : "Clear the filters to see all open findings."}
-              clearHref="/security"
-              createHref="/security"
-              showClear={selectedSeverity !== "all" || selectedStage !== "all"}
-              showCreate={false}
-            />
-          </div>
+          <p className="mt-3 text-sm text-zk-text2">
+            No open findings match these filters.{" "}
+            <Link href="/security" className="font-semibold text-zk-accent hover:underline">
+              Show all
+            </Link>
+          </p>
         )}
       </section>
 
