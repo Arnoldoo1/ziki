@@ -1,32 +1,37 @@
+import { cache } from "react";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { auth } from "@/auth";
 import { requireUser } from "@/lib/auth-helpers";
 import { isLinkPreviewBot } from "@/lib/link-preview";
 import { isPublicAgentPath } from "@/lib/public-agent-paths";
+import { projectOverviewSegments } from "@/lib/project-slug";
+import { publicIntakeSegments } from "@/lib/public-project-paths";
 import { AppHeader } from "@/components/app-header";
 import { getUnreadCount } from "@/lib/lookups";
-import { REPORT_FORM_URL } from "@/lib/report-form";
 import { MAIN_CONTENT_ID, SkipLink } from "@/components/skip-link";
 import { PAGE_CONTAINER_CLASS } from "@/components/page-container";
 import { FocusMainOnNavigate } from "@/components/focus-main-on-navigate";
 import { KeyboardShortcuts } from "@/components/keyboard-shortcuts";
-import { isOrganizationAdmin, type OrganizationRole } from "@/lib/organization-role";
-import type { WorkspaceChoice } from "@/components/workspace-switcher";
+import type { OrganisationOption, ExternalProjectChoice } from "@/components/organisation-switcher";
 import { prisma } from "@/lib/prisma";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { firstProjectRefFor } from "@/lib/project-route";
-import { tenantsForUser } from "@/lib/tenants";
+import { organisationsForUser } from "@/lib/organisations";
 import { countPendingEscalations } from "@/lib/agent-questions";
 import { loadOwnAgents } from "@/lib/dashboard-overview";
 import { AgentsDock, type DockAgent } from "@/components/agents-dock";
 import { appVersionLabel } from "@/lib/deployed-version";
 import { agentActivity, agentEarnings } from "@/lib/points/agent-earnings";
-import { earnBalanceFor, showEarnWelcome } from "@/lib/earn/state";
-import { EarnWelcomeToast } from "@/components/earn-welcome-toast";
-import { isEarnConnectPath, isEarnLandingPath, isEarnPath } from "@/lib/earn/paths";
-import { withdrawInfo } from "@/lib/earn/draft";
-import { earnAgentWhere, earnWorkspace } from "@/lib/earn/earner";
+import { headerEarnings } from "@/lib/earnings";
+
+async function getOrganisationProjects(organisationId: string) {
+  return prisma.project.findMany({
+    where: { organisationId, archivedAt: null },
+    select: { id: true, name: true, slug: true, organisationId: true },
+    orderBy: { name: "asc" },
+  });
+}
 
 export default async function AppLayout({
   children,
@@ -53,9 +58,28 @@ export default async function AppLayout({
     }
   }
 
-  // #agent-profile: a guest on a public agent page (a profile, the directory)
-  // gets a plain shell with a way to sign in, not the sign-in redirect.
-  if (!session?.user && isPublicAgentPath((await headers()).get("x-ziki-path") ?? "")) {
+  const reqPath = (await headers()).get("x-ziki-path") ?? "";
+  const intakeSegments = !session?.user ? publicIntakeSegments(reqPath) : null;
+  const overviewSegments = !session?.user ? projectOverviewSegments(reqPath) ?? intakeSegments : null;
+  const overviewProject = overviewSegments
+    ? await prisma.project.findFirst({
+        where: {
+          slug: overviewSegments.projectSlug,
+          // Only a public project gets the guest shell. A private one sends a
+          // guest to sign in, the same as an address that names no project, so
+          // the shell doesn't tell outsiders which private projects exist.
+          visibility: "public",
+          archivedAt: null,
+          ...(intakeSegments?.kind === "report" ? { acceptsGuestIdeas: true } : {}),
+          organisation: { slug: overviewSegments.orgSlug, archivedAt: null },
+        },
+        select: { id: true },
+      })
+    : null;
+  // Guests may read a project's public overview. The page itself decides
+  // whether the project is public or the viewer is a member.
+  const isPublicSkillsPath = reqPath === "/skills" || reqPath.startsWith("/skills/");
+  if (!session?.user && (isPublicAgentPath(reqPath) || reqPath === "/discover" || isPublicSkillsPath || overviewProject)) {
     return (
       <div className="flex min-h-screen flex-col bg-background">
         <header className="border-b border-zk-border bg-zk-surface">
@@ -76,41 +100,79 @@ export default async function AppLayout({
   }
 
   const user = await requireUser();
-  // Earn (#earn-landing): "Put your agent to work" is a page of its own, for someone who has just
-  // arrived to earn: no header, agents bar or footer around it. It stops being one once an agent is connected.
   const requestPath = (await headers()).get("x-ziki-path") ?? "";
-  // The first time someone opens an earn page in a browser, new account or old: a note that the $5 is in.
-  const welcomeNotice = isEarnPath(requestPath) ? await showEarnWelcome(user.id).catch(() => false) : false;
-  if (isEarnLandingPath(requestPath) || isEarnConnectPath(requestPath)) {
-    const connected = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), select: { id: true } }).catch(() => null);
-    if (!connected || isEarnConnectPath(requestPath)) {
-      return (
-        <div data-app-shell="" className="min-h-dvh bg-zk-bg">
-          <SkipLink />
-          <main id={MAIN_CONTENT_ID} tabIndex={-1} className="min-h-dvh outline-none">
-            {children}
-          </main>
-          {welcomeNotice ? <EarnWelcomeToast /> : null}
-        </div>
-      );
-    }
-  }
-  // The header lists this person's workspaces. Pages still resolve the active
-  // project inside the current workspace, so a foreign project id is ignored.
-  let workspaces: WorkspaceChoice[] = [];
-  let activeTenantId: string | null = null;
-  let tenantId: string | null = null;
-  let membershipRole: OrganizationRole | null = null;
+  // The header lists this person's organisations. Pages still resolve the active
+  // project inside the current organisation, so a foreign project id is ignored.
+  let organisationOptions: OrganisationOption[] = [];
+  let externalProjects: ExternalProjectChoice[] = [];
+  let activeOrganisationId: string | null = null;
+  let organisationId: string | null = null;
   try {
-    tenantId = await currentTenantIdFor(user.id);
-    activeTenantId = tenantId;
-    const memberships = await tenantsForUser(prisma, user.id, user.role);
-    membershipRole = memberships.find((tenant) => tenant.id === tenantId)?.role ?? null;
-    workspaces = memberships
-      .filter((tenant) => tenant.archivedAt === null)
-      .map((tenant) => ({ id: tenant.id, name: tenant.name, slug: tenant.slug }));
+    organisationId = await currentOrganisationIdFor(user.id);
+    activeOrganisationId = organisationId;
+    const memberships = await organisationsForUser(prisma, user.id, user.role);
+    const activeOrganisations = memberships.filter((organisation) => organisation.archivedAt === null);
+
+    const pathSegments = requestPath.split("/").filter(Boolean);
+    const routeOrg = pathSegments[0] ? decodeURIComponent(pathSegments[0]) : null;
+    const matchedOrg = routeOrg ? activeOrganisations.find((t) => t.slug === routeOrg) : null;
+    if (matchedOrg) {
+      organisationId = matchedOrg.id;
+      activeOrganisationId = matchedOrg.id;
+    }
+
+    const [orgProjects, userProjectMemberships] = await Promise.all([
+      organisationId ? getOrganisationProjects(organisationId) : Promise.resolve([]),
+      prisma.projectMembership.findMany({
+        where: {
+          userId: user.id,
+          project: {
+            archivedAt: null,
+            organisation: { archivedAt: null },
+          },
+        },
+        select: {
+          project: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              organisationId: true,
+              organisation: { select: { id: true, name: true, slug: true } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const projectsByOrg = new Map<string, Array<{ id: string; name: string; slug: string }>>();
+    const orgProjectIds = new Set<string>();
+    for (const p of orgProjects) {
+      orgProjectIds.add(p.id);
+      const list = projectsByOrg.get(p.organisationId) ?? [];
+      list.push({ id: p.id, name: p.name, slug: p.slug });
+      projectsByOrg.set(p.organisationId, list);
+    }
+
+    organisationOptions = activeOrganisations.map((organisation) => ({
+      id: organisation.id,
+      name: organisation.name,
+      slug: organisation.slug,
+      projects: projectsByOrg.get(organisation.id) ?? [],
+    }));
+
+    externalProjects = userProjectMemberships
+      .filter((m) => !orgProjectIds.has(m.project.id))
+      .map((m) => ({
+        id: m.project.id,
+        name: m.project.name,
+        slug: m.project.slug,
+        organisationId: m.project.organisationId,
+        organisationName: m.project.organisation.name,
+        organisationSlug: m.project.organisation.slug,
+      }));
   } catch (error) {
-    console.error("[layout] workspace context failed", error);
+    console.error("[layout] organisation context failed", error);
   }
   // For links on pages whose URL names no project yet (#project-urls).
   const defaultProjectSlug = await firstProjectRefFor(user.id).catch(() => null);
@@ -126,31 +188,29 @@ export default async function AppLayout({
 
   let pendingEscalationsCount = 0;
   let dockAgents: DockAgent[] = [];
-  // Members of this workspace, for the Leaderboard link: nobody ranks against no one. Null when it couldn't be read.
+  // Members of this organisation, for the Leaderboard link: nobody ranks against no one. Null when it couldn't be read.
   let memberCount: number | null = null;
-  // Earn is a place of its own: on an earn page the agents bar shows the Earn workspace's agents, not the
-  // ones in the person's other workspaces.
-  const dockTenantId = isEarnPath(requestPath) ? ((await earnWorkspace().catch(() => null))?.id ?? null) : tenantId;
-  if (tenantId) {
+  const dockOrganisationId = organisationId;
+  if (organisationId) {
     try {
-      pendingEscalationsCount = await countPendingEscalations(user.id, tenantId);
+      pendingEscalationsCount = await countPendingEscalations(user.id, organisationId);
     } catch (error) {
       console.error("[layout] pending escalations count failed", error);
     }
     try {
-      memberCount = await prisma.membership.count({ where: { tenantId } });
+      memberCount = await prisma.membership.count({ where: { organisationId } });
     } catch (error) {
       console.error("[layout] member count failed", error);
     }
     try {
-      const agents = dockTenantId ? await loadOwnAgents({ userId: user.id, tenantId: dockTenantId }) : [];
+      const agents = dockOrganisationId ? await loadOwnAgents({ userId: user.id, organisationId: dockOrganisationId }) : [];
       // #710: what each agent earned, from the point entries its work wrote.
       const ids = agents.map((agent) => agent.id);
       const startOfToday = new Date();
       startOfToday.setHours(0, 0, 0, 0);
       const [earned, activity, pending] = await Promise.all([
-        agentEarnings(prisma, dockTenantId ?? tenantId, ids),
-        agentActivity(prisma, dockTenantId ?? tenantId, ids, startOfToday),
+        agentEarnings(prisma, dockOrganisationId ?? organisationId, ids),
+        agentActivity(prisma, dockOrganisationId ?? organisationId, ids, startOfToday),
         prisma.agentRequest.groupBy({ by: ["agentId"], where: { agentId: { in: ids }, doneAt: null }, _count: { _all: true } }),
       ]);
       const pendingBy = new Map(pending.map((row) => [row.agentId, row._count._all]));
@@ -160,11 +220,16 @@ export default async function AppLayout({
     }
   }
 
-  // Earn (#earn-drafts): the balance and Withdraw are for the earn pages only. Everywhere else, Ideas included,
-  // the app looks as it always does, even for someone who is in the Earn workspace.
-  const earnSample = isEarnPath(requestPath) ? await earnBalanceFor(user.id) : null;
-  // On the earn pages the agent bar shows what they have earned, the same amount as the header.
-  if (earnSample) dockAgents = dockAgents.map((agent) => ({ ...agent, earnedPoints: earnSample.earned }));
+  // Earnings (#earnings): what this person has earned in the workspace they're in, shown with Withdraw on every page
+  // to anyone who works on projects (not to people who only post them). The workspace is the one in the address
+  // (one they belong to, or one they joined a project of), else their active one. A failed read hides it.
+  const routeSlug = requestPath.split("/").filter(Boolean)[0] ?? null;
+  const earningsOrganisationId =
+    (routeSlug ? externalProjects.find((project) => project.organisationSlug === routeSlug)?.organisationId : null) ?? organisationId;
+  const earned = await headerEarnings(prisma, user.id, earningsOrganisationId).catch((error) => {
+    console.error("[layout] earnings total failed", error);
+    return null;
+  });
 
   // #287: one primary-key read; a failure leaves shortcuts on, the default.
   let shortcutsEnabled = true;
@@ -192,16 +257,13 @@ export default async function AppLayout({
           unreadCount={unreadCount}
           pendingEscalationsCount={pendingEscalationsCount}
           userId={user.id}
-          workspaces={workspaces}
-          activeTenantId={activeTenantId}
+          organisationOptions={organisationOptions}
+          externalProjects={externalProjects}
+          activeOrganisationId={activeOrganisationId}
           defaultProjectSlug={defaultProjectSlug}
-          reportFormUrl={REPORT_FORM_URL}
-          organizationAdmin={tenantId !== null && isOrganizationAdmin(membershipRole, user.role)}
-          earned={earnSample ? earnSample.earned : null}
-          withdraw={earnSample ? withdrawInfo(earnSample.stage, earnSample.earned) : null}
+          earned={earned}
+          earningsOrganisationId={earningsOrganisationId}
           version={appVersionLabel()}
-          memberCount={memberCount}
-          agentCount={dockAgents.length}
         />
         <main
           id={MAIN_CONTENT_ID}
@@ -215,9 +277,8 @@ export default async function AppLayout({
         </main>
       </div>
       {/* The agents dock keeps the page's foot clear of its floor line itself, as tall as what stands on it, and draws nothing (no spacer either) where it doesn't help. */}
-      <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} version={appVersionLabel()} earn={earnSample !== null} memberCount={memberCount} />
+      <AgentsDock agents={dockAgents} defaultProjectSlug={defaultProjectSlug} memberCount={memberCount} />
       <FocusMainOnNavigate />
-      {welcomeNotice ? <EarnWelcomeToast /> : null}
       <KeyboardShortcuts
         enabled={shortcutsEnabled}
       />

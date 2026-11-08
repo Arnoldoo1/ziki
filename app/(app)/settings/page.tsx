@@ -1,4 +1,9 @@
 import "./settings-design.css";
+import { Suspense } from "react";
+import { headers } from "next/headers";
+import { auth } from "@/auth";
+import { SettingsNav } from "@/components/settings-nav";
+import { SETTINGS_SECTIONS, type SettingsSectionId } from "@/lib/settings-sections";
 import { ThemeSettings } from "@/components/theme-settings";
 import { parseTheme } from "@/lib/theme";
 import Link from "next/link";
@@ -11,44 +16,18 @@ import { WalletAddressForm } from "@/components/wallet-address-form";
 import { KeyboardShortcutSettings } from "@/components/keyboard-shortcut-settings";
 import { isAgentPlatformEnabled } from "@/lib/feature-flags";
 import { AccountDataSettings } from "@/components/account-data-settings";
+import { ActiveSessions } from "@/components/active-sessions";
 import { DisplayNameForm } from "@/components/display-name-form";
+import { LoginHistory } from "@/components/login-history";
+import { ProfileAvatarUpload } from "@/components/profile-avatar-upload";
+import { loadAccountSecurityActivity } from "@/lib/user-sessions";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Settings" };
 
-const SECTIONS = [
-  {
-    id: "account",
-    label: "Account",
-    hint: "Profile, wallet, security",
-    icon: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
-  },
-  {
-    id: "prefs",
-    label: "Preferences",
-    hint: "Theme, emails, shortcuts",
-    icon: "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
-  },
-  {
-    id: "agents",
-    label: "Agents & API",
-    hint: "Agents, team, integrations",
-    icon: "M4 8h16v12H4zM12 4v4M9 14h.01M15 14h.01",
-  },
-  {
-    id: "data",
-    label: "Data & privacy",
-    hint: "Export or delete account",
-    icon: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
-  },
-] as const;
-
-type SectionId = (typeof SECTIONS)[number]["id"];
-
-function parseSection(value: string | string[] | undefined): SectionId {
+function parseSection(value: string | string[] | undefined): SettingsSectionId {
   const raw = Array.isArray(value) ? value[0] : value;
-  if (raw === "prefs" || raw === "agents" || raw === "data" || raw === "account") return raw;
-  return "account";
+  return SETTINGS_SECTIONS.find((item) => item.id === raw)?.id ?? "account";
 }
 
 const card =
@@ -97,6 +76,7 @@ export default async function SettingsPage(props: {
     notifyAssignments?: boolean;
     notifyStatusChanges?: boolean;
     keyboardShortcuts?: boolean;
+    sessionVersion?: number;
   } | null = null;
 
   try {
@@ -112,6 +92,7 @@ export default async function SettingsPage(props: {
         notifyAssignments: true,
         notifyStatusChanges: true,
         keyboardShortcuts: true,
+        sessionVersion: true,
       },
     });
   } catch (error) {
@@ -122,6 +103,7 @@ export default async function SettingsPage(props: {
         select: {
           name: true,
           email: true,
+          sessionVersion: true,
         },
       });
     } catch (fallbackError) {
@@ -134,6 +116,19 @@ export default async function SettingsPage(props: {
   }
 
   const displayName = settings?.name ?? user.name ?? "";
+  const orgName = projectSlug
+    ? (await prisma.organisation.findUnique({ where: { slug: projectSlug.split("/")[0] }, select: { name: true } }))?.name ?? null
+    : null;
+
+  const securityActivity =
+    section === "account"
+      ? await loadAccountSecurityActivity({
+          userId: user.id,
+          sessionId: (await auth().catch(() => null))?.user?.sessionId,
+          sessionVersion: settings?.sessionVersion ?? 0,
+          headers: await headers().catch(() => null),
+        })
+      : null;
 
   return (
     <div className="settings-page settings-design mx-auto flex w-full max-w-5xl flex-col gap-6 pb-10">
@@ -148,42 +143,14 @@ export default async function SettingsPage(props: {
           Back to issues
         </Link>
         <h1 className="m-0 text-[28px] font-extrabold tracking-[-0.02em] text-zk-text">Settings</h1>
-        <p className="m-0 text-sm text-zk-muted">Manage your profile, preferences, agents and data.</p>
+        <p className="m-0 text-sm text-zk-muted">Your account, finance, preferences and agents, and your organisation&apos;s settings.</p>
       </div>
 
       <div className="settings-layout">
-        <nav
-          aria-label="Settings sections"
-          className="settings-navigation"
-        >
-          {SECTIONS.map((item) => {
-            const on = section === item.id;
-            return (
-              <Link
-                key={item.id}
-                href={`/settings?section=${item.id}`}
-                aria-current={on ? "page" : undefined}
-                className={`flex w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left text-zk-text transition ${
-                  on ? "bg-zk-tint" : "bg-transparent hover:bg-zk-chip"
-                }`}
-              >
-                <span
-                  className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${
-                    on ? "bg-electric-blue-strong text-white" : "bg-zk-chip text-zk-text2"
-                  }`}
-                >
-                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d={item.icon} />
-                  </svg>
-                </span>
-                <span className="flex min-w-0 flex-col gap-0.5">
-                  <span className="text-sm font-bold">{item.label}</span>
-                  <span className="text-xs font-medium text-zk-muted">{item.hint}</span>
-                </span>
-              </Link>
-            );
-          })}
-        </nav>
+        {/* Yours, then your organisation's: one sidebar for all settings. */}
+        <Suspense fallback={<nav aria-label="Settings sections" className="settings-navigation" />}>
+          <SettingsNav orgRef={projectSlug} orgName={orgName} />
+        </Suspense>
 
         <div className="settings-content flex min-w-0 flex-col gap-5">
           {section === "account" ? (
@@ -192,7 +159,7 @@ export default async function SettingsPage(props: {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-col gap-1">
                     <h2 className="m-0 text-lg font-bold text-zk-text">Profile</h2>
-                    <span className="text-[13px] text-zk-muted">How you appear to everyone in the workspace.</span>
+                    <span className="text-[13px] text-zk-muted">How you appear to everyone in the organisation.</span>
                   </div>
                   <Link
                     href={`/users/${user.id}`}
@@ -205,16 +172,16 @@ export default async function SettingsPage(props: {
                     See how others see you
                   </Link>
                 </div>
-                <DisplayNameForm initialName={displayName} initialImage={user.image} />
-                <p className="text-sm">
-                  <Link href="/settings/profile" className="font-semibold text-zk-accent hover:underline">
-                    Open profile page
-                  </Link>
-                </p>
-              </section>
-
-              <section className={card}>
-                <WalletAddressForm initialAddress={settings?.walletAddress ?? ""} />
+                {/* The one place to manage your profile: picture, display name, and the email you sign in with. */}
+                <ProfileAvatarUpload initialImage={user.image} name={displayName} />
+                <div className="border-t border-zk-divider pt-4">
+                  <DisplayNameForm initialName={displayName} initialImage={user.image} showAvatar={false} />
+                </div>
+                <div className="space-y-1 border-t border-zk-divider pt-4">
+                  <p className="text-sm font-bold text-zk-text">Email</p>
+                  <p className="break-words text-sm text-zk-text2">{settings?.email ?? user.email}</p>
+                  <p className="text-xs text-zk-muted">Your sign-in email cannot be changed here.</p>
+                </div>
               </section>
 
               <section className={`${card} flex-row flex-wrap items-center justify-between gap-4`}>
@@ -237,6 +204,24 @@ export default async function SettingsPage(props: {
                 >
                   Set up
                 </Link>
+              </section>
+
+              {securityActivity ? (
+                <>
+                  <ActiveSessions initialSessions={securityActivity.sessions} />
+                  <LoginHistory
+                    items={securityActivity.history}
+                    totalCount={securityActivity.historyTotal}
+                  />
+                </>
+              ) : null}
+            </div>
+          ) : null}
+
+          {section === "finance" ? (
+            <div className="flex flex-col gap-4">
+              <section className={card}>
+                <WalletAddressForm initialAddress={settings?.walletAddress ?? ""} />
               </section>
             </div>
           ) : null}
@@ -313,10 +298,10 @@ export default async function SettingsPage(props: {
                   <h2 className="m-0 text-[17px] font-bold text-zk-text">Team</h2>
                 </div>
                 <p className="m-0 text-[13px] leading-relaxed text-zk-muted">
-                  Workspace members and their active agents.
+                  Organisation members and their active agents.
                 </p>
                 <div className="flex flex-col gap-0.5">
-                  {projectSlug ? <LinkRow href={orgPath(projectSlug, "members")} label="Organization members" /> : null}
+                  {projectSlug ? <LinkRow href={orgPath(projectSlug, "members")} label="Organisation members" /> : null}
                   <LinkRow href="/workers" label="View ranking" />
                 </div>
               </section>

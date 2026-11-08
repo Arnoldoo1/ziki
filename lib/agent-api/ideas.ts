@@ -1,3 +1,5 @@
+import { parseTrackFilter } from "@/lib/marketing/track";
+import { parseIdeaTrack } from "@/lib/marketing/idea-track";
 import { NextResponse, type NextRequest } from "next/server";
 import { reportSummarySchema } from "@/lib/validations/report-summary";
 import { z } from "zod";
@@ -16,7 +18,7 @@ import {
   toPage,
   type IssueCursor,
 } from "@/lib/agent-api/create-policy";
-import { issueJson, issueProject } from "@/lib/agent-api/issues";
+import { issueJson, issueProject, securityJson } from "@/lib/agent-api/issues";
 import { createBugSchema } from "@/lib/validations/issue";
 import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link";
 import { MAX_ATTACHMENT_BYTES, MAX_ATTACHMENTS_PER_ITEM, checkAttachment } from "@/lib/attachments";
@@ -27,8 +29,11 @@ import { boundSearchTerm, escapeSearchQuery } from "@/lib/search";
 import { parseIssueRef } from "@/lib/issue-ref";
 import { workflowFor } from "@/lib/workflow";
 import { ideaVoteTotals, NO_VOTES } from "@/lib/idea-vote-totals";
+import { searchWorkItems } from "@/lib/search-index";
 import { agentAttachmentUrl } from "@/lib/agent-api/attachment-read";
 import { convertVettedIdea } from "@/lib/agent-api/idea-verdicts";
+import { agentFindingViewer, createFinding, findingForIdea, placeholderTitle, type FindingViewer, PLACEHOLDER_DESCRIPTION, PLACEHOLDER_SUMMARY, SECURITY_SEVERITIES } from "@/lib/security-findings";
+import { difficultySchema } from "@/lib/difficulty";
 
 /** How many ideas one person's agents may file as already vetted in 24 hours. */
 export const VETTED_IDEAS_PER_DAY = 5;
@@ -41,7 +46,7 @@ export const VETTED_IDEAS_PER_DAY = 5;
  * Ideas are numbered apart from issues.
  */
 
-type Scope = { tenantId: string; projectId: string };
+type Scope = { organisationId: string; projectId: string };
 
 const idSchema = z.string().trim().min(1).max(191);
 const attachmentIdsSchema = z.array(idSchema).max(MAX_ATTACHMENTS_PER_ITEM).optional();
@@ -52,14 +57,25 @@ export const createIdeaSchema = createBugSchema
     // #494: no beneficiaryUserId. The reporter is always the agent's owner.
     projectId: idSchema.optional(),
     typeId: z.unknown().optional(),
+    // Product (the default) or marketing, and why a marketing idea is worth doing (parseIdeaTrack).
+    track: z.unknown().optional(),
+    rationale: z.unknown().optional(),
     acknowledgeSimilar: z.unknown().optional(),
     /** The owner says this idea was already vetted elsewhere: it becomes an issue at once (needs `vettedNote`). */
     alreadyVetted: z.boolean().optional(),
     /** Where and by whom it was approved, for example "Approved by Mark, sheet row 42". Shown on the issue. */
     vettedNote: z.string().trim().min(5).max(300).optional(),
+    /** #plan-review: the issue's difficulty when `alreadyVetted` converts it at once; medium if left out. */
+    difficulty: difficultySchema.optional(),
     attachmentIds: attachmentIdsSchema,
     // Up to three plain lines a person can read at a glance (#report-summary).
     summary: reportSummarySchema,
+    /**
+     * #security-findings: file it as a private security finding. The idea and its issue show a
+     * placeholder; the title, summary, description and files are readable only by the owner,
+     * workspace owners and admins and security-cleared agents until the fix is live.
+     */
+    security: z.object({ severity: z.enum(SECURITY_SEVERITIES) }).strict().optional(),
   })
   .strict();
 
@@ -71,6 +87,9 @@ export const ideaSelect = {
   title: true,
   summary: true,
   description: true,
+  source: true,
+  track: true,
+  rationale: true,
   status: true,
   score: true,
   typeId: true,
@@ -95,9 +114,11 @@ type IdeaRow = Prisma.IdeaGetPayload<{ select: typeof ideaSelect }>;
 
 /** The idea as the API shows it: the issue it became, and whether it can be converted now. */
 export function ideaJson(idea: IdeaRow, ideaThreshold: number) {
-  const { issue, ...rest } = idea;
+  const { issue, rationale, ...rest } = idea;
   return {
     ...rest,
+    // Only marketing ideas carry a rationale.
+    ...(idea.track === "marketing" ? { rationale } : {}),
     issueId: issue?.id ?? null,
     issueNumber: issue?.number ?? null,
     ideaThreshold,
@@ -105,8 +126,10 @@ export function ideaJson(idea: IdeaRow, ideaThreshold: number) {
   };
 }
 
-/** `?status=`, `?convertible=`, `?q=` and the shared cursor, newest first. */
+/** `?track=`, `?status=`, `?convertible=`, `?q=` and the shared cursor, newest first. */
 export async function listAgentIdeas(scope: Scope, params: URLSearchParams) {
+  const track = parseTrackFilter(params.get("track"));
+  if (!track.ok) throw new IssueApiError(400, track.message, { error: "invalid_request", field: "track" });
   const rawStatus = params.get("status");
   if (rawStatus && !(IDEA_STATUSES as readonly string[]).includes(rawStatus)) {
     throw new IssueApiError(400, `status must be one of ${IDEA_STATUSES.join(", ")}.`);
@@ -125,21 +148,51 @@ export async function listAgentIdeas(scope: Scope, params: URLSearchParams) {
   const term = q ? escapeSearchQuery(boundSearchTerm(q)) : null;
   const where: Prisma.IdeaWhereInput = {
     ...scope,
+    track: track.track,
     isDeleted: false,
     ...(rawStatus ? { status: rawStatus as IdeaStatus } : {}),
     ...(convertibleRaw === "true" ? { status: "open", score: { gte: ideaThreshold } } : {}),
     ...(convertibleRaw === "false" ? { NOT: { status: "open", score: { gte: ideaThreshold } } } : {}),
-    ...(term
-      ? { AND: [{ OR: [{ title: { contains: term, mode: "insensitive" } }, { description: { contains: term, mode: "insensitive" } }] }] }
-      : {}),
-    ...(cursor ? ideaCursorWhere(cursor) : {}),
   };
-  const rows = await prisma.idea.findMany({
-    where,
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    take: limit + 1,
-    select: ideaSelect,
-  });
+  let rows;
+  if (q && boundSearchTerm(q).length >= 3) {
+    try {
+      const filters = [
+        ...(rawStatus ? [`status:=${rawStatus}`] : []),
+        ...(convertibleRaw === "true" ? ["status:=open", `score:>=${ideaThreshold}`] : []),
+        ...(convertibleRaw === "false" ? [`(status:!=open || score:<${ideaThreshold})`] : []),
+        // Typesense supports numeric ranges, not string range filters. Fetch
+        // through the cursor timestamp, then apply the full (time, id) cursor
+        // predicate in PostgreSQL before counting the page.
+        ...(cursor ? [`createdAt:<=${cursor.createdAt.getTime()}`] : []),
+      ];
+      const batchSize = limit + 1;
+      const ids: string[] = [];
+      let pageNumber = 1;
+      let found = 0;
+      while (true) {
+        const batch = await searchWorkItems({ query: boundSearchTerm(q), kind: "idea", organisationId: scope.organisationId, projectId: scope.projectId, track: track.track, page: pageNumber, perPage: batchSize, sortBy: "createdAt:desc,sourceId:desc", queryBy: "title(infix:always),description(infix:always)", extraFilters: filters });
+        found = batch.found;
+        if (pageNumber === 1 && found === 0) throw new Error("Typesense returned no candidates; verifying with PostgreSQL.");
+        ids.push(...batch.hits.map((hit) => hit.id));
+        const currentRows = await prisma.idea.findMany({
+          where: { ...where, ...(cursor ? ideaCursorWhere(cursor) : {}), id: { in: ids } },
+          orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit + 1, select: ideaSelect,
+        });
+        const literalQuery = boundSearchTerm(q).toLocaleLowerCase();
+        rows = currentRows.filter((row) => row.title.toLocaleLowerCase().includes(literalQuery) || row.description.toLocaleLowerCase().includes(literalQuery));
+        if (rows.length > limit || pageNumber * batchSize >= found || batch.hits.length === 0) break;
+        pageNumber += 1;
+      }
+      const sourceCount = await prisma.idea.count({ where: { ...where, ...(term ? { AND: [{ OR: [{ title: { contains: term, mode: "insensitive" as const } }, { description: { contains: term, mode: "insensitive" as const } }] }] } : {}), ...(cursor ? ideaCursorWhere(cursor) : {}) } });
+      if (rows.length < Math.min(limit + 1, sourceCount)) throw new Error("Typesense candidate page is incomplete; verifying with PostgreSQL.");
+    } catch (error) {
+      console.error("[agent-api/ideas] Typesense search failed; using PostgreSQL", error);
+      rows = await prisma.idea.findMany({ where: { ...where, ...(term ? { AND: [{ OR: [{ title: { contains: term, mode: "insensitive" as const } }, { description: { contains: term, mode: "insensitive" as const } }] }] } : {}), ...(cursor ? ideaCursorWhere(cursor) : {}) }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit + 1, select: ideaSelect });
+    }
+  } else {
+    rows = await prisma.idea.findMany({ where: { ...where, ...(term ? { AND: [{ OR: [{ title: { contains: term, mode: "insensitive" as const } }, { description: { contains: term, mode: "insensitive" as const } }] }] } : {}), ...(cursor ? ideaCursorWhere(cursor) : {}) }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limit + 1, select: ideaSelect });
+  }
   const page = toPage(rows, limit);
   // #724: each idea's weighted good, bad and neutral votes, as the Ideas list shows them.
   const totals = await ideaVoteTotals(prisma, page.items.map((row) => row.id));
@@ -164,7 +217,7 @@ export async function findIdea(scope: Scope, ref: string) {
   });
 }
 
-export async function readAgentIdea(scope: Scope, ref: string) {
+export async function readAgentIdea(scope: Scope, ref: string, viewer: FindingViewer | null = null) {
   const found = await findIdea(scope, ref);
   if (!found) throw new IssueApiError(404, "Idea not found.");
   const [idea, { ideaThreshold }] = await Promise.all([
@@ -183,13 +236,19 @@ export async function readAgentIdea(scope: Scope, ref: string) {
   const votes = (await ideaVoteTotals(prisma, [idea.id])).get(idea.id) ?? NO_VOTES;
   const json = ideaJson(idea, ideaThreshold) as ReturnType<typeof ideaJson> & { attachments: typeof idea.attachments };
   // #722: each file with the URL an agent reads it from, with its key.
-  return { ...json, attachments: idea.attachments.map((file) => ({ ...file, url: agentAttachmentUrl(file.id) })), votes };
+  return {
+    ...json,
+    attachments: idea.attachments.map((file) => ({ ...file, url: agentAttachmentUrl(file.id) })),
+    votes,
+    // #security-findings: null for an ordinary idea.
+    security: securityJson(await findingForIdea(idea.id), viewer),
+  };
 }
 
-async function normalizeTenantMentions(db: Prisma.TransactionClient, tenantId: string, body: string) {
+async function normalizeOrganisationMentions(db: Prisma.TransactionClient, organisationId: string, body: string) {
   const ids = extractMentionedUserIds(body);
   const users = ids.length
-    ? await db.user.findMany({ where: { id: { in: ids }, memberships: { some: { tenantId } } }, select: { id: true, name: true } })
+    ? await db.user.findMany({ where: { id: { in: ids }, memberships: { some: { organisationId } } }, select: { id: true, name: true } })
     : [];
   return normalizeMentions(body, new Map(users.map((user) => [user.id, user.name])));
 }
@@ -198,18 +257,19 @@ async function normalizeTenantMentions(db: Prisma.TransactionClient, tenantId: s
 async function linkAgentIdeaAttachments(
   tx: Prisma.TransactionClient,
   agent: AgentContext,
-  input: { requested?: string[]; text: string; ideaId: string },
+  input: { requested?: string[]; text: string } & ({ ideaId: string } | { securityFindingId: string }),
 ): Promise<void> {
+  const target = "securityFindingId" in input ? { securityFindingId: input.securityFindingId } : { ideaId: input.ideaId };
   const requested = [...new Set(input.requested ?? [])];
   if (requested.length > 0) {
-    const linked = await linkAttachments(tx, { ids: requested, uploaderId: agent.ownerId, ideaId: input.ideaId });
+    const linked = await linkAttachments(tx, { ids: requested, uploaderId: agent.ownerId, ...target });
     if (linked !== requested.length) {
       throw new IssueApiError(422, "One or more attachmentIds weren't found, belong to someone else, or are already attached.");
     }
   }
   const referenced = attachmentIdsInMarkdown(input.text).filter((id) => !requested.includes(id));
   if (referenced.length > 0) {
-    await linkAttachments(tx, { ids: referenced, uploaderId: agent.ownerId, ideaId: input.ideaId });
+    await linkAttachments(tx, { ids: referenced, uploaderId: agent.ownerId, ...target });
   }
 }
 
@@ -283,6 +343,11 @@ export async function createAgentIdea(agent: AgentContext, request: NextRequest)
 
 async function createIdeaFromBody(agent: AgentContext, request: NextRequest, body: unknown, uploaded: string[], digests: string[]) {
   const input = createIdeaSchema.parse(body);
+  const fields = parseIdeaTrack(input);
+  if (!fields.ok) {
+    throw new IssueApiError(400, fields.message, { error: "invalid_request", message: fields.message, field: fields.field });
+  }
+  const { track, rationale } = fields.value;
   assertVettedFields(input);
   const scope = await issueProject(agent, request.nextUrl.searchParams, input.projectId);
   const beneficiaryUserId = agent.ownerId;
@@ -296,6 +361,8 @@ async function createIdeaFromBody(agent: AgentContext, request: NextRequest, bod
     proofLinks: input.proofLinks,
     typeId: input.typeId ?? null,
     acknowledgeSimilar: input.acknowledgeSimilar ?? null,
+    // Product requests hash as they always did, so their keys keep replaying.
+    ...(track === "marketing" ? { track, rationale } : {}),
     ...(input.alreadyVetted ? { alreadyVetted: true, vettedNote: input.vettedNote } : {}),
     // Files sent in this request hash by content, not by the ids they were just given (#722).
     ...(input.attachmentIds?.filter((id) => !uploaded.includes(id)).length
@@ -303,7 +370,9 @@ async function createIdeaFromBody(agent: AgentContext, request: NextRequest, bod
       : {}),
     ...(digests.length ? { files: [...digests].sort() } : {}),
     ...(input.areaId ? { areaId: input.areaId } : {}),
+    ...(input.security ? { security: input.security.severity } : {}),
   });
+  const severity = input.security?.severity ?? null;
   const result = await createIdeaWithPolicy({
     agent,
     projectId: scope.projectId,
@@ -311,48 +380,70 @@ async function createIdeaFromBody(agent: AgentContext, request: NextRequest, bod
     requestHash,
     title: input.title,
     typeId: input.typeId,
-    acknowledgeSimilar: input.acknowledgeSimilar,
+    track,
+    // Every private finding shows the same placeholder title, so the title check would only match other findings.
+    acknowledgeSimilar: severity ? true : input.acknowledgeSimilar,
     insert: async (tx, policy) => {
       const member = await tx.membership.findUnique({
-        where: { tenantId_userId: { tenantId: scope.tenantId, userId: beneficiaryUserId } },
+        where: { organisationId_userId: { organisationId: scope.organisationId, userId: beneficiaryUserId } },
         select: { userId: true },
       });
-      if (!member) throw new IssueApiError(422, "The beneficiary must be a member of the tenant.");
+      if (!member) throw new IssueApiError(422, "The beneficiary must be a member of the organisation.");
       if (input.alreadyVetted) await assertVettedCap(tx, agent);
       const areaId = input.areaId || null;
       if (areaId) {
         const area = await tx.projectArea.findFirst({ where: { id: areaId, projectId: scope.projectId }, select: { id: true } });
         if (!area) throw new IssueApiError(422, "Area not found in this project.");
       }
-      const description = await normalizeTenantMentions(tx, scope.tenantId, input.description);
+      const description = await normalizeOrganisationMentions(tx, scope.organisationId, input.description);
       const idea = await tx.idea.create({
         data: {
           ...scope,
           typeId: policy.typeId,
-          title: input.title,
-          summary: input.summary,
-          description,
+          title: severity ? placeholderTitle(severity) : input.title,
+          summary: severity ? PLACEHOLDER_SUMMARY : input.summary,
+          description: severity ? PLACEHOLDER_DESCRIPTION : description,
+          track,
+          rationale,
           areaId,
-          proofLinks: input.proofLinks,
+          // Proof links can point at the exploit, so a private finding keeps them in its description.
+          proofLinks: severity ? [] : input.proofLinks,
           reporterId: beneficiaryUserId,
           beneficiaryUserId,
           createdByAgentId: agent.agentId,
         },
         select: { id: true, number: true },
       });
-      await linkAgentIdeaAttachments(tx, agent, { requested: input.attachmentIds, text: description, ideaId: idea.id });
+      const finding = severity
+        ? await createFinding(tx, {
+            ...scope,
+            ideaId: idea.id,
+            reporterId: beneficiaryUserId,
+            severity,
+            title: input.title,
+            summary: input.summary,
+            description: input.proofLinks.length
+              ? `${description}\n\n**Proof links**\n${input.proofLinks.map((link) => `- ${link}`).join("\n")}`
+              : description,
+          })
+        : null;
+      await linkAgentIdeaAttachments(tx, agent, {
+        requested: input.attachmentIds,
+        text: description,
+        ...(finding ? { securityFindingId: finding.id } : { ideaId: idea.id }),
+      });
       await audit(agent, "idea.created", `idea:${idea.id}`, { beneficiaryUserId, number: idea.number }, { db: tx });
       await publish(tx, {
-        tenantId: scope.tenantId,
+        organisationId: scope.organisationId,
         type: "idea.created",
-        payload: { ideaId: idea.id, ideaNumber: idea.number, projectId: scope.projectId, beneficiaryUserId },
+        payload: { ideaId: idea.id, ideaNumber: idea.number, projectId: scope.projectId, beneficiaryUserId, ...(severity ? { security: { severity } } : {}) },
         actorAgentId: agent.agentId,
         projectId: scope.projectId,
       });
       // Already vetted: the idea becomes an issue now, and the note goes on the audit log with it.
       if (input.alreadyVetted && input.vettedNote) {
         await audit(agent, "idea.vetted", `idea:${idea.id}`, { vettedNote: input.vettedNote, number: idea.number }, { db: tx });
-        const made = await convertVettedIdea(tx, agent, scope.projectId, idea.id, input.vettedNote);
+        const made = await convertVettedIdea(tx, agent, scope.projectId, idea.id, input.vettedNote, input.difficulty ?? "medium");
         converted = { issueId: made.issueId, issueNumber: made.issueNumber };
       }
       return idea;
@@ -360,7 +451,7 @@ async function createIdeaFromBody(agent: AgentContext, request: NextRequest, bod
   });
   if (result.status !== 200 && result.status !== 201) return NextResponse.json(result, { status: result.status });
   // A reused key can refer to another project; never return an out-of-scope idea.
-  const idea = await readAgentIdea(scope, result.ideaId);
+  const idea = await readAgentIdea(scope, result.ideaId, await agentFindingViewer(agent));
   return NextResponse.json({ idea, replayed: result.replayed, ...(input.alreadyVetted ? { converted: converted ?? (idea.issueId && idea.issueNumber ? { issueId: idea.issueId, issueNumber: idea.issueNumber } : null) } : {}) }, { status: result.status });
 }
 

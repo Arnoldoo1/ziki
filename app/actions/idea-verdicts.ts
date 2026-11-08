@@ -3,13 +3,14 @@
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/auth-helpers";
-import { currentTenantIdFor } from "@/lib/tenant-context";
+import { currentOrganisationIdFor } from "@/lib/organisation-context";
 import { convertIdea, giveIdeaVerdict, ideaVerdictSchema, rejectIdea, withdrawIdea } from "@/lib/agent-api/idea-verdicts";
 import { awardingAgentOf } from "@/lib/bid-award-permission";
 import { redirect } from "next/navigation";
 import { ideaPath, projectPath, refOf } from "@/lib/project-paths";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { ACTION_RATE_LIMITS, consumeRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 
 export type IdeaVerdictActionResult = {
   ok?: true;
@@ -21,9 +22,9 @@ export type IdeaVerdictActionResult = {
 };
 
 /**
- * The idea a verdict is for, in any workspace the person belongs to (any for
- * the site super admin). Not scoped by the active-workspace cookie: a tab
- * left open on one workspace while another tab switched the cookie would
+ * The idea a verdict is for, in any organisation the person belongs to (any for
+ * the site super admin). Not scoped by the active-organisation cookie: a tab
+ * left open on one organisation while another tab switched the cookie would
  * otherwise get "Idea not found" for an idea it is showing.
  */
 async function ideaForVerdict(user: { id: string; role?: string | null }, ideaId: string) {
@@ -32,9 +33,17 @@ async function ideaForVerdict(user: { id: string; role?: string | null }, ideaId
     where: {
       id: ideaId,
       isDeleted: false,
-      tenant: { archivedAt: null, ...(user.role === "super_admin" ? {} : { memberships: { some: { userId: user.id } } }) },
+      organisation: { archivedAt: null },
+      ...(user.role === "super_admin"
+        ? {}
+        : {
+            OR: [
+              { organisation: { memberships: { some: { userId: user.id } } } },
+              { project: { memberships: { some: { userId: user.id } } } },
+            ],
+          }),
     },
-    select: { id: true, number: true, projectId: true, tenantId: true },
+    select: { id: true, number: true, projectId: true, organisationId: true },
   });
 }
 
@@ -55,7 +64,7 @@ export async function giveIdeaVerdictAction(
 
   const idea = await ideaForVerdict(user, ideaId);
   if (!idea) return { error: "Idea not found" };
-  const tenantId = idea.tenantId;
+  const organisationId = idea.organisationId;
 
   const parsed = ideaVerdictSchema.safeParse({
     opinion: formData.get("opinion") ?? undefined,
@@ -68,8 +77,20 @@ export async function giveIdeaVerdictAction(
     return { error: issue?.message ?? "Check your verdict and try again." };
   }
 
+  // #secret-protection: a verdict is posted on the idea for everyone to read.
+  const secrets = await checkPostForSecrets({
+    organisationId,
+    projectId: idea.projectId,
+    actor: { kind: "user", userId },
+    source: "idea_verdict",
+    ideaId: idea.id,
+    fields: { summary: parsed.data.summary, description: parsed.data.description },
+    noun: "this verdict",
+  });
+  if (!secrets.ok) return { error: secrets.message };
+
   try {
-    const given = await giveIdeaVerdict({ tenantId, userId }, idea.projectId, idea.id, parsed.data);
+    const given = await giveIdeaVerdict({ organisationId, userId }, idea.projectId, idea.id, parsed.data);
     revalidatePath("/[org]/[project]", "layout");
     return { ok: true, replaced: given.replaced, ideaScore: given.ideaScore, ideaThreshold: given.ideaThreshold };
   } catch (error) {
@@ -98,11 +119,11 @@ export async function quickIdeaVerdictAction(ideaId: string, opinion: "good" | "
   if (opinion !== "good" && opinion !== "bad") return { error: "Idea not found" };
   const idea = await ideaForVerdict(user, ideaId);
   if (!idea) return { error: "Idea not found" };
-  const tenantId = idea.tenantId;
+  const organisationId = idea.organisationId;
 
   try {
     const input = ideaVerdictSchema.parse({ opinion, ...QUICK_VERDICT[opinion] });
-    const given = await giveIdeaVerdict({ tenantId, userId: user.id }, idea.projectId, idea.id, input);
+    const given = await giveIdeaVerdict({ organisationId, userId: user.id }, idea.projectId, idea.id, input);
     revalidatePath("/[org]/[project]", "layout");
     return { ok: true, replaced: given.replaced, ideaScore: given.ideaScore, ideaThreshold: given.ideaThreshold };
   } catch (error) {
@@ -124,16 +145,16 @@ export async function withdrawIdeaFromPage(ideaId: string): Promise<{ ok?: true;
   const limit = await consumeRateLimit(`idea-withdraw:${userId}`, ACTION_RATE_LIMITS.addComment);
   if (!limit.allowed) return { error: RATE_LIMIT_MESSAGE };
 
-  const tenantId = await currentTenantIdFor(userId);
-  if (!tenantId || typeof ideaId !== "string" || !ideaId) return { error: "Idea not found" };
+  const organisationId = await currentOrganisationIdFor(userId);
+  if (!organisationId || typeof ideaId !== "string" || !ideaId) return { error: "Idea not found" };
   const idea = await prisma.idea.findFirst({
-    where: { id: ideaId, tenantId, isDeleted: false },
+    where: { id: ideaId, organisationId, isDeleted: false },
     select: { id: true, number: true, projectId: true },
   });
   if (!idea) return { error: "Idea not found" };
 
   try {
-    await withdrawIdea({ tenantId, userId, agentId: null }, idea.projectId, idea.id);
+    await withdrawIdea({ organisationId, userId, agentId: null }, idea.projectId, idea.id);
     revalidatePath("/[org]/[project]", "layout");
     return { ok: true };
   } catch (error) {
@@ -159,24 +180,25 @@ export async function withdrawIdeaAction(formData: FormData): Promise<void> {
 async function ideaDecision(formData: FormData, decide: "approve" | "reject"): Promise<void> {
   const user = await requireUser();
   const ideaId = String(formData.get("ideaId") ?? "");
-  const tenantId = await currentTenantIdFor(user.id);
-  if (!tenantId || !ideaId) return;
+  const organisationId = await currentOrganisationIdFor(user.id);
+  if (!organisationId || !ideaId) return;
   const idea = await prisma.idea.findFirst({
-    where: { id: ideaId, tenantId, isDeleted: false },
-    select: { id: true, number: true, projectId: true, project: { select: { slug: true, tenant: { select: { slug: true } } } } },
+    where: { id: ideaId, organisationId, isDeleted: false },
+    select: { id: true, number: true, projectId: true, project: { select: { slug: true, organisation: { select: { slug: true } } } } },
   });
   if (!idea) return;
-  const agent = await awardingAgentOf(user.id, tenantId);
+  const agent = await awardingAgentOf(user.id, organisationId);
   if (!agent) return;
-  const context = { agentId: agent.id, name: agent.name, ownerId: agent.ownerUserId, tenantId: agent.tenantId, level: agent.level, burst: false, keyId: "web" };
+  const context = { agentId: agent.id, name: agent.name, ownerId: agent.ownerUserId, organisationId: agent.organisationId, level: agent.level, burst: false, keyId: "web" };
   let issueNumber: number | null = null;
   try {
     if (decide === "approve") {
-      const converted = await convertIdea(context, idea.projectId, idea.id);
+      const converted = await convertIdea(context, idea.projectId, idea.id, "medium");
       const issue = await prisma.bug.findUnique({ where: { id: converted.issueId }, select: { number: true } });
       issueNumber = issue?.number ?? null;
     } else {
-      await rejectIdea(context, idea.projectId, idea.id);
+      const reason = formData.get("reason")?.toString().trim() || formData.get("rejectReason")?.toString().trim() || null;
+      await rejectIdea(context, idea.projectId, idea.id, reason);
     }
   } catch (error) {
     if (!(error instanceof IssueApiError)) console.error(`[idea-${decide}] failed`, error);

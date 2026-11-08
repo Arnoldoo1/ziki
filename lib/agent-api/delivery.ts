@@ -1,4 +1,4 @@
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/agents/audit";
@@ -12,11 +12,16 @@ import { refreshJudgedStatus } from "@/lib/agent-api/tested-status";
 import { entryDescription, entryReplySelect, entrySummary, toEntryReplies, type EntryReply } from "@/lib/agent-api/entry-fields";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { parseIssueRef } from "@/lib/issue-ref";
-import { parseGitHubRepoUrl, parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
-import { standingAcceptance } from "@/lib/accepted-fix";
+import { parsePullRequestUrl, sameRepo } from "@/lib/github/pull-request-url";
+import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
+import { acceptedFixGate, releaseAcceptedFix } from "@/lib/accepted-fix";
 import { latestPullRequestReport } from "@/lib/agent-api/pull-request-report";
 import { moveTo } from "@/lib/issue-substatus";
 import { actionReason } from "@/lib/agent-api/action-reason";
+import { deliverableText, marketingDeliveryBodySchema } from "@/lib/validations/marketing";
+import { linkAttachments } from "@/lib/attachment-link";
+import { MAX_ATTACHMENTS_PER_ITEM } from "@/lib/attachments";
+import { deliveryReceiptSchema, storedReceipt, type DeliveryReceipt } from "@/lib/delivery-receipt";
 
 /**
  * Work delivered (#delivered-step): the In progress step's entry. The agent
@@ -27,20 +32,32 @@ import { actionReason } from "@/lib/agent-api/action-reason";
  * enough good judgements make it Done, enough not-good ones send it back to
  * Open (lib/agent-api/tested-status.ts).
  *
+ * Product work delivers a pull request. Marketing work has none: it delivers
+ * the finished work as Markdown, links to it, or uploaded files instead
+ * (docs/marketing-migration-plan.md, M-API-3), and a payload with a pull
+ * request, a head commit or test results is refused.
+ *
  * This is the one way a pull request is attached to an issue. Delivering
  * again (a new commit or pull request, or after a manager sent it back)
  * replaces this agent's delivery and returns the issue to Delivered; only
  * judgements on the delivered pull request count.
  *
- * Ziki never calls GitHub (#pr-reports): the delivery records the pull request
+ * A delivery may carry a receipt (#delivery-receipt, lib/delivery-receipt.ts):
+ * what the agent verified and how, what it did not verify and why, and what
+ * the reviewer should test. It is shown under the delivery and handed to
+ * testers with GET /issues/{id}/test-results, so judgements answer it.
+ *
+ * Agents report pull requests and Ziki reads them on GitHub (#pr-reports, #github-status): the delivery records the pull request
  * and the head commit the deliverer names. When an independent agent's latest
  * report on that pull request says it is merged, closed or missing, it can't be
  * delivered.
  */
 
+/** The shape both tracks share; which fields it may carry is decided by the issue's track. */
 export const deliveryBodySchema = z
   .object({
-    pullRequestUrl: z.string().trim().min(1).max(2048),
+    /** The pull request delivered. Product work only: marketing has none. */
+    pullRequestUrl: z.string().trim().min(1).max(2048).optional(),
     /** At most two sentences: what was done. */
     summary: entrySummary,
     /** What changed, how it was checked, and anything left open. */
@@ -48,14 +65,21 @@ export const deliveryBodySchema = z
     reason: actionReason,
     screenshots: z.array(z.string().trim().min(1).max(2048)).max(20).optional(),
     testResults: z.union([z.string().trim().min(1).max(20_000), z.record(z.string(), z.unknown())]).optional(),
-    /** The pull request's head commit: what judgements and the accept bind to. */
+    /** What was verified, what was not, and what the reviewer should test (#delivery-receipt). Both tracks. */
+    receipt: deliveryReceiptSchema.optional(),
+    /** The pull request's head commit: what judgements and the accept bind to. Product work only. */
     headSha: z.string().trim().regex(/^[0-9a-f]{7,64}$/i, "headSha must be a hexadecimal commit SHA.").optional(),
+    /** The finished work as Markdown, shown as a file. Marketing work only. */
+    deliverableText: deliverableText.optional(),
+    /** Links to the finished work. Marketing work only. */
+    deliverableUrls: z.array(z.string().trim().min(1).max(2048)).max(20).optional(),
+    /** Uploaded files to attach (`POST /api/v1/attachments`). Marketing work only. */
+    attachmentIds: z.array(z.string().trim().min(1).max(191)).max(MAX_ATTACHMENTS_PER_ITEM).optional(),
   })
-  .strict()
-  .refine((body) => (body.screenshots?.length ?? 0) > 0 || body.testResults !== undefined, {
-    message: "Include screenshots of the fix or test results that show it works.",
-    path: ["testResults"],
-  });
+  .strict();
+
+const PRODUCT_ONLY_DELIVERY_FIELDS = ["pullRequestUrl", "headSha", "testResults"] as const;
+const MARKETING_ONLY_DELIVERY_FIELDS = ["deliverableText", "deliverableUrls", "attachmentIds"] as const;
 
 /** Where work can be delivered: being worked on, or delivered again before it merges. */
 const DELIVERABLE = new Set(["in_progress", "done", "merge"]);
@@ -70,10 +94,16 @@ export type DeliveryEntry = {
   summary: string;
   description: string;
   reason: string | null;
-  pullRequestUrl: string;
+  pullRequestUrl: string | null;
+  /** The finished work as Markdown, on marketing work. */
+  deliverableText: string | null;
+  /** Links to the finished work, on marketing work. */
+  deliverableUrls: string[];
   headSha: string | null;
   screenshots: string[];
   testResults: string | null;
+  /** The delivery receipt (#delivery-receipt), or null when the delivery carried none. */
+  receipt: DeliveryReceipt | null;
   /** On the pull request linked now: the work being judged. */
   current: boolean;
   createdAt: Date;
@@ -105,9 +135,12 @@ export async function deliveryEntries(bug: { id: string; pullRequestUrl: string 
       description: true,
       reason: true,
       pullRequestUrl: true,
+      deliverableText: true,
+      deliverableUrls: true,
       headSha: true,
       screenshots: true,
       testResults: true,
+      receipt: true,
       createdAt: true,
       updatedAt: true,
       agent: { select: { name: true } },
@@ -115,17 +148,19 @@ export async function deliveryEntries(bug: { id: string; pullRequestUrl: string 
       replies: entryReplySelect,
     },
   });
-  return rows.map(({ agent, beneficiary, replies, ...row }) => ({
+  return rows.map(({ agent, beneficiary, replies, receipt, ...row }) => ({
     ...row,
+    receipt: storedReceipt(receipt),
     agentName: agent.name,
     by: beneficiary.name ?? "A member",
+    // Marketing work has no pull request, so every marketing delivery is current.
     current: row.pullRequestUrl === bug.pullRequestUrl,
     replies: toEntryReplies(replies),
   }));
 }
 
 /** GET /issues/{id}/delivery: the issue's deliveries, each with its replies. */
-export async function listDeliveries(scope: { tenantId: string; projectId?: string }, issueRef: string) {
+export async function listDeliveries(scope: { organisationId: string; projectId?: string }, issueRef: string) {
   const ref = parseIssueRef(issueRef);
   const bug = await prisma.bug.findFirst({
     where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
@@ -164,22 +199,54 @@ export async function deliverWork(
     return { status: 400, error: "invalid_request", message: issue?.message ?? "Invalid delivery.", ...(field ? { field } : {}) };
   }
   const body = parsed.data;
-  const ref = parsePullRequestUrl(body.pullRequestUrl);
-  if (!ref) return { status: 400, error: "invalid_request", message: "That is not a GitHub pull request URL.", field: "pullRequestUrl" };
 
   const issue = parseIssueRef(issueRef);
   const bug = await prisma.bug.findFirst({
-    where: { ...(issue.kind === "number" ? { number: issue.number } : { id: issue.id }), tenantId: agent.tenantId, isDeleted: false },
+    where: { ...(issue.kind === "number" ? { number: issue.number } : { id: issue.id }), organisationId: agent.organisationId, isDeleted: false },
     select: {
       id: true,
       projectId: true,
+      track: true,
       status: true,
       substatus: true,
       pullRequestUrl: true,
-      project: { select: { repoUrl: true } },
+      project: { select: { repoUrl: true, ...PROJECT_REPOSITORIES_SELECT } },
     },
   });
   if (!bug) return { status: 404, error: "not_found", message: "No such issue." };
+
+  const marketing = bug.track === "marketing";
+  if (marketing) {
+    // A marketing delivery carries, links or attaches the work; it has no pull request.
+    for (const field of PRODUCT_ONLY_DELIVERY_FIELDS) {
+      if (body[field] !== undefined) {
+        return { status: 400, error: "invalid_request", message: "A marketing delivery has no pull request: send deliverableText, deliverableUrls or attachmentIds.", field };
+      }
+    }
+    const marketingBody = marketingDeliveryBodySchema.safeParse(rawBody ?? {});
+    if (!marketingBody.success) {
+      const invalid = marketingBody.error.issues[0];
+      const field = typeof invalid?.path[0] === "string" ? invalid.path[0] : undefined;
+      return { status: 400, error: "invalid_request", message: invalid?.message ?? "Invalid delivery.", ...(field ? { field } : {}) };
+    }
+  } else {
+    // A product delivery links a pull request, and has no marketing deliverables.
+    for (const field of MARKETING_ONLY_DELIVERY_FIELDS) {
+      if (body[field] !== undefined) {
+        return { status: 400, error: "invalid_request", message: "A product delivery links a pull request: send pullRequestUrl.", field };
+      }
+    }
+    if (!body.pullRequestUrl) {
+      return { status: 400, error: "invalid_request", message: "Send the pull request you delivered.", field: "pullRequestUrl" };
+    }
+    if ((body.screenshots?.length ?? 0) === 0 && body.testResults === undefined) {
+      return { status: 400, error: "invalid_request", message: "Include screenshots of the fix or test results that show it works.", field: "testResults" };
+    }
+    if (!parsePullRequestUrl(body.pullRequestUrl)) {
+      return { status: 400, error: "invalid_request", message: "That is not a GitHub pull request URL.", field: "pullRequestUrl" };
+    }
+  }
+
   if (!DELIVERABLE.has(bug.status)) {
     return {
       status: 409,
@@ -204,7 +271,7 @@ export async function deliverWork(
     });
     if (reviewOffer && !bug.pullRequestUrl) {
       beneficiaryUserId = agent.ownerId;
-    } else if (hasLevel(agent.level, "manager")) {
+    } else if (!marketing && hasLevel(agent.level, "manager")) {
       const stranded = await strandedDelivery(bug.id);
       if (!stranded) {
         return {
@@ -234,37 +301,60 @@ export async function deliverWork(
     }
   }
 
-  const repo = parseGitHubRepoUrl(bug.project?.repoUrl);
-  if (repo && !sameRepo(ref, repo)) {
-    return { status: 422, error: "wrong_repository", message: "That pull request is not in this project's repository.", field: "pullRequestUrl" };
-  }
-  // #489: an accepted fix is bound to the pull request that was reviewed.
-  const accepted = await standingAcceptance(prisma, bug.id);
-  if (accepted && bug.pullRequestUrl && bug.pullRequestUrl !== body.pullRequestUrl) {
-    return {
-      status: 409,
-      error: "accepted_pull_request",
-      message: "This issue's accepted fix is bound to a different pull request: deliver the accepted one.",
-    };
+  // Marketing work stops here: no pull request, repository, report or head commit.
+  const pullRequestUrl = marketing ? null : body.pullRequestUrl!;
+  const headSha = marketing ? null : body.headSha ?? null;
+  /** Set when this delivery replaces an accepted pull request that was closed unmerged (#replacement-pr). */
+  let replacing: { acceptanceId: string; previous: string } | null = null;
+  if (!marketing) {
+    const ref = parsePullRequestUrl(pullRequestUrl!)!;
+    const repo = repoForPullRequest(bug.project, pullRequestUrl);
+    if (repo && !sameRepo(ref, repo)) {
+      return { status: 422, error: "wrong_repository", message: "That pull request is not in this project's repository.", field: "pullRequestUrl" };
+    }
+    // #489: an accepted fix is bound to the pull request that was reviewed.
+    // #replacement-pr: unless that pull request was closed without merging, so it
+    // can never merge: then a replacement is delivered and review starts again.
+    const gate = await acceptedFixGate(bug.id, bug.pullRequestUrl);
+    if (gate.acceptance && bug.pullRequestUrl && bug.pullRequestUrl !== pullRequestUrl) {
+      if (!gate.replaceable) {
+        return {
+          status: 409,
+          error: "accepted_pull_request",
+          message: "This issue's accepted fix is bound to a different pull request: deliver the accepted one. (A replacement is accepted only when the accepted pull request is reported closed without merging.)",
+        };
+      }
+      replacing = { acceptanceId: gate.acceptance.id, previous: bug.pullRequestUrl };
+    }
+
+    // The pull request has to be open: the latest independent report on it says
+    // so, or nobody has reported it yet (#pr-reports, #github-status).
+    const report = await latestPullRequestReport(bug.id, pullRequestUrl!);
+    const reporter = report?.agent ? `reported by ${report.agent.name}` : "read on GitHub by Ziki";
+    const reported = report ? ` (${reporter} at ${(report.checkedAt ?? report.createdAt).toISOString()}; report again if that changed)` : "";
+    if (report?.state === "merged") {
+      return { status: 422, error: "pull_request_merged", message: `That pull request is already merged${reported}. Only an open pull request can be delivered.` };
+    }
+    if (report?.state === "closed") {
+      return { status: 422, error: "pull_request_closed", message: `That pull request is closed${reported}. Reopen it or open a new one, then deliver.` };
+    }
+    if (report?.state === "not_found") {
+      return { status: 422, error: "pull_request_not_found", message: `That pull request doesn't exist on GitHub${reported}. Open one, then deliver it.` };
+    }
   }
 
-  // The pull request has to be open: the latest independent report on it says
-  // so, or nobody has reported it yet (#pr-reports). Ziki doesn't ask GitHub.
-  const report = await latestPullRequestReport(bug.id, body.pullRequestUrl);
-  const reported = report ? ` (reported by ${report.agent.name} at ${report.createdAt.toISOString()}; report again if that changed)` : "";
-  if (report?.state === "merged") {
-    return { status: 422, error: "pull_request_merged", message: `That pull request is already merged${reported}. Only an open pull request can be delivered.` };
-  }
-  if (report?.state === "closed") {
-    return { status: 422, error: "pull_request_closed", message: `That pull request is closed${reported}. Reopen it or open a new one, then deliver.` };
-  }
-  if (report?.state === "not_found") {
-    return { status: 422, error: "pull_request_not_found", message: `That pull request doesn't exist on GitHub${reported}. Open one, then deliver it.` };
-  }
-  const headSha = body.headSha ?? null;
-
-  const testResults = body.testResults === undefined ? null : typeof body.testResults === "string" ? body.testResults : JSON.stringify(body.testResults);
+  const testResults = marketing ? null : body.testResults === undefined ? null : typeof body.testResults === "string" ? body.testResults : JSON.stringify(body.testResults);
   const screenshots = body.screenshots ?? [];
+  const attachmentIds = marketing ? [...new Set(body.attachmentIds ?? [])] : [];
+  if (attachmentIds.length > 0) {
+    const owned = await prisma.attachment.count({
+      where: { id: { in: attachmentIds }, uploaderId: agent.ownerId, bugId: null, ideaId: null, commentId: null, confirmationId: null },
+    });
+    if (owned !== attachmentIds.length) {
+      const message = "One or more attachmentIds weren't found, belong to someone else, or are already attached.";
+      return { status: 422, error: "invalid_attachments", message, field: "attachmentIds" };
+    }
+  }
   const from = bug.substatus;
 
   const { delivery, replaced } = await prisma.$transaction(async (tx) => {
@@ -274,41 +364,63 @@ export async function deliverWork(
       summary: body.summary,
       description: body.description,
       reason: body.reason ?? null,
-      pullRequestUrl: body.pullRequestUrl,
+      pullRequestUrl,
+      deliverableText: marketing ? body.deliverableText ?? null : null,
+      deliverableUrls: marketing ? body.deliverableUrls ?? [] : [],
       headSha,
       screenshots,
       testResults,
+      // Delivering again replaces the delivery, its receipt included.
+      receipt: body.receipt ?? Prisma.JsonNull,
     };
     const saved = existing
       ? await tx.delivery.update({ where: { id: existing.id }, data, select: { id: true } })
       : await tx.delivery.create({ data: { ...data, bugId: bug.id, agentId: agent.agentId }, select: { id: true } });
 
+    // The deliverer's own uploads, attached to the issue as part of the delivery.
+    if (attachmentIds.length > 0) {
+      await linkAttachments(tx, { ids: attachmentIds, uploaderId: agent.ownerId, bugId: bug.id });
+    }
+
     await tx.bug.update({
       where: { id: bug.id },
       data: {
-        pullRequestUrl: body.pullRequestUrl,
-        pullRequestHeadSha: headSha,
         ...moveTo("requires_review"),
         ...(screenshots.length ? { proofLinks: { push: screenshots } } : {}),
+        ...(marketing ? {} : { pullRequestUrl: pullRequestUrl!, pullRequestHeadSha: headSha }),
       },
     });
-    // #539: verdicts recorded without a pull request can only have meant this one.
-    await tx.testVerdict.updateMany({
-      where: { bugId: bug.id, OR: [{ pullRequestUrl: null }, { pullRequestUrl: "" }] },
-      data: { pullRequestUrl: body.pullRequestUrl },
-    });
+    if (!marketing) {
+      // #539: verdicts recorded without a pull request can only have meant this one.
+      await tx.testVerdict.updateMany({
+        where: { bugId: bug.id, OR: [{ pullRequestUrl: null }, { pullRequestUrl: "" }] },
+        data: { pullRequestUrl: pullRequestUrl! },
+      });
+    }
+    // #replacement-pr: the accepted pull request is closed unmerged; the acceptance goes
+    // with it and the replacement is reviewed afresh.
+    if (replacing) {
+      await releaseAcceptedFix(tx, { bugId: bug.id, acceptanceId: replacing.acceptanceId, previous: replacing.previous, next: pullRequestUrl!, actorUserId: agent.ownerId });
+    }
     await tx.bugActivity.create({
       data: {
         bugId: bug.id,
         actorId: agent.ownerId,
         type: "status_changed",
-        summary: `delivered the work in ${body.pullRequestUrl}`,
+        summary: marketing
+          ? "delivered the work"
+          : replacing
+            ? `delivered the work in ${pullRequestUrl}, replacing ${replacing.previous}`
+            : `delivered the work in ${pullRequestUrl}`,
         metadata: {
           field: "status",
           from,
           to: "requires_review",
           deliveryId: saved.id,
-          pullRequestUrl: body.pullRequestUrl,
+          ...(replacing ? { replacesPullRequestUrl: replacing.previous } : {}),
+          ...(marketing
+            ? { deliverableUrls: body.deliverableUrls ?? [], attachmentIds }
+            : { pullRequestUrl: pullRequestUrl! }),
           replaced: Boolean(existing),
           ...(onBehalfOf ? { onBehalfOf: true, creditedUserId: beneficiaryUserId! } : {}),
         },
@@ -318,26 +430,28 @@ export async function deliverWork(
       issueId: bug.id,
       projectId: bug.projectId,
       deliveryId: saved.id,
-      pullRequestUrl: body.pullRequestUrl,
-      headSha,
+      ...(marketing ? { deliverableUrls: body.deliverableUrls ?? [] } : { pullRequestUrl: pullRequestUrl!, headSha }),
       summary: body.summary,
       agentId: agent.agentId,
+      ...(replacing ? { replacesPullRequestUrl: replacing.previous } : {}),
+      // #delivery-receipt: the receipt travels with the event, so a listener can judge against it.
+      ...(body.receipt ? { receipt: body.receipt } : {}),
       // #stranded-delivery: a manager agent filed it for the person credited.
       ...(onBehalfOf ? { onBehalfOf: true, filedBy: agent.agentId, creditedUserId: beneficiaryUserId! } : {}),
     };
-    await publish(tx, { tenantId: agent.tenantId, type: "issue.delivered", payload, actorAgentId: agent.agentId, bugId: bug.id });
-    await audit({ agentId: agent.agentId, tenantId: agent.tenantId }, "issue.delivered", `bug:${bug.id}`, payload, { db: tx, bugId: bug.id });
+    await publish(tx, { organisationId: agent.organisationId, type: "issue.delivered", payload, actorAgentId: agent.agentId, bugId: bug.id });
+    await audit({ agentId: agent.agentId, organisationId: agent.organisationId }, "issue.delivered", `bug:${bug.id}`, payload, { db: tx, bugId: bug.id });
     return { delivery: saved, replaced: Boolean(existing) };
   });
 
   // #stranded-delivery: the judgements already given on this pull request are
   // evaluated at once, as a new judgement would be, so enough of them make it Done.
   const judged = onBehalfOf ? await refreshJudgedStatus(prisma, bug.id, agent.ownerId) : null;
-  if (judged !== "accepted") {
-    await createReviewOffers(prisma, { agentId: agent.agentId, tenantId: agent.tenantId }, bug.id, { pullRequestUrl: body.pullRequestUrl, headSha }).catch(() => null);
+  if (!marketing && judged !== "accepted") {
+    await createReviewOffers(prisma, { agentId: agent.agentId, organisationId: agent.organisationId }, bug.id, { pullRequestUrl: pullRequestUrl!, headSha }).catch(() => null);
   }
 
-  const entries = await deliveryEntries({ id: bug.id, pullRequestUrl: body.pullRequestUrl });
+  const entries = await deliveryEntries({ id: bug.id, pullRequestUrl });
   const entry = entries.find((row) => row.id === delivery.id)!;
   return { status: replaced ? 200 : 201, delivery: entry, replaced };
 }

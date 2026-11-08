@@ -1,3 +1,6 @@
+import { marketingDeliveryBodySchema } from "@/lib/validations/marketing";
+import { trackRules } from "@/lib/marketing/track";
+import { Prisma } from "@prisma/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentContext } from "@/lib/agents/require-agent";
 
@@ -7,9 +10,11 @@ const PR = "https://github.com/emerjent/ziki/pull/615";
 const db = vi.hoisted(() => {
   const tx = {
     delivery: { findUnique: vi.fn(), create: vi.fn(), update: vi.fn() },
-    bug: { update: vi.fn() },
+    bug: { update: vi.fn(), updateMany: vi.fn() },
+    agentAuditEvent: { update: vi.fn() },
     testVerdict: { updateMany: vi.fn() },
     bugActivity: { create: vi.fn() },
+    attachment: { updateMany: vi.fn() },
   };
   return {
     tx,
@@ -20,6 +25,7 @@ const db = vi.hoisted(() => {
       agentAuditEvent: { findFirst: vi.fn() },
       pullRequestReport: { findFirst: vi.fn() },
       delivery: { findMany: vi.fn() },
+      attachment: { count: vi.fn() },
       $transaction: vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx)),
     },
   };
@@ -45,7 +51,7 @@ const agent = (level: AgentContext["level"], ownerId = "dana"): AgentContext => 
   agentId: `agent-${ownerId}`,
   name: `${ownerId}'s agent`,
   ownerId,
-  tenantId: "t1",
+  organisationId: "t1",
   level,
   burst: false,
   keyId: "k1",
@@ -222,5 +228,391 @@ describe("deliverWork: the latest pull request report decides whether it can be 
 
   it("refuses a head commit that isn't a hexadecimal SHA", async () => {
     expect(await deliverWork(agent("working", "ada"), "bug1", { ...body(), headSha: "not-a-sha" })).toMatchObject({ status: 400, field: "headSha" });
+  });
+});
+
+/** #replacement-pr: an accepted fix is bound to its pull request unless that one is reported closed without merging. */
+describe("deliverWork: a replacement for an accepted pull request that was closed unmerged (#replacement-pr)", () => {
+  const OLD = "https://github.com/emerjent/ziki/pull/600";
+  const NEW = "https://github.com/emerjent/ziki/pull/615";
+
+  /** The latest report per pull request address; none for an address not listed. */
+  function reports(byUrl: Record<string, ReturnType<typeof report> | null>) {
+    db.prisma.pullRequestReport.findFirst.mockImplementation(async ({ where }: { where: { pullRequestUrl: string } }) => byUrl[where.pullRequestUrl] ?? null);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Done · Accepted, the accepted pull request #600 linked.
+    db.prisma.bug.findFirst.mockResolvedValue({
+      id: "bug1",
+      projectId: "p1",
+      status: "merge",
+      substatus: "error",
+      pullRequestUrl: OLD,
+      project: { repoUrl: "https://github.com/emerjent/ziki" },
+    });
+    db.prisma.issueClaim.findFirst.mockResolvedValue({ id: "c1", beneficiaryUserId: "ada" });
+    db.prisma.reviewOffer.findFirst.mockResolvedValue(null);
+    db.prisma.agentAuditEvent.findFirst.mockResolvedValue({ id: "accept1", payload: { pullRequestUrl: OLD } });
+    db.prisma.delivery.findMany.mockResolvedValue([
+      {
+        id: "d1", agentId: "agent-ada", beneficiaryUserId: "ada", summary: body().summary, description: body().description,
+        pullRequestUrl: NEW, headSha: null, screenshots: [], testResults: body().testResults,
+        createdAt: new Date(), updatedAt: new Date(), agent: { name: "ada's agent" }, beneficiary: { name: "Ada" }, replies: [],
+      },
+    ]);
+    db.tx.delivery.findUnique.mockResolvedValue(null);
+    db.tx.delivery.create.mockResolvedValue({ id: "d1" });
+  });
+
+  it("delivers the replacement when the accepted pull request is reported closed, and restarts review", async () => {
+    reports({ [OLD]: report("closed", { pullRequestUrl: OLD }), [NEW]: null });
+    const result = await deliverWork(agent("working", "ada"), "bug1", body(NEW));
+    expect(result).toMatchObject({ status: 201 });
+    // The acceptance is cleared, so it gates nothing and the new pull request is judged afresh.
+    expect(db.tx.agentAuditEvent.update).toHaveBeenCalledWith({ where: { id: "accept1" }, data: { undoneAt: expect.any(Date) } });
+    expect(db.tx.bug.updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done", substatus: "requires_review" }) }));
+    expect(db.tx.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done", substatus: "requires_review", pullRequestUrl: NEW }) }));
+    // It records what it replaces, on the activity, the audit row and the event.
+    expect(db.tx.bugActivity.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ metadata: expect.objectContaining({ replacesPullRequestUrl: OLD }) }) }),
+    );
+    expect(mocks.audit).toHaveBeenCalledWith(expect.anything(), "issue.delivered", "bug:bug1", expect.objectContaining({ replacesPullRequestUrl: OLD, pullRequestUrl: NEW }), expect.anything());
+    expect(mocks.publish).toHaveBeenCalledWith(db.tx, expect.objectContaining({ type: "issue.delivered", payload: expect.objectContaining({ replacesPullRequestUrl: OLD }) }));
+    // New reviewers are asked for the new code.
+    expect(mocks.createReviewOffers).toHaveBeenCalled();
+  });
+
+  it("answers 409 accepted_pull_request while the accepted pull request is reported open", async () => {
+    reports({ [OLD]: report("open", { pullRequestUrl: OLD }) });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(NEW))).toMatchObject({ status: 409, error: "accepted_pull_request" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+    expect(db.tx.agentAuditEvent.update).not.toHaveBeenCalled();
+  });
+
+  it("answers 409 accepted_pull_request when the accepted pull request is reported merged", async () => {
+    reports({ [OLD]: report("merged", { pullRequestUrl: OLD }) });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(NEW))).toMatchObject({ status: 409, error: "accepted_pull_request" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("answers 409 accepted_pull_request when nobody has reported the accepted pull request", async () => {
+    reports({});
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(NEW))).toMatchObject({ status: 409, error: "accepted_pull_request" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("still refuses a replacement that is itself reported closed", async () => {
+    reports({ [OLD]: report("closed", { pullRequestUrl: OLD }), [NEW]: report("closed", { pullRequestUrl: NEW }) });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(NEW))).toMatchObject({ status: 422, error: "pull_request_closed" });
+    expect(db.tx.agentAuditEvent.update).not.toHaveBeenCalled();
+  });
+
+  it("changes nothing for the accepted pull request itself, even when it is closed", async () => {
+    reports({ [OLD]: report("closed", { pullRequestUrl: OLD }) });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(OLD))).toMatchObject({ status: 422, error: "pull_request_closed" });
+    expect(db.tx.agentAuditEvent.update).not.toHaveBeenCalled();
+  });
+
+  it("does not restart review when there is no standing acceptance", async () => {
+    db.prisma.agentAuditEvent.findFirst.mockResolvedValue(null);
+    reports({ [OLD]: report("closed", { pullRequestUrl: OLD }) });
+    expect(await deliverWork(agent("working", "ada"), "bug1", body(NEW))).toMatchObject({ status: 201 });
+    expect(db.tx.agentAuditEvent.update).not.toHaveBeenCalled();
+    expect(db.tx.bug.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("a marketing delivery", () => {
+  const body = { summary: "Wrote the launch post.", description: "Published it and checked its links.", deliverableUrls: ["https://example.com/post"] };
+
+  it("needs no pull request, and product work still does", () => {
+    expect(trackRules("marketing").needsPullRequest).toBe(false);
+    expect(trackRules("product").needsPullRequest).toBe(true);
+    expect(marketingDeliveryBodySchema.safeParse(body).success).toBe(true);
+  });
+
+  it("takes files alongside links, and needs at least one of them", () => {
+    expect(marketingDeliveryBodySchema.safeParse({ summary: body.summary, description: body.description, attachmentIds: ["att_1"] }).success).toBe(true);
+    expect(marketingDeliveryBodySchema.safeParse({ summary: body.summary, description: body.description }).success).toBe(false);
+  });
+
+  it("takes the work itself as Markdown, without a link or file, up to the limit", () => {
+    const written = { summary: body.summary, description: body.description, deliverableText: "# The post\n\nIt went out." };
+    expect(marketingDeliveryBodySchema.safeParse(written).success).toBe(true);
+    expect(marketingDeliveryBodySchema.safeParse({ ...written, deliverableText: "   " }).success).toBe(false);
+    expect(marketingDeliveryBodySchema.safeParse({ ...written, deliverableText: "x".repeat(50_001) }).success).toBe(false);
+  });
+
+  it("refuses no link, a link that isn't http or https, and a pull request", () => {
+    expect(marketingDeliveryBodySchema.safeParse({ ...body, deliverableUrls: [] }).success).toBe(false);
+    expect(marketingDeliveryBodySchema.safeParse({ ...body, deliverableUrls: ["javascript:alert(1)"] }).success).toBe(false);
+    expect(marketingDeliveryBodySchema.safeParse({ ...body, pullRequestUrl: PR }).success).toBe(false);
+  });
+});
+
+describe("deliverWork: marketing work delivers links and files, not a pull request (M-API-3)", () => {
+  const marketingBody = {
+    summary: "Wrote the launch post.",
+    description: "Published it and checked its links.",
+    deliverableUrls: ["https://example.com/post"],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    db.prisma.bug.findFirst.mockResolvedValue({
+      id: "bug1",
+      projectId: "p1",
+      track: "marketing",
+      status: "in_progress",
+      substatus: "in_progress",
+      pullRequestUrl: null,
+      project: { repoUrl: "https://github.com/emerjent/ziki" },
+    });
+    db.prisma.issueClaim.findFirst.mockResolvedValue({ id: "c1", beneficiaryUserId: "ada" });
+    db.prisma.reviewOffer.findFirst.mockResolvedValue(null);
+    db.prisma.pullRequestReport.findFirst.mockResolvedValue(null);
+    db.prisma.attachment.count.mockResolvedValue(0);
+    db.prisma.delivery.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        agentId: "agent-ada",
+        beneficiaryUserId: "ada",
+        summary: marketingBody.summary,
+        description: marketingBody.description,
+        pullRequestUrl: null,
+        deliverableUrls: marketingBody.deliverableUrls,
+        headSha: null,
+        screenshots: [],
+        testResults: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        agent: { name: "ada's agent" },
+        beneficiary: { name: "Ada" },
+        replies: [],
+      },
+    ]);
+    db.tx.delivery.findUnique.mockResolvedValue(null);
+    db.tx.delivery.create.mockResolvedValue({ id: "d1" });
+    db.tx.attachment.updateMany.mockResolvedValue({ count: 1 });
+  });
+
+  it("delivers links, records no pull request, and never reads a pull request report", async () => {
+    const result = await deliverWork(agent("working", "ada"), "bug1", marketingBody);
+    expect(result).toMatchObject({ status: 201, replaced: false });
+    expect(db.tx.delivery.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ pullRequestUrl: null, deliverableUrls: marketingBody.deliverableUrls, headSha: null, testResults: null }),
+      }),
+    );
+    expect(db.tx.bug.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: "done", substatus: "requires_review" }) }),
+    );
+    expect(db.tx.bug.update.mock.calls[0][0].data).not.toHaveProperty("pullRequestUrl");
+    expect(db.prisma.pullRequestReport.findFirst).not.toHaveBeenCalled();
+    expect(db.tx.testVerdict.updateMany).not.toHaveBeenCalled();
+    expect(mocks.createReviewOffers).not.toHaveBeenCalled();
+    expect(mocks.publish).toHaveBeenCalledWith(
+      db.tx,
+      expect.objectContaining({ payload: expect.objectContaining({ deliverableUrls: marketingBody.deliverableUrls }) }),
+    );
+    expect(mocks.publish.mock.calls[0][1].payload).not.toHaveProperty("pullRequestUrl");
+  });
+
+  it("delivers files by attaching the deliverer's own uploads to the issue", async () => {
+    db.prisma.attachment.count.mockResolvedValue(1);
+    const result = await deliverWork(agent("working", "ada"), "bug1", {
+      summary: marketingBody.summary,
+      description: marketingBody.description,
+      attachmentIds: ["att_1"],
+    });
+    expect(result).toMatchObject({ status: 201 });
+    expect(db.prisma.attachment.count).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ id: { in: ["att_1"] }, uploaderId: "ada" }) }),
+    );
+    expect(db.tx.attachment.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { in: ["att_1"] }, uploaderId: "ada" }),
+        data: { bugId: "bug1", commentId: null, confirmationId: null },
+      }),
+    );
+    expect(db.tx.delivery.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ deliverableUrls: [], pullRequestUrl: null }) }),
+    );
+  });
+
+  it("refuses a pull request, head commit or test results, naming the field", async () => {
+    for (const [field, value] of [
+      ["pullRequestUrl", PR],
+      ["headSha", "abc1234"],
+      ["testResults", "42 passed"],
+    ] as const) {
+      const result = await deliverWork(agent("working", "ada"), "bug1", { ...marketingBody, [field]: value });
+      expect(result).toMatchObject({ status: 400, error: "invalid_request", field });
+    }
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("stores the work delivered as Markdown on the delivery, not in its event", async () => {
+    const text = "# The post\n\nIt went out.";
+    const result = await deliverWork(agent("working", "ada"), "bug1", { summary: marketingBody.summary, description: marketingBody.description, deliverableText: text });
+    expect(result).toMatchObject({ status: 201 });
+    expect(db.tx.delivery.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ deliverableText: text, deliverableUrls: [], pullRequestUrl: null }) }),
+    );
+    expect(JSON.stringify(db.tx.bugActivity.create.mock.calls)).not.toContain(text);
+  });
+
+  it("refuses a delivery with neither a link nor a file", async () => {
+    const result = await deliverWork(agent("working", "ada"), "bug1", {
+      summary: marketingBody.summary,
+      description: marketingBody.description,
+    });
+    expect(result).toMatchObject({ status: 400, error: "invalid_request", field: "deliverableUrls" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a file that isn't the deliverer's own unclaimed upload", async () => {
+    db.prisma.attachment.count.mockResolvedValue(0);
+    const result = await deliverWork(agent("working", "ada"), "bug1", {
+      summary: marketingBody.summary,
+      description: marketingBody.description,
+      attachmentIds: ["att_someone_else"],
+    });
+    expect(result).toMatchObject({ status: 422, error: "invalid_attachments", field: "attachmentIds" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("deliverWork: product work still needs a pull request and its evidence", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    issue();
+    db.prisma.issueClaim.findFirst.mockResolvedValue({ id: "c1", beneficiaryUserId: "ada" });
+    db.prisma.reviewOffer.findFirst.mockResolvedValue(null);
+    db.prisma.pullRequestReport.findFirst.mockResolvedValue(null);
+  });
+
+  it("refuses marketing deliverable links and files, naming the field", async () => {
+    const links = await deliverWork(agent("working", "ada"), "bug1", { ...body(), deliverableUrls: ["https://example.com/post"] });
+    expect(links).toMatchObject({ status: 400, error: "invalid_request", field: "deliverableUrls" });
+    const files = await deliverWork(agent("working", "ada"), "bug1", { ...body(), attachmentIds: ["att_1"] });
+    expect(files).toMatchObject({ status: 400, error: "invalid_request", field: "attachmentIds" });
+    const written = await deliverWork(agent("working", "ada"), "bug1", { ...body(), deliverableText: "# The post" });
+    expect(written).toMatchObject({ status: 400, error: "invalid_request", field: "deliverableText" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a delivery with no pull request, and one with no evidence", async () => {
+    const noPullRequest = await deliverWork(agent("working", "ada"), "bug1", {
+      summary: "Did the work.",
+      description: "It is done.",
+      testResults: "42 passed",
+    });
+    expect(noPullRequest).toMatchObject({ status: 400, error: "invalid_request", field: "pullRequestUrl" });
+
+    const noEvidence = await deliverWork(agent("working", "ada"), "bug1", {
+      pullRequestUrl: PR,
+      summary: "Did the work.",
+      description: "It is done.",
+    });
+    expect(noEvidence).toMatchObject({ status: 400, error: "invalid_request", field: "testResults" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("deliverWork: the delivery receipt (#delivery-receipt)", () => {
+  const receipt = {
+    verified: [{ check: "node --test (3/3)", how: "ran on f46960b" }],
+    notVerified: [{ check: "Manual race in a real browser", why: "no preview deployment" }],
+    reviewerShould: ["Open the preview, search two names"],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    issue();
+    db.prisma.issueClaim.findFirst.mockResolvedValue({ id: "c1", beneficiaryUserId: "ada" });
+    db.prisma.reviewOffer.findFirst.mockResolvedValue(null);
+    db.prisma.pullRequestReport.findFirst.mockResolvedValue(null);
+    db.prisma.delivery.findMany.mockResolvedValue([
+      {
+        id: "d1",
+        agentId: "agent-ada",
+        beneficiaryUserId: "ada",
+        summary: body().summary,
+        description: body().description,
+        pullRequestUrl: PR,
+        headSha: null,
+        screenshots: [],
+        testResults: body().testResults,
+        receipt,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        agent: { name: "ada's agent" },
+        beneficiary: { name: "Ada" },
+        replies: [],
+      },
+    ]);
+    db.tx.delivery.findUnique.mockResolvedValue(null);
+    db.tx.delivery.create.mockResolvedValue({ id: "d1" });
+    db.tx.delivery.update.mockResolvedValue({ id: "d1" });
+  });
+
+  it("stores the receipt on the delivery, returns it on the entry, and sends it with the event", async () => {
+    const result = await deliverWork(agent("working", "ada"), "bug1", { ...body(), receipt });
+    expect(result).toMatchObject({ status: 201, replaced: false });
+    expect(db.tx.delivery.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ receipt }) }));
+    expect(result.status === 201 && result.delivery.receipt).toEqual(receipt);
+    expect(mocks.publish).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ type: "issue.delivered", payload: expect.objectContaining({ receipt }) }),
+    );
+  });
+
+  it("fills the lists a receipt leaves out, and reads a delivery without one as null", async () => {
+    const result = await deliverWork(agent("working", "ada"), "bug1", { ...body(), receipt: { verified: [{ check: "pnpm test" }] } });
+    expect(db.tx.delivery.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ receipt: { verified: [{ check: "pnpm test" }], notVerified: [], reviewerShould: [] } }) }),
+    );
+    expect(result.status).toBe(201);
+    db.prisma.delivery.findMany.mockResolvedValue([{ ...(await db.prisma.delivery.findMany())[0], receipt: null }]);
+    const bare = await deliverWork(agent("working", "ada"), "bug1", body());
+    expect(bare.status === 201 && bare.delivery.receipt).toBeNull();
+    expect(mocks.publish).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ payload: expect.not.objectContaining({ receipt: expect.anything() }) }));
+  });
+
+  it("refuses an empty or malformed receipt, naming the field, and writes nothing", async () => {
+    const empty = await deliverWork(agent("working", "ada"), "bug1", { ...body(), receipt: { reviewerShould: ["Run the tests"] } });
+    expect(empty).toMatchObject({ status: 400, error: "invalid_request", field: "receipt" });
+    const malformed = await deliverWork(agent("working", "ada"), "bug1", { ...body(), receipt: { verified: ["node --test"] } });
+    expect(malformed).toMatchObject({ status: 400, error: "invalid_request", field: "receipt" });
+    expect(db.prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("delivering again without a receipt replaces the earlier one with none", async () => {
+    db.tx.delivery.findUnique.mockResolvedValue({ id: "d1" });
+    const result = await deliverWork(agent("working", "ada"), "bug1", body());
+    expect(result).toMatchObject({ status: 200, replaced: true });
+    expect(db.tx.delivery.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ receipt: Prisma.JsonNull }) }));
+  });
+
+  it("takes a receipt on marketing work too", async () => {
+    db.prisma.bug.findFirst.mockResolvedValue({
+      id: "bug1",
+      projectId: "p1",
+      track: "marketing",
+      status: "in_progress",
+      substatus: "in_progress",
+      pullRequestUrl: null,
+      project: { repoUrl: "https://github.com/emerjent/ziki" },
+    });
+    db.prisma.attachment.count.mockResolvedValue(0);
+    const marketing = { summary: "Wrote the launch post.", description: "Published it and checked its links.", deliverableUrls: ["https://example.com/post"] };
+    const result = await deliverWork(agent("working", "ada"), "bug1", { ...marketing, receipt: { verified: [{ check: "Every link opens", how: "clicked each one" }] } });
+    expect(result.status).toBe(201);
+    expect(db.tx.delivery.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ receipt: { verified: [{ check: "Every link opens", how: "clicked each one" }], notVerified: [], reviewerShould: [] } }) }),
+    );
   });
 });

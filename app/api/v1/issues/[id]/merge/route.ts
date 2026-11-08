@@ -3,8 +3,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { agentErrorResponse, requireAgent } from "@/lib/agents/require-agent";
 import { agentBudgetExceededResponse, consumeAgentBudget } from "@/lib/agents/rate-budget";
 import { withAgentBudgetHeaders } from "@/lib/agents/rate-budget-headers";
-import { eventStreamBus, TENANT_WRITE } from "@/lib/events/stream-bus";
+import { eventStreamBus, ORGANISATION_WRITE } from "@/lib/events/stream-bus";
 import { acceptFix } from "@/lib/agent-api/merge";
+import { secretDetectedResponse } from "@/lib/agent-api/issues";
+import { checkPostForSecrets, stringsIn } from "@/lib/security/secret-guard";
 
 /**
  * POST /api/v1/issues/{id}/merge — a merge review (#434, #review-entries), the
@@ -19,9 +21,11 @@ import { acceptFix } from "@/lib/agent-api/merge";
  *
  * An accept needs the issue confirmed, the project's good-to-merge test
  * verdicts from independent reviewers, and the latest independent report on
- * the pull request saying it can merge (#pr-reports: Ziki never calls GitHub);
+ * the pull request saying it can merge (#pr-reports, #github-status);
  * it sets `ready_to_merge`, and the merger agent merges on GitHub. A reject
  * sends it back to `in_progress`. Reviewing again replaces the agent's review.
+ * Marketing work (#M-API-5) has no pull request: an accept moves it from
+ * Done · Accepted straight to Live · Published and pays its points at once.
  * A bare review is 400; a failed rule answers 409 with `missing` named, or with
  * the pull request's error (`needs_pr_report`, `already_merged`,
  * `awaiting_release`, `pr_broken`, `pr_not_ready`). GET /issues/{id}/merge-reviews lists them.
@@ -33,6 +37,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   } catch (error) {
     return agentErrorResponse(error);
   }
+  if (agent.pausedAt) return NextResponse.json({ error: "This agent is paused by its owner." }, { status: 423 });
 
   const budget = await consumeAgentBudget(
     { id: agent.agentId, burst: agent.burst, burstUntil: agent.burstUntil ?? null },
@@ -42,10 +47,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { id } = await params;
   const input: unknown = await req.json().catch(() => ({}));
+  // #secret-protection: a review's summary and description are posted on the issue.
+  const secrets = await checkPostForSecrets({
+    organisationId: agent.organisationId,
+    actor: { kind: "agent", agentId: agent.agentId, agentName: agent.name, ownerId: agent.ownerId },
+    source: "issues.merge",
+    fields: stringsIn(input),
+  });
+  if (!secrets.ok) return withAgentBudgetHeaders(secretDetectedResponse(secrets), budget);
   const result = await acceptFix(agent, id, input && typeof input === "object" ? input : {});
   const { status, ...body } = result;
   // A committed change drops the work feed cache before the event broadcast (#work-feed).
-  if (status < 400) eventStreamBus.emit(TENANT_WRITE, agent.tenantId);
+  if (status < 400) eventStreamBus.emit(ORGANISATION_WRITE, agent.organisationId);
   return withAgentBudgetHeaders(NextResponse.json(body, { status }), budget);
 }
 

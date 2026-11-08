@@ -1,36 +1,54 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { sendAgentSteerAction } from "@/app/actions/agent-steers";
-import { setAgentPausedAction } from "@/app/(app)/settings/agents/actions";
+import { sendIssueSteer, setAgentPaused } from "@/app/actions/agent-steering";
 
-export function AgentSteerPanel({ issueRef, agentId, agentName, paused, canPause, notes }: {
-  issueRef: string; agentId: string; agentName: string; paused: boolean; canPause: boolean;
-  notes: { id: string; body: string; plan: string | null; createdAt: string; acknowledgedAt: string | null; author: string }[];
+export function AgentSteerPanel({ agentId, issueId, paused, notes }: {
+  agentId: string;
+  issueId: string;
+  paused: boolean;
+  /** Notes already sent, newest first, each with the plan the agent answered with. */
+  notes: { id: string; body: string; plan: string | null }[];
 }) {
-  const [note, setNote] = useState("");
-  const [isPaused, setIsPaused] = useState(paused);
-  const [message, setMessage] = useState("");
+  const [body, setBody] = useState("");
+  const [notice, setNotice] = useState("");
   const [pending, startTransition] = useTransition();
-  return <section className="rounded-2xl border border-zk-border bg-zk-surface p-4 space-y-3" aria-label="Steer the agent">
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <div><h2 className="font-bold text-zk-text">Steer the agent</h2><p className="text-xs text-zk-muted">Instructions are delivered to {agentName} on its next heartbeat.</p></div>
-      {canPause ? <button type="button" disabled={pending} onClick={() => startTransition(async () => {
-        const next = !isPaused; const result = await setAgentPausedAction(agentId, next);
-        if (result.ok) { setIsPaused(next); setMessage(next ? "Agent paused." : "Agent resumed."); }
-        else setMessage(result.error ?? "Could not update the agent.");
-      })} className="rounded-full border border-zk-border px-3 py-2 text-sm font-semibold">{isPaused ? "Resume agent" : "Pause agent"}</button> : null}
-    </div>
-    {isPaused ? <p className="text-sm text-amber-700">This agent is paused. It must resume before continuing work.</p> : null}
-    {notes.length ? <ol className="space-y-2 border-l-2 border-zk-border pl-3">{notes.map((entry) => <li key={entry.id} className="text-sm"><p className="text-zk-text">{entry.body}</p><p className="text-xs text-zk-muted">{entry.author} · {entry.acknowledgedAt ? `Acknowledged: ${entry.plan ?? "Plan received"}` : "Awaiting acknowledgement"}</p></li>)}</ol> : null}
-    <form onSubmit={(event) => { event.preventDefault(); startTransition(async () => {
-      const result = await sendAgentSteerAction(issueRef, note);
-      if (result.ok) { setNote(""); setMessage("Steer sent. The agent will receive it on its next heartbeat."); }
-      else setMessage(result.error ?? "Could not send the steer.");
-    }); }} className="space-y-2">
-      <label className="sr-only" htmlFor={`steer-${agentId}`}>Instruction for the agent</label>
-      <textarea id={`steer-${agentId}`} value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={3} placeholder="Tell the agent what to change or focus on…" className="w-full rounded-xl border border-zk-border bg-zk-bg p-3 text-sm text-zk-text" />
-      <div className="flex items-center justify-between gap-3"><span aria-live="polite" className="text-xs text-zk-muted">{message}</span><button disabled={pending || !note.trim()} className="rounded-full bg-zk-accent px-4 py-2 text-sm font-bold text-white disabled:opacity-50">Send steer</button></div>
-    </form>
-  </section>;
+  const [pausePending, startPauseTransition] = useTransition();
+  return (
+    <section aria-label="Steer agent" className="mb-4 rounded-xl border border-zk-border bg-zk-surface p-4">
+      <h3 className="font-semibold text-zk-text">Steer this agent</h3>
+      <p className="mt-1 text-sm text-zk-muted">Your note is delivered in the agent inbox on its next poll.</p>
+      <form className="mt-3 space-y-2" onSubmit={(event) => {
+        event.preventDefault();
+        startTransition(async () => {
+          const result = await sendIssueSteer(agentId, issueId, body);
+          setNotice(result.ok ? "Steer note sent." : result.error);
+          if (result.ok) setBody("");
+        });
+      }}>
+        <textarea aria-label="Steer note" maxLength={2000} required value={body} onChange={(event) => setBody(event.target.value)} className="w-full rounded-lg border border-zk-border bg-zk-surface p-2 text-sm text-zk-text" rows={3} placeholder="What should the agent focus on?" />
+        <div className="flex items-center justify-between gap-3">
+          <p role="status" className="text-sm text-zk-muted">{notice}</p>
+          <button disabled={pending} className="rounded-full bg-electric-blue-strong px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">{pending ? "Sending…" : "Send steer"}</button>
+        </div>
+      </form>
+      {notes.length ? (
+        <ul className="mt-3 space-y-2 border-t border-zk-border pt-3 text-sm">
+          {notes.map((note) => (
+            <li key={note.id}>
+              <p className="whitespace-pre-wrap break-words text-zk-text">{note.body}</p>
+              <p className="mt-0.5 whitespace-pre-wrap break-words text-zk-muted">{note.plan ? `Agent's plan: ${note.plan}` : "Not acknowledged yet."}</p>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <button type="button" disabled={pausePending} onClick={() => startPauseTransition(async () => {
+        const result = await setAgentPaused(agentId, !paused);
+        setNotice(result.ok ? (paused ? "Agent resumed." : "Agent paused.") : result.error);
+        if (result.ok) window.location.reload();
+      })} className="mt-2 rounded-full border border-zk-border px-3 py-1.5 text-xs font-semibold text-zk-text hover:bg-zk-chip disabled:opacity-50">
+        {pausePending ? "Updating…" : paused ? "Resume agent" : "Pause agent"}
+      </button>
+    </section>
+  );
 }

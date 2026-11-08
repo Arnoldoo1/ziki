@@ -4,8 +4,8 @@ import { revalidatePath } from "next/cache";
 import { revalidateIssue } from "@/lib/revalidate-issue";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { bugInTenant, commentInTenant, currentTenantIdFor } from "@/lib/tenant-context";
-import { currentTenantAccess } from "@/lib/tenant-access";
+import { bugInOrganisation, commentInOrganisation, currentOrganisationIdFor } from "@/lib/organisation-context";
+import { currentOrganisationAccess, organisationAccessFor } from "@/lib/organisation-access";
 import { attachmentIdsInMarkdown, linkAttachments } from "@/lib/attachment-link";
 import { requireUser } from "@/lib/auth-helpers";
 import { commentSchema } from "@/lib/validations/issue";
@@ -16,7 +16,7 @@ import {
   normalizeMentions,
 } from "@/lib/mentions";
 import { agentMentionNames, agentOwnerIds, mentionedAgents } from "@/lib/agent-mentions";
-import { tenantMemberWhere } from "@/lib/tenant-mentions";
+import { organisationMemberWhere } from "@/lib/organisation-mentions";
 import {
   canDeleteComment,
   canEditComment,
@@ -36,13 +36,14 @@ import {
 import { publishWebEvent } from "@/lib/agent-api/web-events";
 import { castCommentVote } from "@/lib/agent-api/comment-votes";
 import { IssueApiError } from "@/lib/agent-api/errors";
+import { checkPostForSecrets } from "@/lib/security/secret-guard";
 
 export type CommentActionResult = { error?: string; ok?: boolean };
 
-async function loadComment(commentId: unknown, tenantId: string | null) {
+async function loadComment(commentId: unknown, user: { id: string; role?: string | null }) {
   if (typeof commentId !== "string" || commentId.trim().length === 0) return null;
-  return prisma.comment.findUnique({
-    where: { id: commentId, ...commentInTenant(tenantId) },
+  const comment = await prisma.comment.findUnique({
+    where: { id: commentId },
     select: {
       id: true,
       bugId: true,
@@ -50,9 +51,23 @@ async function loadComment(commentId: unknown, tenantId: string | null) {
       body: true,
       deletedAt: true,
       author: { select: { name: true } },
-      bug: { select: { isDeleted: true, title: true, tenantId: true } },
+      bug: { select: { isDeleted: true, title: true, organisationId: true, projectId: true } },
     },
   });
+  if (!comment) return null;
+  if (user.role === "super_admin") return comment;
+  const canAccess = Boolean(
+    await prisma.projectMembership.findFirst({
+      where: { projectId: comment.bug.projectId, userId: user.id },
+      select: { id: true },
+    }) ||
+    await prisma.membership.findFirst({
+      where: { organisationId: comment.bug.organisationId, userId: user.id },
+      select: { id: true },
+    })
+  );
+  if (!canAccess) return null;
+  return comment;
 }
 
 /** Edit a comment's body. Authors only; mentions are re-verified (#150). */
@@ -70,7 +85,7 @@ export async function updateCommentAction(
     return { error: RATE_LIMIT_MESSAGE };
   }
 
-  const comment = await loadComment(commentId, await currentTenantIdFor(user.id));
+  const comment = await loadComment(commentId, user);
   if (!comment) return { error: COMMENT_ERRORS.notFound };
   if (comment.bug.isDeleted) return { error: COMMENT_ERRORS.issueDeleted };
   if (comment.deletedAt) return { error: COMMENT_ERRORS.deleted };
@@ -81,15 +96,28 @@ export async function updateCommentAction(
     return { error: parsed.error.issues[0]?.message ?? "Invalid comment" };
   }
 
+  // #secret-protection: an edit is a post too.
+  const secrets = await checkPostForSecrets({
+    organisationId: comment.bug.organisationId,
+    projectId: comment.bug.projectId,
+    actor: { kind: "user", userId: user.id },
+    source: "comment",
+    bugId: comment.bugId,
+    commentId: comment.id,
+    fields: { body: parsed.data.body },
+    noun: "this comment",
+  });
+  if (!secrets.ok) return { error: secrets.message };
+
   const mentionedIds = extractMentionedUserIds(parsed.data.body);
   const known = mentionedIds.length
     ? await prisma.user.findMany({
-        where: { id: { in: mentionedIds }, ...tenantMemberWhere(comment.bug.tenantId) },
+        where: { id: { in: mentionedIds }, ...organisationMemberWhere(comment.bug.organisationId) },
         select: { id: true, name: true },
       })
     : [];
-  // #603: agent tags survive only for agents in this issue's organization.
-  const agents = await mentionedAgents(prisma, comment.bug.tenantId, parsed.data.body);
+  // #603: agent tags survive only for agents in this issue's organisation.
+  const agents = await mentionedAgents(prisma, comment.bug.organisationId, parsed.data.body);
   const body = normalizeMentions(
     parsed.data.body,
     new Map([
@@ -180,11 +208,11 @@ export async function deleteCommentAction(
   commentId: string,
 ): Promise<CommentActionResult> {
   const user = await requireUser();
-  const comment = await loadComment(commentId, await currentTenantIdFor(user.id));
+  const comment = await loadComment(commentId, user);
   if (!comment) return { error: COMMENT_ERRORS.notFound };
   if (comment.bug.isDeleted) return { error: COMMENT_ERRORS.issueDeleted };
   if (comment.deletedAt) return { error: COMMENT_ERRORS.deleted };
-  const access = await currentTenantAccess(user.id, user.role);
+  const access = await organisationAccessFor(user.id, comment.bug.organisationId, user.role);
   if (!canDeleteComment(user.id, user.role, comment, access.admin)) {
     return { error: COMMENT_ERRORS.cannotDelete };
   }
@@ -268,7 +296,7 @@ export async function upvoteCommentAction(commentId: string): Promise<UpvoteComm
   try {
     const result = await castCommentVote({
       commentId,
-      bugScope: bugInTenant(await currentTenantIdFor(user.id)),
+      bugScope: bugInOrganisation(await currentOrganisationIdFor(user.id)),
       voterUserId: user.id,
       agentId: null,
     });

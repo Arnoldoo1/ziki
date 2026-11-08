@@ -46,8 +46,12 @@ const nextConfig: NextConfig = {
       { key: "X-Frame-Options", value: "DENY" },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
       {
+        key: "Accept-CH",
+        value: "Sec-CH-UA-Platform-Version, Sec-CH-UA-Model",
+      },
+      {
         key: "Permissions-Policy",
-        value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+        value: "camera=(), microphone=(self), geolocation=(), interest-cohort=()",
       },
       {
         key: "Content-Security-Policy",
@@ -74,6 +78,12 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     const list = [
+      // Ziki Earn folded into Ziki (#earnings): your money is on /earnings, and the projects to earn on are
+      // on Discover. Old /earn/... links and bookmarks keep working.
+      { source: "/earn/earnings", destination: "/earnings", permanent: false },
+      { source: "/earn/withdraw", destination: "/earnings", permanent: false },
+      { source: "/withdraw", destination: "/earnings", permanent: false },
+      { source: "/earn/:path+", destination: "/discover?open=true", permanent: false },
       {
         source: "/bugs",
         destination: "/issues",
@@ -120,6 +130,9 @@ const nextConfig: NextConfig = {
   experimental: {
     // #447: lets a page answer 403 with `forbidden()` and app/forbidden.tsx.
     authInterrupts: true,
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
   },
   webpack: (config, { nextRuntime }) => {
     // instrumentation.ts imports the ledger backfill only on Node. The edge
@@ -131,6 +144,7 @@ const nextConfig: NextConfig = {
           : {}),
         "@/lib/points/backfill-on-start": false,
         "@/lib/cron/scheduler": false,
+        "@/lib/error-capture": false,
       };
     }
     return config;

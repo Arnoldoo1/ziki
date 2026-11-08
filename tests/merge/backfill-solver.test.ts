@@ -8,7 +8,7 @@ import { backfillEntries, type HistoricalBug } from "@/lib/points/backfill";
 
 const bug = (overrides: Partial<HistoricalBug>): HistoricalBug => ({
   id: "bug-1",
-  tenantId: "tenant-zedu",
+  organisationId: "organisation-zedu",
   status: "resolved",
   assigneeId: "solver-1",
   reporterId: "reporter-1",
@@ -47,5 +47,9 @@ describe("backfill solver eligibility (#656)", () => {
 
   it("a deleted bug earns nothing", () => {
     expect(backfillEntries(bug({ isDeleted: true }))).toEqual([]);
+  });
+
+  it("never backfills reporter points to a public intake identity", () => {
+    expect(backfillEntries(bug({ idea: { source: "public" } })).map((entry) => entry.role)).toEqual(["solver"]);
   });
 });

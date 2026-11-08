@@ -1,38 +1,79 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** Project settings (#595, #vote-governance): only workspace admins change a project's workflow, values are range-checked, and a saved change takes effect at once. */
+/** Project settings (#595, #vote-governance): only organisation admins change a project's workflow, values are range-checked, and a saved change takes effect at once. The marketing settings actions (M-UI-7) share the area, at the bottom. */
 const requireUser = vi.hoisted(() => vi.fn());
-const isTenantAdmin = vi.hoisted(() => vi.fn());
-const currentTenantIdFor = vi.hoisted(() => vi.fn());
+const requireProject = vi.hoisted(() => vi.fn());
+const isAdminOfOrganisation = vi.hoisted(() => vi.fn());
+const assertMarketingSettingsAccess = vi.hoisted(() => vi.fn());
+const updateMarketingSettings = vi.hoisted(() => vi.fn());
+const typeFindFirst = vi.hoisted(() => vi.fn());
+const typeCreate = vi.hoisted(() => vi.fn());
+const typeUpdate = vi.hoisted(() => vi.fn());
+const typeDelete = vi.hoisted(() => vi.fn());
+const bugCount = vi.hoisted(() => vi.fn());
+const ideaCount = vi.hoisted(() => vi.fn());
+const bugActivityCreateMany = vi.hoisted(() => vi.fn());
+const currentOrganisationIdFor = vi.hoisted(() => vi.fn());
 const revalidatePath = vi.hoisted(() => vi.fn());
+const updateTag = vi.hoisted(() => vi.fn());
 const invalidateWorkflow = vi.hoisted(() => vi.fn());
+const projectFindMany = vi.hoisted(() => vi.fn());
+const projectCreate = vi.hoisted(() => vi.fn());
+const projectUpdate = vi.hoisted(() => vi.fn());
+const organisationFindUnique = vi.hoisted(() => vi.fn());
+const redirect = vi.hoisted(() => vi.fn((to: string) => { throw new Error(`redirect:${to}`); }));
 const findFirst = vi.hoisted(() => vi.fn());
 const upsert = vi.hoisted(() => vi.fn());
 const auditCreate = vi.hoisted(() => vi.fn());
 const transaction = vi.hoisted(() => vi.fn());
+const notFound = vi.hoisted(() => vi.fn(() => { throw new Error("not-found"); }));
+const readinessGitHub = vi.hoisted(() => vi.fn());
 
-vi.mock("next/cache", () => ({ revalidatePath }));
+vi.mock("next/cache", () => ({ revalidatePath, updateTag }));
+vi.mock("next/navigation", () => ({ redirect, notFound }));
+vi.mock("@/lib/github/client", async (original) => ({ ...await original<typeof import("@/lib/github/client")>(), githubClientFor: readinessGitHub }));
 vi.mock("@/lib/auth-helpers", () => ({ requireUser }));
-vi.mock("@/lib/agents/membership", () => ({ isTenantAdmin }));
-vi.mock("@/lib/tenant-context", () => ({
-  currentTenantIdFor,
-  NO_TENANT_MESSAGE: "You're not a member of a workspace yet.",
+vi.mock("@/lib/project-route", () => ({ requireProject }));
+vi.mock("@/lib/marketing/settings", () => ({ assertMarketingSettingsAccess, updateMarketingSettings }));
+vi.mock("@/lib/agents/membership", () => ({
+  isAdminOfOrganisation,
+  isOrganisationAdminRole: vi.fn(),
+}));
+vi.mock("@/lib/organisation-context", () => ({
+  currentOrganisationIdFor,
+  NO_ORGANISATION_MESSAGE: "You're not a member of a organisation yet.",
 }));
 vi.mock("@/lib/workflow", () => ({ invalidateWorkflow }));
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    project: { findFirst },
+    project: { findFirst, findMany: projectFindMany, create: projectCreate, update: projectUpdate },
+    organisation: { findUnique: organisationFindUnique },
     projectWorkflow: { upsert },
     projectAuditEvent: { create: auditCreate },
+    issueType: { findFirst: typeFindFirst, create: typeCreate, update: typeUpdate, delete: typeDelete },
+    bug: { count: bugCount },
+    idea: { count: ideaCount },
+    bugActivity: { createMany: bugActivityCreateMany },
     $transaction: transaction,
   },
 }));
 
+import { createProjectAction, updateProjectAction } from "@/app/(app)/projects/actions";
 import { updateProjectWorkflowAction } from "@/app/(app)/projects/[slug]/settings/workflow-actions";
 import {
+  createMarketingIssueTypeAction,
+  deleteMarketingIssueTypeAction,
+  updateMarketingRevisionLimitAction,
+} from "@/app/(app)/[org]/[project]/marketing/settings/actions";
+import { IssueApiError } from "@/lib/agent-api/errors";
+import {
   DEFAULT_PROJECT_WORKFLOW,
+  revisionLimitSchema,
   workflowSettingsSchema,
   workflowValues } from "@/lib/workflow-config";
+import { projectRef } from "@/lib/project-paths";
+import { recheckRepositories, checkDelivery } from "@/app/(app)/projects/readiness/actions";
+import { loadRepositoryReadiness } from "@/lib/github/repository-readiness-query";
 
 function form(values: Record<string, string | number | boolean> = {}) {
   const data = new FormData();
@@ -57,6 +98,7 @@ function form(values: Record<string, string | number | boolean> = {}) {
     acceptThreshold: 3,
     stakeLimit: 2,
     stakeInProgressLimit: 2,
+    planReviewSeconds: 7200,
     ...values,
   };
   for (const [key, value] of Object.entries(merged)) {
@@ -69,12 +111,95 @@ function form(values: Record<string, string | number | boolean> = {}) {
   return data;
 }
 
+const WEB = projectRef("acme", "web");
+
+describe("organisation repository readiness access", () => {
+  const input = { projectId: "p1", pullRequestUrl: "https://github.com/acme/mobile/pull/9" };
+  const project = { id: "p1", name: "Mobile", slug: "mobile", repoUrl: "https://github.com/acme/mobile", githubInstallationId: "17", repositories: [], bugs: [] };
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireUser.mockResolvedValue({ id: "admin" });
+    currentOrganisationIdFor.mockResolvedValue("org1");
+    isAdminOfOrganisation.mockResolvedValue(true);
+    projectFindMany.mockResolvedValue([]);
+    findFirst.mockResolvedValue(null);
+    readinessGitHub.mockRejectedValue(new Error("unexpected GitHub request"));
+  });
+
+  it("requires a signed-in user for the page and both actions before reading projects", async () => {
+    requireUser.mockRejectedValue(new Error("redirect:/login"));
+    for (const run of [loadRepositoryReadiness, recheckRepositories, () => checkDelivery(input)]) {
+      await expect(run()).rejects.toThrow("redirect:/login");
+    }
+    expect(currentOrganisationIdFor).not.toHaveBeenCalled();
+    expect(projectFindMany).not.toHaveBeenCalled();
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(readinessGitHub).not.toHaveBeenCalled();
+  });
+
+  it("denies non-admin members on the page, recheck and delivery actions before reading data", async () => {
+    isAdminOfOrganisation.mockResolvedValue(false);
+    for (const run of [loadRepositoryReadiness, recheckRepositories, () => checkDelivery(input)]) {
+      await expect(run()).rejects.toThrow("not-found");
+    }
+    expect(projectFindMany).not.toHaveBeenCalled();
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(readinessGitHub).not.toHaveBeenCalled();
+  });
+
+  it("redirects a user with no organisation before any repository lookup", async () => {
+    currentOrganisationIdFor.mockResolvedValue(null);
+    await expect(loadRepositoryReadiness()).rejects.toThrow("redirect:/organisations");
+    expect(projectFindMany).not.toHaveBeenCalled();
+  });
+
+  it("loads only active projects of the current organisation and returns a safe empty report", async () => {
+    await expect(recheckRepositories()).resolves.toMatchObject({ ok: true, report: { organisationId: "org1", projects: [] } });
+    expect(projectFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organisationId: "org1", archivedAt: null } }));
+  });
+
+  it("keeps remote failures on their project instead of losing the entire report", async () => {
+    projectFindMany.mockResolvedValue([project, { ...project, id: "p2", repoUrl: null }]);
+    const result = await loadRepositoryReadiness();
+    expect(result).toMatchObject({ ok: true, report: { projects: [
+      { id: "p1", repositories: [{ checks: expect.arrayContaining([expect.objectContaining({ state: "fail" })]) }] },
+      { id: "p2", repositories: [{ checks: [expect.objectContaining({ code: "invalid_repository" })] }] },
+    ] } });
+    expect(JSON.stringify(result)).not.toContain("unexpected GitHub request");
+  });
+
+  it("does not allow an archived or different organisation's project ID to reach GitHub", async () => {
+    await expect(checkDelivery(input)).resolves.toMatchObject({ ok: false });
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { id: "p1", organisationId: "org1", archivedAt: null } }));
+    expect(readinessGitHub).not.toHaveBeenCalled();
+  });
+
+  it("rejects malformed action input before querying a project", async () => {
+    await expect(checkDelivery({ projectId: "", pullRequestUrl: "" })).resolves.toMatchObject({ ok: false });
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+
+  it("checks a delivery against the organisation-scoped project's configuration", async () => {
+    findFirst.mockResolvedValue({ ...project, repoUrl: "https://github.com/acme/desktop" });
+    await expect(checkDelivery(input)).resolves.toMatchObject({ ok: true, delivery: { check: { code: "wrong_repository", state: "fail" } } });
+    expect(readinessGitHub).not.toHaveBeenCalled();
+  });
+
+  it("does not expose database errors through either action", async () => {
+    projectFindMany.mockRejectedValue(new Error("private database details"));
+    findFirst.mockRejectedValue(new Error("private database details"));
+    const results = [await recheckRepositories(), await checkDelivery(input)];
+    expect(results.every((result) => !result.ok)).toBe(true);
+    expect(JSON.stringify(results)).not.toContain("private database details");
+  });
+});
+
 describe("updateProjectWorkflowAction (#595)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     requireUser.mockResolvedValue({ id: "admin" });
-    isTenantAdmin.mockResolvedValue(true);
-    currentTenantIdFor.mockResolvedValue("tenant-1");
+    isAdminOfOrganisation.mockResolvedValue(true);
+    currentOrganisationIdFor.mockResolvedValue("organisation-1");
     findFirst.mockResolvedValue({ id: "project-1", slug: "web", workflow: null });
     transaction.mockImplementation(async (run: (tx: unknown) => unknown) =>
       run({
@@ -85,7 +210,7 @@ describe("updateProjectWorkflowAction (#595)", () => {
   });
 
   it("refuses a member who is not an admin", async () => {
-    isTenantAdmin.mockResolvedValue(false);
+    isAdminOfOrganisation.mockResolvedValue(false);
     await expect(updateProjectWorkflowAction(undefined, form())).resolves.toMatchObject({ ok: false });
     expect(findFirst).not.toHaveBeenCalled();
     expect(transaction).not.toHaveBeenCalled();
@@ -109,7 +234,7 @@ describe("updateProjectWorkflowAction (#595)", () => {
     });
     expect(auditCreate).toHaveBeenCalledWith({
       data: expect.objectContaining({
-        tenantId: "tenant-1",
+        organisationId: "organisation-1",
         projectId: "project-1",
         actorUserId: "admin",
         action: "workflow.updated",
@@ -154,13 +279,116 @@ describe("updateProjectWorkflowAction (#595)", () => {
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 
-  it("does not touch a project outside the tenant", async () => {
+  it("leaves the marketing revision limit alone when the product settings are saved", async () => {
+    await expect(updateProjectWorkflowAction(undefined, form())).resolves.toEqual({ ok: true });
+    const saved = upsert.mock.calls[0][0];
+    expect(saved.update).not.toHaveProperty("revisionLimit");
+    expect(saved.create).not.toHaveProperty("revisionLimit");
+  });
+
+  it("does not touch a project outside the organisation", async () => {
     findFirst.mockResolvedValue(null);
     await expect(updateProjectWorkflowAction(undefined, form())).resolves.toMatchObject({
       ok: false,
       error: expect.any(String),
     });
     expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe("createProjectAction", () => {
+  it("creates a project when the contributor guidelines are left empty", async () => {
+    requireUser.mockResolvedValue({ id: "owner", role: "user" });
+    currentOrganisationIdFor.mockResolvedValue("org");
+    isAdminOfOrganisation.mockResolvedValue(true);
+    projectFindMany.mockResolvedValue([]);
+    projectCreate.mockResolvedValue({ id: "p1" });
+    organisationFindUnique.mockResolvedValue({ slug: "acme" });
+    const data = new FormData();
+    data.set("name", "Mobile app");
+    data.set("visibility", "private");
+    await expect(createProjectAction(undefined, data)).rejects.toThrow("redirect:");
+    expect(projectCreate).toHaveBeenCalledOnce();
+    expect(projectCreate.mock.calls[0][0].data).toMatchObject({ name: "Mobile app", slug: "mobile-app", contributorGuidelines: null });
+  });
+});
+
+describe("public issue intake project setting (#3464)", () => {
+  function settingsForm(visibility: "public" | "private") {
+    const data = new FormData();
+    data.set("slug", "web");
+    data.set("name", "Web");
+    data.set("goal", "Build the public web application.");
+    data.set("repoUrl", "https://github.com/acme/web");
+    data.set("stagingUrl", "https://staging.acme.test");
+    data.set("siteUrl", "https://acme.test");
+    data.set("visibility", visibility);
+    data.set("acceptsGuestIdeas", "true");
+    data.set("contributorGuidelines", "Read CONTRIBUTING.md first.");
+    return data;
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireUser.mockResolvedValue({ id: "admin", role: "user" });
+    currentOrganisationIdFor.mockResolvedValue("organisation-1");
+    isAdminOfOrganisation.mockResolvedValue(true);
+    findFirst.mockResolvedValue({
+      id: "project-1",
+      name: "Web",
+      goal: "Build the public web application.",
+      repoUrl: "https://github.com/acme/web",
+      stagingUrl: "https://staging.acme.test",
+      siteUrl: "https://acme.test",
+      visibility: "private",
+      isOpenForContributors: false,
+      acceptsGuestIdeas: false,
+      contributorGuidelines: "Read CONTRIBUTING.md first.",
+      rewardConfig: null,
+    });
+    transaction.mockImplementation(async (run: (tx: unknown) => unknown) => run({
+      project: { update: projectUpdate },
+      projectAuditEvent: { create: auditCreate },
+    }));
+  });
+
+  it("lets an admin opt a public project into signed-out reports and audits the change", async () => {
+    await expect(updateProjectAction(undefined, settingsForm("public"))).resolves.toEqual({});
+
+    expect(projectUpdate).toHaveBeenCalledWith({
+      where: { id: "project-1" },
+      data: expect.objectContaining({ visibility: "public", acceptsGuestIdeas: true }),
+    });
+    expect(auditCreate).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "settings.updated",
+        changes: expect.objectContaining({
+          visibility: { from: "private", to: "public" },
+          acceptsGuestIdeas: { from: false, to: true },
+        }),
+      }),
+    });
+  });
+
+  it("forces signed-out reporting off when a project becomes private", async () => {
+    findFirst.mockResolvedValueOnce({
+      id: "project-1",
+      name: "Web",
+      goal: "Build the public web application.",
+      repoUrl: "https://github.com/acme/web",
+      stagingUrl: "https://staging.acme.test",
+      siteUrl: "https://acme.test",
+      visibility: "public",
+      isOpenForContributors: false,
+      acceptsGuestIdeas: true,
+      contributorGuidelines: "Read CONTRIBUTING.md first.",
+      rewardConfig: null,
+    });
+
+    await expect(updateProjectAction(undefined, settingsForm("private"))).resolves.toEqual({});
+    expect(projectUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ visibility: "private", acceptsGuestIdeas: false }),
+    }));
   });
 });
 
@@ -198,4 +426,127 @@ describe("workflowSettingsSchema (#595)", () => {
     }
   });
 
+});
+
+describe("the marketing revision limit", () => {
+  it("is 2 until a project sets its own", () => {
+    expect(workflowValues(null).revisionLimit).toBe(2);
+    expect(workflowValues({ revisionLimit: 4 }).revisionLimit).toBe(4);
+  });
+
+  it("refuses a limit outside 1 to 10", () => {
+    for (const value of [0, 11, 1.5]) expect(revisionLimitSchema.safeParse(value).success).toBe(false);
+    for (const value of [1, 10]) expect(revisionLimitSchema.safeParse(value).success).toBe(true);
+  });
+
+  it("reads the project's stored limit", async () => {
+    const { workflowFor } = await vi.importActual<typeof import("@/lib/workflow")>("@/lib/workflow");
+    const stored = { projectWorkflow: { findUnique: vi.fn(async () => ({ revisionLimit: 5 })) } };
+    await expect(workflowFor("project-1", stored as never)).resolves.toMatchObject({ revisionLimit: 5 });
+    expect(stored.projectWorkflow.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ select: expect.objectContaining({ revisionLimit: true }) }),
+    );
+  });
+});
+
+describe("the marketing settings actions (M-UI-7)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    requireProject.mockResolvedValue({
+      user: { id: "admin", role: null },
+      organisationId: "organisation-1",
+      project: { id: "project-1", slug: "web", name: "Web", organisationId: "organisation-1" },
+    });
+    assertMarketingSettingsAccess.mockResolvedValue(undefined);
+    typeFindFirst.mockResolvedValue(null);
+  });
+
+  function revisionForm(value: string | number) {
+    const data = new FormData();
+    data.set("revisionLimit", String(value));
+    return data;
+  }
+
+  function typeForm(values: Record<string, string> = {}) {
+    const data = new FormData();
+    data.set("name", values.name ?? "Email newsletter");
+    data.set("description", values.description ?? "");
+    data.set("isActive", "true");
+    return data;
+  }
+
+  it("saves the revision limit through the marketing lib and revalidates the section", async () => {
+    updateMarketingSettings.mockResolvedValue({ projectId: "project-1", slug: "web", name: "Web", revisionLimit: 3 });
+    await expect(updateMarketingRevisionLimitAction(WEB, revisionForm(3))).resolves.toEqual({ ok: true });
+    expect(updateMarketingSettings).toHaveBeenCalledWith("organisation-1", "project-1", "admin", { revisionLimit: 3 });
+    expect(revalidatePath).toHaveBeenCalledWith("/acme/web/marketing/settings");
+  });
+
+  it("refuses a limit outside 1 to 10 without saving", async () => {
+    await expect(updateMarketingRevisionLimitAction(WEB, revisionForm(11))).resolves.toMatchObject({
+      error: expect.any(String),
+    });
+    expect(updateMarketingSettings).not.toHaveBeenCalled();
+  });
+
+  it("refuses a member before saving", async () => {
+    assertMarketingSettingsAccess.mockRejectedValue(
+      new IssueApiError(403, "Only organisation owners and admins can change marketing settings."),
+    );
+    await expect(updateMarketingRevisionLimitAction(WEB, revisionForm(3))).resolves.toMatchObject({
+      error: expect.stringContaining("owners and admins"),
+    });
+    expect(updateMarketingSettings).not.toHaveBeenCalled();
+  });
+
+  it("stores a new type on the marketing track", async () => {
+    await expect(createMarketingIssueTypeAction(WEB, typeForm({ name: "Email newsletter" }))).resolves.toEqual({
+      ok: true,
+    });
+    expect(typeCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ organisationId: "organisation-1", name: "Email newsletter", track: "marketing" }),
+      }),
+    );
+  });
+
+  it("stores a type as inactive when the Active box is unticked", async () => {
+    const form = typeForm({ name: "Email newsletter" });
+    form.delete("isActive");
+    await expect(createMarketingIssueTypeAction(WEB, form)).resolves.toEqual({ ok: true });
+    expect(typeCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ isActive: false }) }));
+  });
+
+  it("refuses a name a type already uses, across tracks", async () => {
+    typeFindFirst.mockResolvedValueOnce({ name: "Blog post" });
+    await expect(createMarketingIssueTypeAction(WEB, typeForm({ name: "blog post" }))).resolves.toMatchObject({
+      error: expect.stringContaining("Blog post"),
+    });
+    expect(typeCreate).not.toHaveBeenCalled();
+  });
+
+  it("refuses to delete a type marketing tasks still use, and says to deactivate instead", async () => {
+    typeFindFirst.mockResolvedValue({ id: "type-1" });
+    bugCount.mockResolvedValue(2);
+    ideaCount.mockResolvedValue(0);
+    await expect(deleteMarketingIssueTypeAction(WEB, "type-1")).resolves.toMatchObject({
+      error: expect.stringContaining("Deactivate it instead"),
+    });
+    expect(typeDelete).not.toHaveBeenCalled();
+  });
+
+  it("deletes a type no task uses", async () => {
+    typeFindFirst.mockResolvedValue({ id: "type-1" });
+    bugCount.mockResolvedValue(0);
+    ideaCount.mockResolvedValue(0);
+    await expect(deleteMarketingIssueTypeAction(WEB, "type-1")).resolves.toEqual({ ok: true });
+    expect(typeDelete).toHaveBeenCalledWith({ where: { id: "type-1" } });
+  });
+
+  it("creating a type never writes task activity", async () => {
+    await expect(createMarketingIssueTypeAction(WEB, typeForm({ name: "Social post" }))).resolves.toEqual({
+      ok: true,
+    });
+    expect(bugActivityCreateMany).not.toHaveBeenCalled();
+  });
 });

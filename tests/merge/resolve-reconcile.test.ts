@@ -3,9 +3,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 /** Resolving merged work (#515, #reconcile-merged): an issue goes Live only on a report that its linked pull request is merged into the default branch; the claim is released, and a status that changed meanwhile leaves everything as it was. */
 const db = vi.hoisted(() => {
   const tx = {
-    bug: { updateMany: vi.fn() },
-    bugActivity: { create: vi.fn() },
+    bug: { updateMany: vi.fn(), findUnique: vi.fn() },
+    bugActivity: { create: vi.fn(), findFirst: vi.fn() },
     issueClaim: { updateMany: vi.fn() },
+    supportThread: { findMany: vi.fn(async () => []), updateMany: vi.fn() },
+    notification: { createMany: vi.fn() },
   };
   return {
     bug: { findFirst: vi.fn() },
@@ -24,9 +26,9 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 import { resolveMergedFix } from "@/lib/agent-api/resolve";
 
 const PR = "https://github.com/acme/app/pull/12";
-const scope = { tenantId: "t1", projectId: "p1" };
+const scope = { organisationId: "t1", projectId: "p1" };
 const agent = (ownerId = "owner", level: AgentContext["level"] = "working"): AgentContext =>
-  ({ agentId: "a1", name: "Charles Xavier", ownerId, tenantId: "t1", level, burst: false, keyId: "k" });
+  ({ agentId: "a1", name: "Charles Xavier", ownerId, organisationId: "t1", level, burst: false, keyId: "k" });
 
 function bug(over: Record<string, unknown> = {}) {
   return {

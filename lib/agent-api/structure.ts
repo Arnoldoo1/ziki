@@ -1,3 +1,5 @@
+import { isPrivateFinding, PRIVATE_FINDING_EDIT_MESSAGE } from "@/lib/security-findings";
+import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { prisma } from "@/lib/prisma";
 import { issueIdFor } from "@/lib/issue-ref";
 import type { AgentContext } from "@/lib/agents/require-agent";
@@ -7,6 +9,10 @@ import type { SimilarIssue } from "@/lib/similar-issues";
 import { audit } from "@/lib/agents/audit";
 import { publish } from "@/lib/agent-api/events";
 import { reviewerConflict, ReviewerNotIndependentError } from "@/lib/agents/independence";
+import { isConfirmed } from "@/lib/agent-api/confirmations";
+import { moveTo } from "@/lib/issue-substatus";
+import { correct } from "@/lib/points/correct";
+import { pointSourceKey } from "@/lib/points/rules";
 import { z } from "zod";
 
 const idSchema = z.string().trim().min(1).max(191);
@@ -116,16 +122,16 @@ export async function structureIssue(
   const input = structureInputSchema.parse(rawInput ?? {});
 
   // #457: the path may be the readable number (`123`, `ZE-123`) or the id.
-  const bugId = await issueIdFor(prisma, issueRef, agent.tenantId);
+  const bugId = await issueIdFor(prisma, issueRef, agent.organisationId);
   if (!bugId) throw new IssueApiError(404, "Issue not found in this project.");
   const bug = await prisma.bug.findFirst({
-    where: { id: bugId, tenantId: agent.tenantId, projectId, isDeleted: false },
+    where: { id: bugId, organisationId: agent.organisationId, projectId, isDeleted: false },
     select: {
       id: true,
       title: true,
       description: true,
       projectId: true,
-      tenantId: true,
+      organisationId: true,
       typeId: true,
       duplicateOfId: true,
       status: true,
@@ -140,6 +146,9 @@ export async function structureIssue(
   if (!bug) {
     throw new IssueApiError(404, "Issue not found in this project.");
   }
+  if ((input.title || input.description) && await isPrivateFinding({ bugId: bug.id })) {
+    throw new IssueApiError(409, PRIVATE_FINDING_EDIT_MESSAGE, { error: "security_finding_private", message: PRIVATE_FINDING_EDIT_MESSAGE });
+  }
 
   const conflict = reviewerConflict({ id: agent.agentId, ownerUserId: agent.ownerId }, bug);
   if (input.duplicateOfId) {
@@ -152,7 +161,7 @@ export async function structureIssue(
   if (input.checkDuplicates) {
     potentialDuplicates = await findSimilarIssues(
       prisma,
-      { tenantId: agent.tenantId, projectId },
+      { organisationId: agent.organisationId, projectId },
       queryTitle,
     );
     // Exclude self from duplicates list
@@ -161,7 +170,7 @@ export async function structureIssue(
 
   // Load available types
   const types = await prisma.issueType.findMany({
-    where: { tenantId: agent.tenantId, isActive: true },
+    where: { organisationId: agent.organisationId, ...PRODUCT_TRACK, isActive: true },
     select: { id: true, name: true },
   });
 
@@ -201,7 +210,7 @@ export async function structureIssue(
   let resolvedDuplicateOfId = bug.duplicateOfId;
   if (input.duplicateOfId) {
     const canonical = await prisma.bug.findFirst({
-      where: { id: input.duplicateOfId, tenantId: agent.tenantId, projectId, isDeleted: false },
+      where: { id: input.duplicateOfId, organisationId: agent.organisationId, projectId, isDeleted: false },
       select: { id: true },
     });
     if (!canonical) throw new IssueApiError(422, "Canonical duplicate issue not found in this project.");
@@ -210,6 +219,76 @@ export async function structureIssue(
   }
 
   await prisma.$transaction(async (tx) => {
+    // Structure is for reports that are still Open. Lock and re-read the row
+    // before writing so an issue that started work while we were structuring
+    // cannot be rewritten, and a concurrent edit cannot be lost.
+    const [current] = await tx.$queryRaw<{
+      title: string;
+      description: string;
+      typeId: string | null;
+      duplicateOfId: string | null;
+      status: string;
+      substatus: string;
+    }[]>`
+      SELECT "title", "description", "typeId", "duplicateOfId", "status", "substatus"
+      FROM "Bug" WHERE "id" = ${bug.id} FOR UPDATE`;
+
+    if (!current) throw new IssueApiError(404, "Issue not found in this project.");
+    if (current.status !== "open") {
+      throw new IssueApiError(409, "Only open issues can be structured.");
+    }
+    if (
+      current.title !== bug.title || current.description !== bug.description ||
+      current.typeId !== bug.typeId ||
+      current.duplicateOfId !== bug.duplicateOfId
+    ) {
+      throw new IssueApiError(409, "The issue changed while it was being structured. Read the latest issue and try again.");
+    }
+
+    const contentChanged = current.title !== queryTitle || current.description !== structuredDesc;
+    const changed =
+      contentChanged ||
+      current.typeId !== resolvedTypeId ||
+      current.duplicateOfId !== resolvedDuplicateOfId;
+
+    if (contentChanged) {
+      // Read confirmation state before the new revision makes prior entries
+      // stop counting. The entries remain in history for auditability.
+      const wasConfirmed = await isConfirmed(bug.id, tx);
+      await tx.bugRevision.create({
+        data: {
+          bugId: bug.id,
+          title: current.title,
+          description: current.description,
+          editedById: agent.ownerId,
+        },
+      });
+
+      // Match the normal edit path: a confirmed report's reporter points are
+      // corrected when its validation is invalidated by a material revision.
+      if (wasConfirmed) {
+        const recipientId = bug.beneficiaryUserId ?? bug.reporterId;
+        if (recipientId) {
+          const entry = await tx.pointEntry.findFirst({
+            where: {
+              organisationId: bug.organisationId,
+              sourceKey: pointSourceKey("reporter", bug.id, recipientId),
+            },
+            select: { id: true, organisationId: true, userId: true, bugId: true, role: true, points: true },
+          });
+          if (entry) {
+            await correct(tx, { entry });
+            await tx.pointEntry.update({
+              where: { id: entry.id },
+              data: {
+                sourceKey: `${pointSourceKey("reporter", bug.id, recipientId)}:invalidated:${entry.id}`,
+              },
+            });
+          }
+        }
+      }
+    }
+
     await tx.bug.update({
       where: { id: bug.id },
       data: {
@@ -218,6 +297,7 @@ export async function structureIssue(
         typeId: resolvedTypeId,
         duplicateOfId: resolvedDuplicateOfId,
         updatedAt: new Date(),
+        ...(contentChanged && current.substatus === "open" ? moveTo("requires_confirmation") : {}),
       },
     });
 
@@ -228,12 +308,22 @@ export async function structureIssue(
         actorId: agent.ownerId,
         type: "edited",
         summary: "Agent structured issue from report",
+        ...(changed ? {
+          metadata: {
+            fields: [
+              ...(current.title !== queryTitle ? ["title"] : []),
+              ...(current.description !== structuredDesc ? ["description"] : []),
+              ...(current.typeId !== resolvedTypeId ? ["typeId"] : []),
+              ...(current.duplicateOfId !== resolvedDuplicateOfId ? ["duplicateOfId"] : []),
+            ],
+          },
+        } : {}),
       },
     });
 
     // Emit event
     await publish(tx, {
-      tenantId: agent.tenantId,
+      organisationId: agent.organisationId,
       type: "issue.structured",
       payload: {
         issueId: bug.id,
@@ -252,7 +342,7 @@ export async function structureIssue(
     }, { db: tx, bugId: bug.id });
   });
 
-  const updatedIssue = await readAgentIssue({ tenantId: agent.tenantId, projectId }, bug.id);
+  const updatedIssue = await readAgentIssue({ organisationId: agent.organisationId, projectId }, bug.id);
 
   return {
     ok: true,

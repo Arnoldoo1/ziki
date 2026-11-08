@@ -1,159 +1,84 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
-import { prisma } from "@/lib/prisma";
-import { EARN_TASKS, WITHDRAW_THRESHOLD, stageTasks } from "@/lib/earn/draft";
-import { earnState } from "@/lib/earn/state";
-import { EarnLanding } from "@/components/earn-landing";
-import { formatZ } from "@/lib/points/rules";
-import { agentsLink, agentsSurface } from "@/app/(app)/settings/agents/agents-ui";
-import { earnAgentWhere } from "@/lib/earn/earner";
+import { firstProjectRefFor } from "@/lib/project-route";
 
-export const metadata = { title: "Earn with your agent" };
+/* Distinct browser-tab title; the root layout appends the site name. */
+export const metadata: Metadata = { title: "Earn" };
 
-const RING = 2 * Math.PI * 24;
+const STEPS = [
+  { title: "Join a project", body: "Find an open project on Discover and join it in one click." },
+  { title: "Connect your agent", body: "It bids on the project's paid tasks for you, like research, outreach or posts." },
+  { title: "Get paid", body: "When the work is accepted, the money shows in Your earnings." },
+];
 
 /**
- * Earn with your agent (#earn-drafts, Mark's call of 5 Nov): the one page for
- * someone who has just arrived to earn. Not a wizard. It says what happens,
- * has one button to connect an agent, and always shows what the agent can do
- * next: Ziki's own projects. People who are already earning are sent to
- * My agents for their agents and to Earnings for their money.
+ * /earn (#earnings): where the landing page's Start earning leads. Signed out, the
+ * sign-in redirect (middleware.ts) brings you back here after you sign up. It says what you can do to earn and
+ * sends you to Discover, instead of the organisations page a new account would land
+ * on: an earner joins a project, they don't need an organisation of their own.
+ * Built like the organisations page: the app's header and bar, not a landing page.
+ * Someone who already has a project goes to it instead (/home: its Ideas, where the
+ * Earn with your agent notice leads to Discover): this page is for a brand-new account,
+ * which has no Ideas page yet.
  */
-export default async function EarnPage({ searchParams }: { searchParams: Promise<{ connected?: string }> }) {
+export default async function EarnPage() {
   const user = await requireUser();
-  // Just connected an agent: always land here, on choosing what it works on, whatever else the person has done.
-  const justConnected = (await searchParams).connected === "1";
-  const agent = await prisma.agent.findFirst({ where: earnAgentWhere(user.id), orderBy: { createdAt: "asc" }, select: { id: true } }).catch(() => null);
-  const { stage, started } = await earnState(user.id);
-  // Someone who has just arrived, with no agent yet, gets the page of its own (the layout drops the site's chrome for it).
-  if (!agent) return <EarnLanding />;
-  // Mark's four pages: this one is only for someone who has just arrived. Once an earner has started
-  // (a task begun or paid), they have a different job: seeing how their agent is doing, on Earnings.
-  if (!justConnected && (stage !== "new" || started !== null)) redirect("/earn/earnings");
-
-  const paidTasks = stageTasks(stage).filter((task) => task.done).length;
-  const maxPay = Math.max(...EARN_TASKS.map((task) => task.pay));
-  // Open source opens once the marketing tasks are done, not at $30: the rest of the $30 is earned there.
-  const unlocked = paidTasks === EARN_TASKS.length;
-  const rows = [
-    {
-      href: "/earn/marketing",
-      title: "Marketing",
-      tag: "Starter",
-      tagTone: "bg-zk-info-bg text-zk-info-fg",
-      text: "Where your agent takes its first task: help people find Ziki, one task at a time.",
-      ringText: String(EARN_TASKS.length - paidTasks),
-      ringTone: "stroke-electric-blue-strong",
-      share: paidTasks / EARN_TASKS.length || 0.04,
-      dashes: EARN_TASKS.map((_, i) => (i < paidTasks ? "bg-zk-ok-fg" : "bg-electric-blue-strong/35")),
-      reward: `Up to $${EARN_TASKS.reduce((sum, task) => sum + task.pay, 0)}`,
-      status: paidTasks === 0 ? "Open now" : `${paidTasks} of ${EARN_TASKS.length} done`,
-    },
-    {
-      href: "/earn/open-source",
-      title: "Open source",
-      tag: "Destination",
-      tagTone: "bg-[#7C3AED]/10 text-[#6D28D9]",
-      text: "Where your agent goes next: fix real issues on public projects, paid for each accepted fix.",
-      ringText: "\u221e",
-      ringTone: "stroke-[#7C3AED]",
-      share: unlocked ? 1 : 0.04,
-      dashes: ["bg-zk-seg", "bg-zk-seg", "bg-zk-seg", "bg-zk-seg"],
-      reward: "Per accepted fix",
-      status: unlocked ? "Open now" : "Opens after Marketing",
-    },
-  ];
-
+  if (await firstProjectRefFor(user.id)) redirect("/home");
   return (
-    <div className="mx-auto max-w-5xl space-y-10">
+    <div className="mx-auto max-w-2xl space-y-6">
+      <div className="space-y-1">
+        <h1 className="text-2xl font-extrabold tracking-tight text-zk-text">Earn with Ziki</h1>
+        <p className="text-sm text-zk-text2">Get paid for tasks on projects that need help.</p>
+      </div>
 
-      <>
-            <section aria-labelledby="projects-heading" className="space-y-4">
-        <div className="space-y-1">
-          <h2 id="projects-heading" className="text-2xl font-extrabold tracking-tight text-zk-text">What should it work on?</h2>
-          <p className="max-w-xl text-sm text-zk-text2">
-            Pick one. Each has its own page with the tasks your agent can do, and you can switch any time.
-          </p>
+      <div className="flex items-center justify-between gap-3 rounded-[18px] border border-zk-border bg-gradient-to-r from-zk-surface to-zk-tint/20 p-4 sm:p-5">
+        <div className="space-y-0.5">
+          <h2 className="text-sm font-bold text-zk-text">Find a project to work on</h2>
+          <p className="text-xs text-zk-text2">Open projects with paid tasks, ready to join.</p>
         </div>
+        <Link
+          href="/discover?open=true&from=earn"
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-electric-blue-strong px-4 py-2 text-xs font-bold text-white shadow-sm transition hover:brightness-110"
+        >
+          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          Discover Projects
+        </Link>
+      </div>
 
-        <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-          <ul className="m-0 flex list-none flex-col gap-3 p-0">
-            {rows.map((row) => {
-              const inner = (
-                <>
-                  <span className="relative flex h-14 w-14 shrink-0 items-center justify-center">
-                    <svg viewBox="0 0 56 56" className="absolute inset-0 h-full w-full -rotate-90" aria-hidden="true">
-                      <circle cx="28" cy="28" r="24" fill="none" strokeWidth="5" className="stroke-zk-seg" />
-                      <circle cx="28" cy="28" r="24" fill="none" strokeWidth="5" strokeLinecap="round" className={row.ringTone} strokeDasharray={RING} strokeDashoffset={RING * (1 - row.share)} />
-                    </svg>
-                    <span className="relative text-lg font-extrabold tabular-nums text-zk-text">{row.ringText}</span>
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="flex flex-wrap items-center gap-2">
-                      <span className="text-lg font-extrabold tracking-tight text-zk-text">{row.title}</span>
-                      <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${row.tagTone}`}>{row.tag}</span>
-                    </span>
-                    <span className="mt-0.5 block text-sm leading-relaxed text-zk-text2">{row.text}</span>
-                    <span aria-hidden="true" className="mt-2.5 flex gap-1.5">
-                      {row.dashes.map((dash, i) => (
-                        <span key={i} className={`h-1 w-8 rounded-full ${dash}`} />
-                      ))}
-                    </span>
-                  </span>
-                  <span className="flex shrink-0 flex-col items-end gap-1 text-right max-sm:hidden">
-                    <span className="text-sm font-extrabold tabular-nums text-zk-text">{row.reward}</span>
-                    <span className="text-xs text-zk-muted">{row.status}</span>
-                  </span>
-                  <svg viewBox="0 0 24 24" className="h-4 w-4 shrink-0 text-zk-muted" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m9 6 6 6-6 6" /></svg>
-                </>
-              );
-              const base = `${agentsSurface} flex items-center gap-4 p-4 sm:p-5`;
-              return (
-                <li key={row.title}>
-                  {(
-                    <Link href={row.href} className={`${base} transition hover:border-electric-blue/50 hover:shadow-[0_10px_28px_rgba(11,23,51,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue`}>
-                      {inner}
-                    </Link>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-
-          <aside aria-labelledby="glance-heading" className={`${agentsSurface} space-y-4 p-5`}>
-            <div>
-              <h3 id="glance-heading" className="text-base font-extrabold tracking-tight text-zk-text">Marketing at a glance</h3>
-              <p className="text-xs text-zk-muted">Four tasks, done one at a time.</p>
-            </div>
-            <ul className="m-0 flex list-none flex-col gap-3.5 p-0">
-              {EARN_TASKS.map((task) => (
-                <li key={task.id} className="space-y-1.5">
-                  <span className="flex items-baseline justify-between gap-3 text-sm">
-                    <span className="min-w-0 truncate font-semibold text-zk-text">{task.title}</span>
-                    <span className="font-mono text-xs font-bold tabular-nums text-zk-ok-fg">+${task.pay}</span>
-                  </span>
-                  <span aria-hidden="true" className="block h-1.5 overflow-hidden rounded-full bg-zk-seg">
-                    <span className="block h-full rounded-full bg-zk-accent/70" style={{ width: `${(task.pay / maxPay) * 100}%` }} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="border-t border-zk-divider pt-3 text-xs leading-relaxed text-zk-muted">
-              Marketing alone won’t reach $30. Finish its tasks and Open source pays the rest.
-            </p>
-          </aside>
-        </div>
-
-        <p className="max-w-2xl text-sm text-zk-muted">
-          Withdrawals open at {formatZ(WITHDRAW_THRESHOLD)}. <Link href="/earn/earnings" className={agentsLink}>See the way there</Link>
-        </p>
+      <section aria-labelledby="how-earning-works" className="overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface">
+        <h2 id="how-earning-works" className="border-b border-zk-border bg-zk-tint px-4 py-3 text-base font-semibold text-zk-text sm:px-6">
+          How earning works
+        </h2>
+        <ol className="divide-y divide-zk-border">
+          {STEPS.map((step, index) => (
+            <li key={step.title} className="flex items-start gap-3 px-4 py-3 sm:px-6">
+              <span aria-hidden="true" className="mt-0.5 grid h-6 w-6 shrink-0 place-items-center rounded-full bg-zk-tint text-xs font-bold text-zk-accent ring-1 ring-zk-border">
+                {index + 1}
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-zk-text">{step.title}</p>
+                <p className="mt-0.5 text-xs text-zk-text2">{step.body}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
       </section>
-      </>
 
-      <p className="text-sm text-zk-muted">
-        Here to build something instead? <Link href="/tenants" className={agentsLink}>Start a project</Link>
-      </p>
+      <div className="space-y-1 text-xs text-zk-muted">
+        <p>
+          Already earning?{" "}
+          <Link href="/earnings" className="font-semibold text-zk-accent hover:underline">See your earnings</Link>
+        </p>
+        <p>
+          Want Ziki for your own product?{" "}
+          <Link href="/organisations" className="font-semibold text-zk-accent hover:underline">Create or join an organisation</Link>
+        </p>
+      </div>
     </div>
   );
 }

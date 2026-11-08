@@ -11,13 +11,13 @@ import { UserSearch } from "@/components/user-search";
 import { PaginationControls } from "@/components/pagination-controls";
 import { calculatePagination } from "@/lib/pagination";
 
-/* Distinct browser-tab title; the root layout appends "· Ziki". */
+/* Distinct browser-tab title; the root layout appends the site name. */
 export const metadata = { title: "Site admin" };
 
 /**
  * Site staff only: every account on the site and its site-wide role. An
- * organization's members, their roles and their agents are managed by that
- * organization's owners and admins in /org, not here.
+ * organisation's members, their roles and their agents are managed by that
+ * organisation's owners and admins in /org, not here.
  */
 const USERS_PER_PAGE = 25;
 
@@ -60,9 +60,9 @@ export default async function AdminUsersPage({
         <div>
           <h1 className="text-xl font-semibold text-zk-text sm:text-2xl">Site admin</h1>
           <p className="mt-1 max-w-2xl text-sm text-zk-text2">
-            Every account on the site and its site role, which applies across all organizations.
-            Organization roles, members and agents are managed by each organization&apos;s owners
-            and admins on its Organization page.
+            Every account on the site and its site role, which applies across all organisations.
+            Organisation roles, members and agents are managed by each organisation&apos;s owners
+            and admins on its Organisation page.
           </p>
           <p className="mt-2 text-sm">
             <Link href="/superadmin/rewards" className="font-medium text-zk-accent hover:underline">
