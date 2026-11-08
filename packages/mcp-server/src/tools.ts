@@ -417,13 +417,14 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/issues/{id}/comments",
     projectScoped: true,
-    body: ["summary", "label", "body", "confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId", "planId", "parentId", "attachmentIds"],
+    body: ["summary", "label", "body", "reason", "confirmationId", "bidId", "deliveryId", "testVerdictId", "mergeReviewId", "planId", "parentId", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
       summary: z.string().trim().min(1).max(300).describe("The point of the comment in at most two sentences (under 300 characters), shown above the body."),
       label: z.string().trim().min(1).max(29).optional().describe("A short freeform label shown in the comment's title, under 30 characters, e.g. \"Blocker\" or \"Root cause\"."),
       body: z.string().trim().min(1).max(10000).describe("The full comment, 1-10,000 characters: the reasoning, evidence, limits and next steps."),
+      reason: z.string().trim().min(1).max(140).optional().describe("Optional short context for this write, at most 140 characters."),
       confirmationId: z.string().optional().describe("Id of the confirmation entry this replies to (from ziki_list_confirmations)."),
       bidId: z.string().optional().describe("Id of the bid this replies to (from ziki_list_bids)."),
       deliveryId: z.string().optional().describe("Id of the delivery this replies to (from ziki_list_deliveries)."),
@@ -468,12 +469,13 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/issues/{id}/bid",
     projectScoped: true,
-    body: ["summary", "description"],
+    body: ["summary", "description", "reason"],
     input: {
       id: issueId,
       projectId,
       summary: z.string().trim().min(1).max(300).describe("What you will do, at most two sentences and 300 characters."),
       description: z.string().trim().min(1).max(10000).describe("The full plan: why you, how you will fix it, and any estimate."),
+      reason: z.string().trim().min(1).max(140).optional().describe("Optional short context for this bid, at most 140 characters."),
     },
   },
   {
@@ -621,13 +623,14 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/issues/{id}/delivery",
     projectScoped: true,
-    body: ["pullRequestUrl", "summary", "description", "screenshots", "testResults", "receipt", "headSha", "deliverableText", "deliverableUrls", "attachmentIds"],
+    body: ["pullRequestUrl", "summary", "description", "reason", "screenshots", "testResults", "receipt", "headSha", "deliverableText", "deliverableUrls", "attachmentIds"],
     input: {
       id: issueId,
       projectId,
       pullRequestUrl: z.string().trim().min(1).max(2048).optional().describe("Product work: https://github.com/<owner>/<repo>/pull/<number>. Refused on a marketing issue."),
       summary: z.string().trim().min(1).max(300).describe("What you did, in at most two sentences."),
       description: z.string().trim().min(1).max(10000).describe("What changed, how you checked it, and anything left open."),
+      reason: z.string().trim().min(1).max(140).optional().describe("Optional short context for linking this pull request, at most 140 characters."),
       screenshots: z.array(z.string().trim().min(1)).optional().describe("Links to screenshots of the fix."),
       testResults: z.string().optional().describe("Product work: test output or a verification summary."),
       receipt: z
@@ -923,13 +926,14 @@ export const TOOLS: readonly ToolDef[] = [
     method: "POST",
     route: "/issues/{id}/test-results",
     projectScoped: true,
-    body: ["goodToMerge", "summary", "description", "onBehalfOfUserId", "headSha", "files"],
+    body: ["goodToMerge", "summary", "description", "reason", "onBehalfOfUserId", "headSha", "files"],
     input: {
       id: issueId,
       projectId,
       goodToMerge: z.boolean().describe("true if the fix is good to merge."),
       summary: z.string().trim().min(1).max(300).describe("Your verdict in at most two sentences."),
       description: z.string().trim().min(1).max(10000).describe("What you tested, where, and why it is or isn't good to merge."),
+      reason: z.string().trim().min(1).max(140).optional().describe("Optional short context for this validation, at most 140 characters."),
       onBehalfOfUserId: z.string().optional().describe("Defaults to the agent's owner."),
       files: z
         .array(

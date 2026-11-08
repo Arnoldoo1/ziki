@@ -8,7 +8,13 @@ import { newIssuePath, type ProjectRef } from "@/lib/project-paths";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { AgentClearanceToggle } from "@/components/security-finding-controls";
 import { PipelineSteps } from "@/components/pipeline-steps";
-import { filterSecurityFindingsByStage, parseSecurityStageFilter, SecurityStageFilterBar } from "@/components/security-stage-filter";
+import { SecuritySettingsLink } from "@/components/security/security-settings-link";
+import {
+  filterSecurityFindingsByStage,
+  parseSecurityStageFilter,
+  SecurityStageFilterBar,
+  type SecurityStageFilter,
+} from "@/components/security-stage-filter";
 import { LocalTime } from "@/components/local-time";
 import { OrgPageHeader, ReadOnlyNote, orgCard, orgListCard } from "../[org]/[project]/org/org-ui";
 
@@ -34,8 +40,9 @@ export default async function SecurityPage(props: {
   if (!access.organisationId) {
     return (
       <div className="space-y-4">
-        <OrgPageHeader heading="h1" title="Security">Report and track security findings.</OrgPageHeader>
+        <OrgPageHeader heading="h1" title="Security" actions={<SecuritySettingsLink />}>Report and track security findings.</OrgPageHeader>
         <ReadOnlyNote>Join or create a workspace to report and track security findings.</ReadOnlyNote>
+        <SecurityStageFilterBar findings={[]} selected={selectedStage} severity={selectedSeverity} />
       </div>
     );
   }
@@ -60,14 +67,11 @@ export default async function SecurityPage(props: {
     : dashboard.disclosed.filter((f) => f.severity === selectedSeverity);
 
   const visibleOpen = filterSecurityFindingsByStage(filteredOpen, selectedStage);
-  const stageQuery = selectedStage === "all" ? "" : `stage=${selectedStage}`;
   const findings = [...dashboard.open, ...dashboard.disclosed];
   const severitySteps = (["all", ...SECURITY_SEVERITIES] as const).map((level) => ({
     label: level === "all" ? "All" : SEVERITY_LABEL[level],
     count: level === "all" ? findings.length : findings.filter((finding) => finding.severity === level).length,
-    href: "/security" + (level === "all"
-      ? (stageQuery ? `?${stageQuery}` : "")
-      : `?severity=${level}${stageQuery ? `&${stageQuery}` : ""}`),
+    href: securityFilterHref(level, selectedStage),
     selected: selectedSeverity === level,
   }));
   const openCount = dashboard.open.length;
@@ -75,7 +79,12 @@ export default async function SecurityPage(props: {
 
   return (
     <div className="flex w-full flex-col gap-4 pb-10 sm:gap-6">
-      <OrgPageHeader heading="h1" title="Security" actions={<ReportButton projects={dashboard.projects} />}>
+      <OrgPageHeader heading="h1" title="Security" actions={
+        <div className="flex flex-wrap items-center gap-2">
+          <SecuritySettingsLink />
+          <ReportButton projects={dashboard.projects} />
+        </div>
+      }>
         Report vulnerabilities privately. A workspace owner or admin decides when to publish them.
       </OrgPageHeader>
 
@@ -111,7 +120,7 @@ export default async function SecurityPage(props: {
           </p>
         ) : null}
         {visibleOpen.length ? (
-          <FindingTable findings={visibleOpen} kind="open" />
+          <FindingTable findings={visibleOpen} kind="open" filterHref={securityFilterHref(selectedSeverity, selectedStage)} />
         ) : selectedStage === "all" && selectedSeverity === "all" ? (
           <p className="mt-3 text-sm text-zk-text2">No open security findings. Found something? Report it privately.</p>
         ) : selectedSeverity === "all" ? (
@@ -134,7 +143,7 @@ export default async function SecurityPage(props: {
       <section aria-labelledby="disclosed-heading" className={orgCard}>
         <h2 id="disclosed-heading" className="text-base font-semibold text-zk-text">Disclosed</h2>
         {filteredDisclosed.length ? (
-          <FindingTable findings={filteredDisclosed} kind="disclosed" />
+          <FindingTable findings={filteredDisclosed} kind="disclosed" filterHref={securityFilterHref(selectedSeverity, selectedStage)} />
         ) : (
           <p className="mt-3 text-sm text-zk-text2">Findings appear here after a workspace owner or admin publishes them.</p>
         )}
@@ -191,6 +200,13 @@ export default async function SecurityPage(props: {
   );
 }
 
+function securityFilterHref(severity: "all" | (typeof SECURITY_SEVERITIES)[number], stage: SecurityStageFilter) {
+  const query = new URLSearchParams();
+  if (severity !== "all") query.set("severity", severity);
+  if (stage !== "all") query.set("stage", stage);
+  return query.size ? "/security?" + query.toString() : "/security";
+}
+
 function Stat({ label, value, hint, alert = false }: { label: string; value: string; hint: string; alert?: boolean }) {
   return (
     <div className="min-w-0 p-4">
@@ -201,7 +217,7 @@ function Stat({ label, value, hint, alert = false }: { label: string; value: str
   );
 }
 
-function FindingTable({ findings, kind }: { findings: DashboardFinding[]; kind: "open" | "disclosed" }) {
+function FindingTable({ findings, kind, filterHref }: { findings: DashboardFinding[]; kind: "open" | "disclosed"; filterHref: string }) {
   return (
     <div className="mt-3 overflow-x-auto">
       <table className="w-full text-left text-sm">
@@ -219,7 +235,7 @@ function FindingTable({ findings, kind }: { findings: DashboardFinding[]; kind: 
             <tr key={finding.id}>
               <td className="py-2 pr-3 align-top"><SeverityChip severity={finding.severity} /></td>
               <td className="py-2 pr-3 align-top">
-                <Link href={finding.href} className="font-semibold text-zk-accent hover:underline">{finding.ref}</Link>{" "}
+                <Link href={finding.canView ? "/security/findings/" + finding.id + filterHref.slice("/security".length) : finding.href} className="font-semibold text-zk-accent hover:underline">{finding.ref}</Link>{" "}
                 {finding.title ? (
                   <span className="break-words text-zk-text">{finding.title}</span>
                 ) : (
