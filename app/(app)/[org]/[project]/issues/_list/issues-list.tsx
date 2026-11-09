@@ -1533,9 +1533,13 @@ export async function IssuesList({
             askOnLoad={isIdeasView && unconfiguredAgents.length === 0}
           />
         ) : null}
-        {/* Project notes and settings, as icons, beside the tabs. */}
+        {/* Goals, project notes and settings, as icons, beside the tabs. */}
         {!isDeletedView ? (
-          <ProjectIconLinks notesHref={canContribute ? projectPath(ref, "/notes") : undefined} settingsHref={isOrgAdmin ? `/projects/${encodeURIComponent(slug)}/settings` : undefined} />
+          <ProjectIconLinks
+            goalsHref={canContribute ? projectPath(ref, "/goals") : undefined}
+            notesHref={canContribute ? projectPath(ref, "/notes") : undefined}
+            settingsHref={isOrgAdmin ? `/projects/${encodeURIComponent(slug)}/settings` : undefined}
+          />
         ) : null}
       </div>
     </div>
