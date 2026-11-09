@@ -208,6 +208,15 @@ export const commentSchema = z.object({
     .transform((value) => (value && value.length > 0 ? value : undefined)),
 });
 
+const RETEST_OPERATING_SYSTEMS = ["Windows", "macOS", "Linux", "ChromeOS", "iOS", "Android", "Other", "Not sure"] as const;
+
+/** A guided report of a problem that continues after an issue went Live. */
+export const retestRequestSchema = z.object({
+  operatingSystem: z.enum(RETEST_OPERATING_SYSTEMS, { error: "Choose an operating system or Not sure." }),
+  installedVersion: z.string().trim().max(80, "Version must be 80 characters or fewer.").optional().transform((value) => value || "Unknown"),
+  currentBehavior: z.string().trim().min(10, "Describe what happens now in at least 10 characters.").max(4000, "Keep the description under 4,000 characters."),
+});
+
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),

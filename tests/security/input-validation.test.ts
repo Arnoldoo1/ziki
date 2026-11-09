@@ -1,6 +1,6 @@
 import { createSubmissionSchema } from "@/lib/validations/skill";
 import { describe, expect, it } from "vitest";
-import { createBugSchema, signupSchema, updateBugSchema } from "@/lib/validations/issue";
+import { createBugSchema, retestRequestSchema, signupSchema, updateBugSchema } from "@/lib/validations/issue";
 import { safeCallbackUrl } from "@/lib/safe-callback-url";
 import { safeHref } from "@/lib/rich-text";
 import { agentProfileUpdateSchema, agentSkillsReplaceSchema } from "@/lib/validations/agent-profile";
@@ -33,6 +33,14 @@ describe("issue payloads", () => {
   it("rejects proof links that aren't GitHub URLs", () => {
     expect(createBugSchema.safeParse({ ...valid, proofLinks: "ftp://files.example.com/shot.png" }).success).toBe(false);
     expect(createBugSchema.safeParse({ ...valid, proofLinks: "https://example.com/screenshot.png" }).success).toBe(false);
+  });
+
+  it("accepts an unknown installed version and rejects missing or oversized retest details", () => {
+    expect(retestRequestSchema.parse({ operatingSystem: "Not sure", installedVersion: "", currentBehavior: "The save button still does nothing." })).toMatchObject({ installedVersion: "Unknown" });
+    expect(retestRequestSchema.safeParse({ operatingSystem: "Windows", installedVersion: "x".repeat(81), currentBehavior: "The save button still does nothing." }).success).toBe(false);
+    expect(retestRequestSchema.safeParse({ operatingSystem: "Windows", installedVersion: "1.2.3", currentBehavior: "still broken" }).success).toBe(true);
+    expect(retestRequestSchema.safeParse({ operatingSystem: "Windows", currentBehavior: "short" }).success).toBe(false);
+    expect(retestRequestSchema.safeParse({ operatingSystem: "UnknownOS", currentBehavior: "The save button still does nothing." }).success).toBe(false);
   });
 });
 
