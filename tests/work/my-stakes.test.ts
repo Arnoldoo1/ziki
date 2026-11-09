@@ -8,6 +8,7 @@ import type { MyStake } from "@/lib/stakes/board";
  */
 
 const membershipFindMany = vi.hoisted(() => vi.fn());
+const membershipFindUnique = vi.hoisted(() => vi.fn());
 const stakeFindMany = vi.hoisted(() => vi.fn());
 const stakeFindUnique = vi.hoisted(() => vi.fn());
 const stakeCount = vi.hoisted(() => vi.fn());
@@ -21,7 +22,7 @@ const workflowFor = vi.hoisted(() => vi.fn());
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    membership: { findMany: membershipFindMany },
+    membership: { findMany: membershipFindMany, findUnique: membershipFindUnique },
     issueStake: { findMany: stakeFindMany, findUnique: stakeFindUnique, count: stakeCount },
     issueClaim: { findMany: claimFindMany, count: claimCount },
     stakeVote: { groupBy: voteGroupBy },
@@ -311,18 +312,32 @@ describe("nudging an agent to refresh its stake", () => {
     beneficiaryUserId: "jennifer",
     lastRefreshAt: new Date(Date.now() - 2 * MIN),
     agent: { ownerUserId: "jennifer" },
-    bug: { number: 9101, title: "Search loses focus" },
+    bug: { number: 9101, title: "Search loses focus", organisationId: "org-demo" },
     ...overrides,
   });
 
   beforeEach(() => {
     vi.clearAllMocks();
     sendAgentMessage.mockResolvedValue({ ok: true, id: "message-1" });
+    membershipFindUnique.mockResolvedValue({
+      role: "member",
+      organisation: { id: "org-demo", name: "Demo", slug: "demo", archivedAt: null },
+    });
   });
 
   it("refuses someone else's stake, as if it didn't exist, and sends nothing", async () => {
     stakeFindUnique.mockResolvedValue(live({ beneficiaryUserId: "dara", agent: { ownerUserId: "dara" } }));
     expect(await nudgeStakeAgent(jennifer, "stake-1")).toEqual({ ok: false, error: "That stake doesn't exist." });
+    expect(sendAgentMessage).not.toHaveBeenCalled();
+  });
+
+  it("refuses a former organisation member even when they still own the stake's agent", async () => {
+    stakeFindUnique.mockResolvedValue(live());
+    membershipFindUnique.mockResolvedValue(null);
+    expect(await nudgeStakeAgent(jennifer, "stake-1")).toEqual({ ok: false, error: "That stake doesn't exist." });
+    expect(membershipFindUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { organisationId_userId: { organisationId: "org-demo", userId: "jennifer" } },
+    }));
     expect(sendAgentMessage).not.toHaveBeenCalled();
   });
 

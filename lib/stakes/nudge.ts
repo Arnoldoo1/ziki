@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { sendAgentMessage } from "@/lib/agent-messages";
+import { memberOrganisationById } from "@/lib/organisations";
 import type { Actor } from "@/lib/agents/registry";
 import type { NudgeResult } from "@/lib/activity/nudge";
 import { stakeNudgeMessage } from "@/lib/stakes/board";
@@ -23,7 +24,7 @@ export async function nudgeStakeAgent(actor: Actor & { name?: string | null }, s
       beneficiaryUserId: true,
       lastRefreshAt: true,
       agent: { select: { ownerUserId: true } },
-      bug: { select: { number: true, title: true } },
+      bug: { select: { number: true, title: true, organisationId: true } },
     },
   });
   if (!stake || (stake.beneficiaryUserId !== actor.id && stake.agent.ownerUserId !== actor.id)) {
@@ -31,6 +32,12 @@ export async function nudgeStakeAgent(actor: Actor & { name?: string | null }, s
   }
   if (stake.status !== "open" && stake.status !== "contested") {
     return { ok: false, error: "Only a live stake on an issue needs refreshing." };
+  }
+  const organisation = stake.bug
+    ? await memberOrganisationById(prisma, actor.id, stake.bug.organisationId)
+    : null;
+  if (!organisation || organisation.archivedAt) {
+    return { ok: false, error: "That stake doesn't exist." };
   }
   const refreshDueAt = new Date(stake.lastRefreshAt.getTime() + STAKE_REFRESH_MS);
   if (refreshDueAt.getTime() < Date.now()) {
