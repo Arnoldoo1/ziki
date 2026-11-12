@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { LiveRefresh } from "@/components/live-refresh";
 import { Badge } from "@/components/ui/badge";
 import { ReportProgress } from "@/components/security-checks/report-progress";
-import { ReportResults } from "@/components/security-checks/report-results";
+import { ReportResults, parseFixFilter } from "@/components/security-checks/report-results";
 import { ReportSummary } from "@/components/security-checks/report-summary";
 import { requireUser } from "@/lib/auth-helpers";
 import { substatusClass } from "@/lib/labels";
@@ -26,8 +26,14 @@ const WAITING_NOTE: Partial<Record<keyof typeof CHECK_STATUS_LABEL, string>> = {
  * for the check sees it. Until it is paid, the findings are the teaser that
  * `loadCheckReport` builds.
  */
-export default async function SecurityCheckPage({ params }: { params: Promise<{ id: string }> }) {
-  const [{ id }, user] = await Promise.all([params, requireUser()]);
+export default async function SecurityCheckPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ show?: string | string[] }>;
+}) {
+  const [{ id }, { show }, user] = await Promise.all([params, searchParams, requireUser()]);
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) notFound();
   const report = await loadCheckReport(id, access.organisationId, user.id);
@@ -84,7 +90,7 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
             </section>
           ) : null}
 
-          <ReportResults report={report} />
+          <ReportResults report={report} show={parseFixFilter(show)} />
         </>
       )}
     </div>

@@ -20,7 +20,7 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-import { loadCheckReport } from "@/lib/security-checks/report";
+import { fixOf, loadCheckReport } from "@/lib/security-checks/report";
 import { GET as downloadReportPdf } from "@/app/(app)/security/checks/[id]/report.pdf/route";
 import {
   CHECK_STATUS_LABEL,
@@ -103,7 +103,7 @@ describe("what a client sees of a check (#security-checks, part 4)", () => {
     };
   }
   const full = (id: string, severity: string, minute: number) => ({
-    id, itemId: "i1", severity, title: `${id} title`, description: `${id} description`, howToFix: `${id} fix`, createdAt: at(minute), findingId: null,
+    id, itemId: "i1", severity, title: `${id} title`, description: `${id} description`, howToFix: `${id} fix`, createdAt: at(minute), finding: null,
     item: { agent: { id: "a1", name: "Atlas Agent", avatar: null } },
   });
 
@@ -192,5 +192,25 @@ describe("what a client sees of a check (#security-checks, part 4)", () => {
     const response = await downloadReportPdf(new Request("http://localhost/x"), params);
     expect(response.status).toBe(404);
     expect(renderReportPdf).not.toHaveBeenCalled();
+  });
+
+  it("a sent problem's fix follows its finding: Live is fixed, a deleted issue doesn't count, a rejected idea is closed", () => {
+    const project = { slug: "web", organisation: { slug: "ziki" } };
+    const finding = (bug: object | null, idea: object | null = null, verifications: object[] = []) =>
+      fixOf({ id: "f1", project, bug, idea, verifications } as never);
+    const bug = (status: string, substatus: string, isDeleted = false) => ({ number: 912, status, substatus, pullRequestUrl: null, isDeleted });
+
+    expect(fixOf(null)).toBeNull();
+    expect(finding(bug("in_progress", "in_progress"))).toMatchObject({
+      bucket: "fixing", substatus: "in_progress", issue: { number: 912 }, findingHref: "/security/findings/f1",
+    });
+    expect(finding(bug("resolved", "on_prod"), null, [{ passed: true, reviewer: { name: "Hana" } }])).toMatchObject({
+      bucket: "fixed", recheck: { passed: true, by: "Hana" },
+    });
+    // A deleted issue falls back to its idea's stage.
+    expect(finding(bug("resolved", "on_prod", true), { status: "open", isDeleted: false })).toMatchObject({
+      bucket: "fixing", issue: null, stageLabel: "Waiting for verdicts",
+    });
+    expect(finding(null, { status: "rejected", isDeleted: false })).toMatchObject({ bucket: "closed", stageLabel: "Rejected" });
   });
 });

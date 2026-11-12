@@ -7,13 +7,15 @@
  *
  * - a website still waiting for its owner to prove it is theirs
  * - a website mid-check and unpaid: some parts done, problems found so far
- * - a repo finished and paid: the full report
+ * - a repo finished and paid: the full report, with two problems already sent
+ *   to Ziki as findings (one Live and checked again, one In progress)
  * - a server finished and unpaid with no critical problem: the teaser shows
  *   the worst one found instead
  *
  * Additive only: it never resets or reseeds. Its rows have fixed ids
- * (`scn-sc-*`), and a rerun deletes and recreates just these targets and
- * their checks. It refuses to run against anything but a local database.
+ * (`scn-sc-*`), and a rerun deletes and recreates just these targets, their
+ * checks and their findings. It refuses to run against anything but a local
+ * database.
  * Sign in as a member of the Demo workspace (`pnpm db:fixtures`). The script
  * prints each check's address.
  */
@@ -192,7 +194,9 @@ async function main() {
     ).map((row) => row.agentId);
     const agentFor = (index: number) => (agentIds.length ? agentIds[index % agentIds.length] : null);
 
-    // Deleting the targets removes their checks, parts and results with them.
+    // Deleting the targets removes their checks, parts and results with them;
+    // the findings made from those results go first (their re-checks with them).
+    await db.securityFinding.deleteMany({ where: { id: { startsWith: `${P}-` } } });
     await db.securityTarget.deleteMany({ where: { id: { startsWith: `${P}-` } } });
 
     const now = Date.now();
@@ -272,8 +276,57 @@ async function main() {
       }
       console.log(`${scenario.label.padEnd(32)} http://localhost:3001/security/checks/${checkId}`);
     }
+
+    await sendPaidProblemsToZiki(db, organisation.id, owner.id, now);
   } finally {
     await db.$disconnect();
+  }
+}
+
+/**
+ * As if the client had used Fix on Ziki on the paid check (part 5 isn't built
+ * yet): its critical problem becomes a finding whose issue is Live and was
+ * checked again, and its high one a finding whose issue is In progress. The
+ * findings borrow two of the Demo workspace's existing issues, so the check
+ * page can show the fix line, the tabs and "Checked again by".
+ */
+async function sendPaidProblemsToZiki(db: PrismaClient, organisationId: string, ownerId: string, now: number) {
+  const issueWith = (status: "resolved" | "in_progress") =>
+    db.bug.findFirst({
+      where: { organisationId, isDeleted: false, status, securityFinding: null },
+      orderBy: { number: "asc" },
+      select: { id: true, projectId: true },
+    });
+  const sends = [
+    { resultId: `${P}-item-paid-1-result-1`, issue: await issueWith("resolved"), recheck: true },
+    { resultId: `${P}-item-paid-2-result-1`, issue: await issueWith("in_progress"), recheck: false },
+  ];
+  for (const [index, send] of sends.entries()) {
+    if (!send.issue) {
+      console.log("No Demo issue to link a finding to; run pnpm db:fixtures for the fix line to show.");
+      continue;
+    }
+    const result = await db.securityCheckResult.findUnique({ where: { id: send.resultId }, select: { severity: true, title: true, description: true } });
+    if (!result) continue;
+    const findingId = `${P}-finding-${index + 1}`;
+    await db.securityFinding.create({
+      data: {
+        id: findingId,
+        organisationId,
+        projectId: send.issue.projectId,
+        bugId: send.issue.id,
+        reporterId: ownerId,
+        severity: result.severity,
+        title: result.title,
+        description: result.description,
+      },
+    });
+    await db.securityCheckResult.update({ where: { id: send.resultId }, data: { findingId } });
+    if (send.recheck) {
+      await db.securityVerification.create({
+        data: { findingId, reviewerId: ownerId, passed: true, notes: "Checked again on the live site: fixed.", createdAt: new Date(now - 10 * MIN) },
+      });
+    }
   }
 }
 

@@ -1,11 +1,18 @@
 import "server-only";
 import type {
+  IdeaStatus,
+  Prisma,
   SecurityCheckItemStatus,
   SecurityCheckStatus,
   SecuritySeverity,
   SecurityTargetKind,
+  Status,
+  Substatus,
 } from "@prisma/client";
+import { issuePath } from "@/lib/issue-ref";
 import { prisma } from "@/lib/prisma";
+import { refOf } from "@/lib/project-paths";
+import { safeHref } from "@/lib/rich-text";
 import { isCheckPaid } from "@/lib/security-checks";
 import { SECURITY_SEVERITIES } from "@/lib/security-severity";
 
@@ -34,9 +41,82 @@ export type FullResult = {
   howToFix: string;
   /** The agent that found it; null if it has since been removed. */
   agent: ReportAgent | null;
-  /** Already sent to the workspace with Fix on Ziki. */
-  sentToZiki: boolean;
+  /** Where its fix is, once it was sent with Fix on Ziki and became a private finding; null until then. */
+  fix: ResultFix | null;
 };
+
+/** Where a sent problem's fix stands. "fixing" until its issue is Live ("fixed"), or closed or rejected ("closed"). */
+export type FixBucket = "fixing" | "fixed" | "closed";
+
+/** A sent problem's fix, read from its private finding (#security-findings): what the finding's own page shows. */
+export type ResultFix = {
+  findingHref: string;
+  bucket: FixBucket;
+  /** The issue's step (Ziki's status words and colours); null before the idea becomes an issue. */
+  substatus: Substatus | null;
+  /** The stage in words while there is no issue: "Reported", "Waiting for verdicts", "Rejected", "Archived". */
+  stageLabel: string | null;
+  issue: { number: number; href: string } | null;
+  pullRequestHref: string | null;
+  /** The latest independent re-check (Independent verification on the finding's page). */
+  recheck: { passed: boolean; by: string | null } | null;
+};
+
+type FindingRow = {
+  id: string;
+  project: { slug: string; organisation: { slug: string } };
+  bug: { number: number; status: Status; substatus: Substatus; pullRequestUrl: string | null; isDeleted: boolean } | null;
+  idea: { status: IdeaStatus; isDeleted: boolean } | null;
+  verifications: { passed: boolean; reviewer: { name: string | null } | null }[];
+};
+
+/** A finding's fix, as its own page and the Findings dashboard see it. Deleted ideas and issues don't count. */
+export function fixOf(finding: FindingRow | null): ResultFix | null {
+  if (!finding) return null;
+  const bug = finding.bug && !finding.bug.isDeleted ? finding.bug : null;
+  const idea = finding.idea && !finding.idea.isDeleted ? finding.idea : null;
+  const latest = finding.verifications[0];
+  const bucket: FixBucket =
+    bug?.status === "resolved"
+      ? "fixed"
+      : bug?.status === "closed" || (!bug && (idea?.status === "rejected" || idea?.status === "archived"))
+        ? "closed"
+        : "fixing";
+  const stageLabel = bug
+    ? null
+    : idea?.status === "open"
+      ? "Waiting for verdicts"
+      : idea?.status === "rejected"
+        ? "Rejected"
+        : idea?.status === "archived"
+          ? "Archived"
+          : "Reported";
+  return {
+    findingHref: `/security/findings/${finding.id}`,
+    bucket,
+    substatus: bug?.substatus ?? null,
+    stageLabel,
+    issue: bug ? { number: bug.number, href: issuePath(refOf(finding.project), bug.number) } : null,
+    pullRequestHref: bug?.pullRequestUrl ? safeHref(bug.pullRequestUrl) : null,
+    recheck: latest ? { passed: latest.passed, by: latest.reviewer?.name ?? null } : null,
+  };
+}
+
+const FINDING_OF_RESULT = {
+  finding: {
+    select: {
+      id: true,
+      project: { select: { slug: true, organisation: { select: { slug: true } } } },
+      bug: { select: { number: true, status: true, substatus: true, pullRequestUrl: true, isDeleted: true } },
+      idea: { select: { status: true, isDeleted: true } },
+      verifications: {
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 1,
+        select: { passed: true, reviewer: { select: { name: true } } },
+      },
+    },
+  },
+} satisfies Prisma.SecurityCheckResultSelect;
 
 /** The one result an unpaid client sees: no how to fix. */
 export type TeaserResult = { id: string; severity: SecuritySeverity; title: string; description: string; agent: ReportAgent | null };
@@ -152,7 +232,7 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
   if (isCheckPaid(check)) {
     const rows = await prisma.securityCheckResult.findMany({
       where: { checkId: check.id },
-      select: { id: true, itemId: true, severity: true, title: true, description: true, howToFix: true, createdAt: true, findingId: true, ...AGENT_OF_RESULT },
+      select: { id: true, itemId: true, severity: true, title: true, description: true, howToFix: true, createdAt: true, ...AGENT_OF_RESULT, ...FINDING_OF_RESULT },
     });
     return {
       ...base,
@@ -167,7 +247,7 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
         description: row.description,
         howToFix: row.howToFix,
         agent: row.item.agent ?? null,
-        sentToZiki: row.findingId !== null,
+        fix: fixOf(row.finding),
       })),
     };
   }

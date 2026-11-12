@@ -1,11 +1,14 @@
 import Link from "next/link";
 import type { SecuritySeverity } from "@prisma/client";
 import { AgentAvatar } from "@/components/agent-avatar";
+import { PipelineSteps } from "@/components/pipeline-steps";
 import { RichText } from "@/components/rich-text";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { ReportProgress } from "@/components/security-checks/report-progress";
+import { Badge } from "@/components/ui/badge";
+import { stateLabel, statusClass, substatusClass } from "@/lib/labels";
 import { FINISHED_CHECK_STATUSES } from "@/lib/security-checks";
-import type { CheckReport, ReportAgent, SeverityCounts } from "@/lib/security-checks/report";
+import type { CheckReport, ReportAgent, ResultFix, SeverityCounts } from "@/lib/security-checks/report";
 import { SECURITY_SEVERITIES, SEVERITY_LABEL } from "@/lib/security-severity";
 
 /**
@@ -14,7 +17,7 @@ import { SECURITY_SEVERITIES, SEVERITY_LABEL } from "@/lib/security-severity";
  * with how to fix it. An unpaid one shows only what `loadCheckReport` handed
  * over: the worst problem without its fix, and how many more there are.
  */
-export function ReportResults({ report }: { report: CheckReport }) {
+export function ReportResults({ report, show = "all" }: { report: CheckReport; show?: FixFilter }) {
   const still = !FINISHED_CHECK_STATUSES.has(report.status);
 
   return (
@@ -35,17 +38,7 @@ export function ReportResults({ report }: { report: CheckReport }) {
           {still ? "Nothing found yet. Problems show up here as agents find them." : "The agents found no problems."}
         </p>
       ) : report.paid ? (
-        <ol className="mt-3 divide-y divide-zk-border border-t border-zk-border">
-          {report.results.map((result) => (
-            <li key={result.id}>
-              <ProblemRow severity={result.severity} title={result.title} description={result.description} agent={result.agent} sentToZiki={result.sentToZiki}>
-                <HowToFix>
-                  <RichText content={result.howToFix} className="min-w-0 text-sm" />
-                </HowToFix>
-              </ProblemRow>
-            </li>
-          ))}
-        </ol>
+        <PaidResults report={report} show={show} />
       ) : (
         <>
           {report.teaser ? (
@@ -84,19 +77,83 @@ export function ReportResults({ report }: { report: CheckReport }) {
   );
 }
 
+/** The "What we found" tabs, by where each problem's fix is (#security-findings). */
+export type FixFilter = "all" | "not-sent" | "fixing" | "fixed" | "closed";
+const FIX_FILTERS: { value: FixFilter; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "not-sent", label: "Not sent" },
+  { value: "fixing", label: "Fixing" },
+  { value: "fixed", label: "Fixed" },
+  { value: "closed", label: "Closed" },
+];
+
+export function parseFixFilter(value: string | string[] | undefined): FixFilter {
+  return FIX_FILTERS.find((filter) => filter.value === value)?.value ?? "all";
+}
+
+function fixFilterOf(fix: ResultFix | null): Exclude<FixFilter, "all"> {
+  return fix ? fix.bucket : "not-sent";
+}
+
+/**
+ * A paid check's problems. Once any was sent with Fix on Ziki, tabs split
+ * them by where their fix is, as the Findings page does.
+ */
+function PaidResults({ report, show }: { report: Extract<CheckReport, { paid: true }>; show: FixFilter }) {
+  const anySent = report.results.some((result) => result.fix);
+  const filter = anySent ? show : "all";
+  const shown = filter === "all" ? report.results : report.results.filter((result) => fixFilterOf(result.fix) === filter);
+  const count = (value: FixFilter) =>
+    value === "all" ? report.results.length : report.results.filter((result) => fixFilterOf(result.fix) === value).length;
+  const tabs = FIX_FILTERS.filter((tab) => tab.value !== "closed" || count("closed") > 0).map((tab) => ({
+    label: tab.label,
+    count: count(tab.value),
+    href: tab.value === "all" ? `/security/checks/${report.checkId}` : `/security/checks/${report.checkId}?show=${tab.value}`,
+    selected: filter === tab.value,
+  }));
+
+  return (
+    <>
+      {anySent ? (
+        <div className="mt-3 px-4 sm:px-6">
+          <PipelineSteps stages={tabs} label="Filter problems by where their fix is" />
+        </div>
+      ) : null}
+      {shown.length ? (
+        <ol className="mt-3 divide-y divide-zk-border border-t border-zk-border">
+          {shown.map((result) => (
+            <li key={result.id}>
+              <ProblemRow severity={result.severity} title={result.title} description={result.description} agent={result.agent} fix={result.fix}>
+                <HowToFix>
+                  <RichText content={result.howToFix} className="min-w-0 text-sm" />
+                </HowToFix>
+              </ProblemRow>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="mt-3 border-t border-zk-border px-4 py-4 text-sm text-zk-text2 sm:px-6">
+          No problems here.{" "}
+          <Link href={`/security/checks/${report.checkId}`} className="font-semibold text-zk-accent hover:underline">Show all</Link>
+        </p>
+      )}
+    </>
+  );
+}
+
 function ProblemRow({
   severity,
   title,
   description,
   agent,
-  sentToZiki = false,
+  fix = null,
   children,
 }: {
   severity: SecuritySeverity;
   title: string;
   description: string;
   agent: ReportAgent | null;
-  sentToZiki?: boolean;
+  fix?: ResultFix | null;
   children: React.ReactNode;
 }) {
   return (
@@ -109,12 +166,46 @@ function ProblemRow({
         <h3 className="wrap-break-word text-base font-bold text-zk-text">{title}</h3>
         <RichText content={description} className="mt-1 text-sm text-zk-text2" />
         <div className="mt-2 text-sm">{children}</div>
-        {sentToZiki ? (
-          <span className="mt-2 inline-block rounded-full bg-zk-ok-bg px-2.5 py-0.5 text-xs font-semibold text-zk-ok-fg">Sent to Ziki</span>
-        ) : null}
+        {fix ? <FixLine fix={fix} /> : null}
       </div>
-      {agent ? <AgentTag agent={agent} /> : null}
+      {agent || fix?.recheck ? (
+        <div className="flex flex-col gap-1.5 sm:items-end">
+          {agent ? <AgentTag agent={agent} /> : null}
+          {fix?.recheck ? <Recheck recheck={fix.recheck} /> : null}
+        </div>
+      ) : null}
     </article>
+  );
+}
+
+/** Where a sent problem's fix is: its stage in Ziki's colours, then its issue, pull request and finding. */
+function FixLine({ fix }: { fix: ResultFix }) {
+  const badge = fix.substatus
+    ? { label: stateLabel(fix.substatus), className: substatusClass[fix.substatus] }
+    : {
+        label: fix.stageLabel ?? "Reported",
+        className: fix.bucket === "closed" ? statusClass.closed : substatusClass.requires_confirmation,
+      };
+  const link = "font-semibold text-zk-accent hover:underline";
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-zk-border pt-3 text-sm">
+      <Badge className={badge.className}>{badge.label}</Badge>
+      {fix.issue ? <Link href={fix.issue.href} className={link}>Issue #{fix.issue.number}</Link> : null}
+      {fix.pullRequestHref ? (
+        <a href={fix.pullRequestHref} className={link} target="_blank" rel="noreferrer">Pull request</a>
+      ) : null}
+      <Link href={fix.findingHref} className={link}>View finding →</Link>
+    </div>
+  );
+}
+
+/** "Checked again by Hana Tester ✓": the finding's latest independent verification. */
+function Recheck({ recheck }: { recheck: { passed: boolean; by: string | null } }) {
+  const who = recheck.by ?? "a former member";
+  return recheck.passed ? (
+    <p className="text-xs font-semibold text-zk-ok-fg">Checked again by {who} ✓</p>
+  ) : (
+    <p className="text-xs font-semibold text-zk-bad-fg">Re-check by {who} failed</p>
   );
 }
 

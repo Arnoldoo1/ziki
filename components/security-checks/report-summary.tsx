@@ -82,6 +82,7 @@ export function ReportSummary({ report }: { report: CheckReport }) {
           ) : !finished ? (
             <p className="text-sm text-zk-text2">Problems show up here as agents find them.</p>
           ) : null}
+          {report.paid && report.results.some((result) => result.fix) ? <FixingLine results={report.results} /> : null}
           {report.total || report.clearParts.length ? (
             <ul aria-label="Results by severity" className="flex flex-wrap gap-1.5 pt-1">
               {SECURITY_SEVERITIES.filter((level) => report.counts[level] > 0).map((level) => (
@@ -137,6 +138,18 @@ export function ReportSummary({ report }: { report: CheckReport }) {
         </div>
       </div>
     </section>
+  );
+}
+
+/** "Fixing: 2 of 5 sent to Ziki · 1 live": how far the sent problems' fixes have got (#security-findings). */
+function FixingLine({ results }: { results: { fix: { bucket: string } | null }[] }) {
+  const sent = results.filter((result) => result.fix).length;
+  const live = results.filter((result) => result.fix?.bucket === "fixed").length;
+  return (
+    <p className="text-sm text-zk-text2">
+      <span className="font-semibold text-zk-text">Fixing:</span> {sent} of {results.length} sent to Ziki
+      {live ? ` · ${live} live` : ""}
+    </p>
   );
 }
 
