@@ -21,7 +21,8 @@ export default async function PaySecurityCheckPage({ params }: { params: Promise
   if (!access.organisationId) notFound();
 
   const check = await prisma.securityCheck.findFirst({
-    where: { id, organisationId: access.organisationId },
+    // Only the person who asked for the check can see or pay for it.
+    where: { id, organisationId: access.organisationId, requestedById: user.id },
     select: {
       id: true,
       status: true,
