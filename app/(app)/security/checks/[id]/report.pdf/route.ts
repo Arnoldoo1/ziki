@@ -1,0 +1,29 @@
+import { renderReportPdf } from "@/components/security-checks/report-pdf";
+import { requireUser } from "@/lib/auth-helpers";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
+import { loadCheckReport } from "@/lib/security-checks/report";
+
+/**
+ * The security report as a PDF (#security-checks, part 4). Same access rule
+ * and same content as the check page: only the check's own workspace, and
+ * the teaser until it is paid.
+ */
+export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const [{ id }, user] = await Promise.all([params, requireUser()]);
+  const access = await currentOrganisationAccess(user.id, user.role);
+  const report = access.organisationId ? await loadCheckReport(id, access.organisationId) : null;
+  if (!report || report.status === "awaiting_ownership") {
+    return new Response("Not found", { status: 404 });
+  }
+
+  const pdf = await renderReportPdf(report);
+  const name = report.target.input.replace(/^https?:\/\//, "").replace(/[^a-zA-Z0-9.-]+/g, "-").slice(0, 60);
+  return new Response(new Uint8Array(pdf), {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="security-report-${name || "check"}.pdf"`,
+      // Private results: never kept by a shared cache.
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
