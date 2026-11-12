@@ -62,6 +62,8 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
   it("says nothing to fix when the report found nothing", () => {
     const html = renderToStaticMarkup(<SecurityChecksPanel checks={[row({ status: "done", verified: true, posted: true })]} />);
     expect(html).toContain("Nothing to fix");
+    // Done opens the report straight away.
+    expect(html).toContain('href="/security/checks/c1">Done</a>');
     expect(html).not.toContain("/pay");
   });
 

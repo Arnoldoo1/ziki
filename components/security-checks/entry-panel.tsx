@@ -92,7 +92,15 @@ function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
           <Step state={proving ? "now" : "done"}>Show it&apos;s yours</Step>
           <StepLine />
           <Step state={check.status === "done" ? "done" : running ? "now" : "later"}>
-            {running && check.status !== "queued" ? CHECK_STATUS_LABEL[check.status] : "Check"} <span className="font-normal text-zk-muted">· free</span>
+            {check.status === "done" ? (
+              // Done: straight to the report.
+              <Link href={`/security/checks/${check.id}`} className="hover:underline">{CHECK_STATUS_LABEL.done}</Link>
+            ) : running && check.status !== "queued" ? (
+              CHECK_STATUS_LABEL[check.status]
+            ) : (
+              "Check"
+            )}{" "}
+            <span className="font-normal text-zk-muted">· free</span>
           </Step>
           <StepLine />
           <Step state={allUnlocked ? "done" : canUnlock ? "now" : "later"}>
