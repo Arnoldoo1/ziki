@@ -32,8 +32,19 @@ import {
   SECURITY_CHECK_STATUSES,
   SECURITY_TARGET_KINDS,
   TARGET_KIND_LABEL,
+  FREE_SCANS_PER_TARGET,
+  FREE_SCANS_PER_WORKSPACE_PER_MONTH,
+  ON_CALL_INVITE_STATUSES,
+  ON_CALL_QUIET_AFTER_MS,
+  SEVERITY_PRICE,
   agentsMayWork,
+  freeScanAllowed,
+  freeScanMonthStart,
   isCheckPaid,
+  isQuiet,
+  isResultUnlocked,
+  isSecurityCleared,
+  unlockTotal,
   isReportPosted,
   isSecurityCheckItemStatus,
   isSecurityCheckStatus,
@@ -289,5 +300,45 @@ describe("what a client sees of a check (#security-checks, part 4)", () => {
       bucket: "fixing", issue: null, stageLabel: "Waiting for verdicts",
     });
     expect(finding(null, { status: "rejected", isDeleted: false })).toMatchObject({ bucket: "closed", stageLabel: "Rejected" });
+  });
+});
+
+describe("the 12 Nov plan's rules (#security-checks, #on-call)", () => {
+  it("prices a finding by severity, worst costs most", () => {
+    expect(SEVERITY_PRICE).toEqual({ critical: 5, high: 3, medium: 2, low: 1 });
+    expect(unlockTotal([
+      { severity: "critical", priceCoins: 5 },
+      { severity: "high", priceCoins: null },
+      { severity: "low", priceCoins: 1 },
+    ])).toBe(9);
+    expect(unlockTotal([])).toBe(0);
+  });
+
+  it("shows a finding's details only once it is unlocked", () => {
+    expect(isResultUnlocked({ unlockedAt: null })).toBe(false);
+    expect(isResultUnlocked({ unlockedAt: new Date() })).toBe(true);
+  });
+
+  it("allows one free scan per target and a few per workspace a month", () => {
+    expect(freeScanAllowed({ targetFreeScans: 0, workspaceFreeScansThisMonth: 0 })).toEqual({ allowed: true });
+    expect(freeScanAllowed({ targetFreeScans: FREE_SCANS_PER_TARGET, workspaceFreeScansThisMonth: 0 })).toEqual({ allowed: false, reason: "target_used" });
+    expect(freeScanAllowed({ targetFreeScans: 0, workspaceFreeScansThisMonth: FREE_SCANS_PER_WORKSPACE_PER_MONTH })).toEqual({ allowed: false, reason: "workspace_limit" });
+    expect(freeScanMonthStart(new Date("2026-11-30T23:59:00Z"))).toEqual(new Date("2026-11-01T00:00:00Z"));
+  });
+
+  it("flags an on-call agent as quiet after 15 minutes unseen, or when never seen", () => {
+    const now = new Date("2026-11-12T20:00:00Z");
+    expect(isQuiet(null, now)).toBe(true);
+    expect(isQuiet(new Date(now.getTime() - ON_CALL_QUIET_AFTER_MS + 1000), now)).toBe(false);
+    expect(isQuiet(new Date(now.getTime() - ON_CALL_QUIET_AFTER_MS), now)).toBe(true);
+  });
+
+  it("gives security work only to cleared agents", () => {
+    expect(isSecurityCleared({ securityClearedAt: null })).toBe(false);
+    expect(isSecurityCleared({ securityClearedAt: new Date() })).toBe(true);
+  });
+
+  it("lists every on-call invite status the database has", () => {
+    expect([...ON_CALL_INVITE_STATUSES].sort()).toEqual(enumValues("OnCallInviteStatus").sort());
   });
 });
