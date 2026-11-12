@@ -19,7 +19,11 @@ export type AddTargetState = { error?: string; input?: string };
 
 const NO_WORKSPACE = "Join or create a workspace to check a site.";
 
-/** Step 1: read the box, store the target and open a check, then go to step 2 (or 3 if already proven). */
+/**
+ * Step 1: read the box, store the target and open a check. A target already
+ * proven goes on to paying. Otherwise the client goes back to Security, where
+ * the new check is highlighted and Continue leads to step 2 (part 2's page).
+ */
 export async function addSecurityTarget(_previous: AddTargetState, form: FormData): Promise<AddTargetState> {
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
@@ -32,7 +36,7 @@ export async function addSecurityTarget(_previous: AddTargetState, form: FormDat
 
   const added = await addTargetAndCheck(access.organisationId, user.id, parsed.target);
   revalidatePath("/security");
-  redirect(nextStepPath(added));
+  redirect(added.verified ? nextStepPath(added) : `/security?check=${encodeURIComponent(added.checkId)}&added=1`);
 }
 
 /** Step 3: "Pay 50 coins". Simulated: it only marks the check paid. */

@@ -41,6 +41,7 @@ type SearchParams = Promise<{
   reporter?: string | string[];
   check?: string | string[];
   paid?: string | string[];
+  added?: string | string[];
   view?: string | string[];
 }>;
 
@@ -83,7 +84,7 @@ export default async function SecurityPage(props: {
   const showFindings = params.view === "findings" || FINDINGS_FILTERS.some((key) => params[key] !== undefined);
   if (!showFindings) {
     const checks = await listWorkspaceChecks(organisationId);
-    const highlight = typeof params.check === "string" ? { checkId: params.check, paid: params.paid === "1" } : undefined;
+    const highlight = typeof params.check === "string" ? { checkId: params.check, paid: params.paid === "1", added: params.added === "1" } : undefined;
     return (
       <div className="flex w-full flex-col gap-4 pb-10 sm:gap-6">
         <OrgPageHeader heading="h1" title="Security" actions={

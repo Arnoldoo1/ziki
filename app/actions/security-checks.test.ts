@@ -49,7 +49,7 @@ describe("addSecurityTarget (#security-checks part 1)", () => {
 
   it("stores the tidy target and goes to step 2 to prove ownership", async () => {
     mocks.addTargetAndCheck.mockResolvedValue({ targetId: "t1", checkId: "c1", verified: false, reused: false });
-    await expect(addSecurityTarget({}, form("https://www.settle.ng/"))).rejects.toThrow("REDIRECT /security/targets/t1/verify");
+    await expect(addSecurityTarget({}, form("https://www.settle.ng/"))).rejects.toThrow("REDIRECT /security?check=c1&added=1");
     expect(mocks.addTargetAndCheck).toHaveBeenCalledWith("org1", "u1", { kind: "website", value: "settle.ng", input: "https://www.settle.ng/" });
   });
 

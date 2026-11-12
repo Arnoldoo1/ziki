@@ -6,6 +6,8 @@ import { KindIcon } from "./entry-box";
 import { CheckSiteButton } from "./entry-dialog";
 
 const card = "rounded-[24px] border border-zk-border bg-zk-surface";
+const PRIMARY_ROW_BUTTON =
+  "inline-flex h-9 items-center rounded-full bg-electric-blue-strong px-4 text-sm font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2";
 const ROW_BUTTON =
   "inline-flex h-9 items-center rounded-full border border-zk-border bg-zk-surface px-4 text-sm font-semibold text-zk-text transition hover:border-zk-accent hover:text-zk-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2";
 
@@ -19,12 +21,12 @@ function PrivacyNote({ className = "" }: { className?: string }) {
 }
 
 /**
- * What the Security page opens on (#security-checks, part 1). The box itself
- * waits behind "Check a site", so the page is just a line on what agents will
- * and won't do, and the workspace's checks. A workspace with none yet gets a
- * short empty state instead. The findings dashboard sits behind "Findings".
+ * What the Security page opens on (#security-checks, part 1). The box waits
+ * behind "Check a site" and opens in a pop-up. A workspace with no checks yet
+ * sees a short card; a returning one sees its checks. The findings dashboard
+ * sits behind the "Findings" link.
  */
-export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCheckRow[]; highlight?: { checkId: string; paid: boolean } }) {
+export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCheckRow[]; highlight?: { checkId: string; paid: boolean; added?: boolean } }) {
   return (
     <>
       {checks.length === 0 ? (
@@ -45,10 +47,17 @@ export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCh
 
       {checks.length ? (
         <section aria-labelledby="security-checks-heading" className={`${card} overflow-hidden`}>
-          <div className="px-6 pb-4 pt-6">
-            <h2 id="security-checks-heading" className="m-0 text-lg font-bold text-zk-text">Your checks</h2>
-            <p className="m-0 mt-1 text-sm text-zk-text2">Newest first. Agents start once you&apos;ve shown a check is yours.</p>
+          <div className="px-4 pb-4 pt-6 sm:px-6">
+            <div className="min-w-0">
+              <h2 id="security-checks-heading" className="m-0 text-lg font-bold text-zk-text">Your checks</h2>
+              <p className="m-0 mt-1 text-sm text-zk-text2">Newest first. Agents start once you&apos;ve shown a check is yours.</p>
+            </div>
           </div>
+          {highlight?.added && !highlight.paid ? (
+            <p role="status" className="mx-4 mb-4 mt-0 rounded-[14px] border border-zk-border bg-zk-ok-bg px-3 py-2 text-sm text-zk-ok-fg sm:mx-6">
+              Saved. Next, you show it&apos;s yours, then agents can start. You can pay now or later.
+            </p>
+          ) : null}
           {highlight?.paid ? (
             <p role="status" className="mx-6 mb-4 mt-0 rounded-[14px] border border-zk-border bg-zk-ok-bg px-3 py-2 text-sm text-zk-ok-fg">
               Paid. You&apos;ll see the full report, with how to fix each problem, once agents finish.
@@ -69,40 +78,81 @@ export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCh
 }
 
 function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighted: boolean }) {
+  const cancelled = check.status === "cancelled";
   const proving = check.status === "awaiting_ownership" && !check.verified;
-  const payable = !check.paid && check.status !== "cancelled";
+  const payable = !check.paid && !cancelled;
+  const payHref = `/security/checks/${check.id}/pay`;
+  const running = !proving && !cancelled;
+
   return (
-    <li className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-4 sm:px-6 ${highlighted ? "bg-zk-tint" : ""}`}>
-      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-zk-border bg-zk-bg">
-        <KindIcon kind={check.kind} className="text-zk-text2" />
-      </span>
-      <div className="min-w-[12rem] flex-1">
-        <p className="m-0 truncate text-base font-bold text-zk-text">{check.value}</p>
-        <p className="m-0 text-sm text-zk-text2">
-          {TARGET_KIND_LABEL[check.kind]} · added <LocalTime date={check.createdAt} />
-          {check.paid ? " · paid" : payable ? <> · <span className="tabular-nums">{check.priceCoins}</span> coins</> : null}
-        </p>
+    <li className={`flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-6 ${highlighted ? "bg-zk-tint" : ""}`}>
+      <div className="flex min-w-[14rem] flex-1 items-center gap-3">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-zk-border bg-zk-bg">
+          <KindIcon kind={check.kind} className="text-zk-text2" />
+        </span>
+        <div className="min-w-0">
+          <p className="m-0 truncate text-base font-bold text-zk-text">{check.value}</p>
+          <p className="m-0 text-sm text-zk-muted">
+            {TARGET_KIND_LABEL[check.kind]} · added <LocalTime date={check.createdAt} />
+          </p>
+        </div>
       </div>
-      <span className="flex flex-wrap items-center gap-3 sm:justify-end">
-        <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-bold ${statusTone(check)}`}>{CHECK_STATUS_LABEL[check.status]}</span>
-        {payable ? (
-          <Link href={`/security/checks/${check.id}/pay`} className="text-sm font-semibold text-zk-accent hover:underline">Pay</Link>
-        ) : null}
+
+      {cancelled ? (
+        <span className="inline-flex rounded-full bg-zk-chip px-2.5 py-0.5 text-xs font-bold text-zk-muted">{CHECK_STATUS_LABEL[check.status]}</span>
+      ) : (
+        <ol aria-label={`Steps for ${check.value}`} className="m-0 flex list-none flex-wrap items-center gap-x-1.5 gap-y-1 p-0 text-[13px]">
+          <Step state={proving ? "now" : "done"}>Show it&apos;s yours</Step>
+          <StepLine />
+          <Step state={check.paid ? "done" : !proving ? "now" : "later"}>
+            {check.paid ? "Paid" : (
+              <Link href={payHref} className="hover:underline">
+                Pay <span className="tabular-nums">{check.priceCoins}</span> coins
+              </Link>
+            )}
+          </Step>
+          <StepLine />
+          <Step state={check.status === "done" ? "done" : running && check.paid ? "now" : "later"}>
+            {running ? CHECK_STATUS_LABEL[check.status] : "Agents check"}
+          </Step>
+        </ol>
+      )}
+
+      <div className="flex shrink-0 items-center">
         {proving ? (
-          <Link href={nextStepPath({ targetId: check.targetId, checkId: check.id, verified: false })} className={ROW_BUTTON}>Continue</Link>
+          <Link href={nextStepPath({ targetId: check.targetId, checkId: check.id, verified: false })} className={PRIMARY_ROW_BUTTON}>
+            Continue
+          </Link>
+        ) : payable ? (
+          <Link href={payHref} className={PRIMARY_ROW_BUTTON}>Pay</Link>
         ) : (
           <Link href={`/security/checks/${check.id}`} className={ROW_BUTTON}>Open</Link>
         )}
-      </span>
+      </div>
     </li>
   );
 }
 
-function statusTone(check: WorkspaceCheckRow): string {
-  if (check.status === "awaiting_ownership") return "bg-zk-warn-bg text-zk-warn-fg";
-  if (check.status === "done") return "bg-zk-ok-bg text-zk-ok-fg";
-  if (check.status === "cancelled") return "bg-zk-chip text-zk-muted";
-  return "bg-zk-tint text-zk-accent";
+/** One step of a check: done (a tick), now (the step to do next) or later. */
+function Step({ state, children }: { state: "done" | "now" | "later"; children: React.ReactNode }) {
+  const tone = state === "done" ? "text-zk-ok-fg" : state === "now" ? "font-semibold text-zk-text" : "text-zk-muted";
+  return (
+    <li aria-current={state === "now" ? "step" : undefined} className={`inline-flex items-center gap-1.5 whitespace-nowrap ${tone}`}>
+      {state === "done" ? (
+        <span aria-hidden="true" className="grid h-4 w-4 place-items-center rounded-full bg-zk-ok-bg">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5L19 7" /></svg>
+        </span>
+      ) : (
+        <span aria-hidden="true" className={`h-2 w-2 rounded-full ${state === "now" ? "bg-electric-blue-strong ring-4 ring-electric-blue-strong/15" : "border border-zk-border bg-zk-surface"}`} />
+      )}
+      {state === "done" ? <span className="sr-only">Done: </span> : null}
+      {children}
+    </li>
+  );
+}
+
+function StepLine() {
+  return <li aria-hidden="true" className="h-px w-3 bg-zk-border sm:w-6" />;
 }
 
 /** A picture of agents circling a shield. Decoration only, so screen readers skip it. */
