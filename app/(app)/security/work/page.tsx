@@ -1,13 +1,11 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
 import { TARGET_KIND_LABEL } from "@/lib/security-checks";
-import { JOB_TIMEOUT_MINUTES } from "@/lib/security-checks/engine";
 import { jobLabel, jobReward, listAgentJobs, type AgentJobRow } from "@/lib/security-checks/your-work";
 import { formatZ } from "@/lib/points/rules";
 import { KindIcon } from "@/components/security-checks/entry-box";
 import { PipelineSteps } from "@/components/pipeline-steps";
 import { LocalTime } from "@/components/local-time";
-import { JobStatus } from "@/components/security-checks/job-status";
 // The same table as a project's Your Work list, so this reads like the rest of Ziki.
 import "../../[org]/[project]/issues/_list/issues.css";
 
@@ -78,7 +76,7 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
               <div className="issues-table-heading">
                 <span className="w-[76px] shrink-0 text-center">Reward</span>
                 <span className="min-w-0 flex-1">Job</span>
-                <span className="hidden w-[240px] shrink-0 md:block">Status</span>
+                <span className="hidden w-[120px] shrink-0 md:block">Status</span>
               </div>
               <ul className="m-0 list-none p-0">
                 {shown.map((job, index) => (
@@ -98,35 +96,39 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
 
 function JobRow({ job, last }: { job: AgentJobRow; last: boolean }) {
   const reward = jobReward(job);
+  const status = statusOf(job);
   return (
-    <li className={last ? "" : "border-b border-zk-divider"}>
-      <Link href={`/security/work/${job.id}`} className="issues-row flex items-center focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-zk-accent">
-        <span className="flex w-[76px] shrink-0 justify-center">
-          <span className={`font-mono text-[14px] font-bold tabular-nums ${job.paid ? "text-zk-text" : "text-zk-ok-fg"}`} title={`Pays ${formatZ(reward)}`}>
-            {formatZ(reward)}
+    <li className={`issues-row flex items-center ${last ? "" : "border-b border-zk-divider"}`}>
+      <span className="flex w-[76px] shrink-0 justify-center">
+        <span className={`font-mono text-[14px] font-bold tabular-nums ${job.paid ? "text-zk-text" : "text-zk-ok-fg"}`} title={`Pays ${formatZ(reward)}`}>
+          {formatZ(reward)}
+        </span>
+      </span>
+      <span className="flex min-w-0 flex-1 items-center gap-3">
+        <span className="hidden h-8 w-8 shrink-0 place-items-center rounded-lg bg-zk-bg sm:grid">
+          <KindIcon kind={job.targetKind} className="h-4 w-4 text-zk-text2" />
+        </span>
+        <span className="min-w-0">
+          <span className="issues-row-title text-zk-text">{jobLabel(job)}</span>
+          <span className="issues-row-meta flex items-center text-zk-muted">
+            <span className="font-medium text-zk-text2">{job.targetValue}</span>
+            <span>{TARGET_KIND_LABEL[job.targetKind]}</span>
+            <span>{job.agentName}</span>
+            {job.status === "checking" && job.assignedAt ? <LocalTime date={job.assignedAt} /> : job.reportedAt ? <LocalTime date={job.reportedAt} /> : null}
+            <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold md:hidden ${status.tone}`}>{status.label}</span>
           </span>
         </span>
-        <span className="flex min-w-0 flex-1 items-center gap-3">
-          <span className="hidden h-8 w-8 shrink-0 place-items-center rounded-lg bg-zk-bg sm:grid">
-            <KindIcon kind={job.targetKind} className="h-4 w-4 text-zk-text2" />
-          </span>
-          <span className="min-w-0">
-            <span className="issues-row-title text-zk-text">{jobLabel(job)}</span>
-            <span className="issues-row-meta flex items-center text-zk-muted">
-              <span className="font-medium text-zk-text2">{job.targetValue}</span>
-              <span>{TARGET_KIND_LABEL[job.targetKind]}</span>
-              <span>{job.agentName}</span>
-              {job.status === "checking" && job.assignedAt ? <LocalTime date={job.assignedAt} /> : job.reportedAt ? <LocalTime date={job.reportedAt} /> : null}
-            </span>
-            <span className="mt-2 flex md:hidden">
-              <JobStatus status={job.status} assignedAt={job.assignedAt?.toISOString() ?? null} reportedAt={job.reportedAt?.toISOString() ?? null} paid={job.paid} reward={formatZ(reward)} timeoutMinutes={JOB_TIMEOUT_MINUTES} />
-            </span>
-          </span>
-        </span>
-        <span className="hidden w-[240px] shrink-0 md:flex">
-          <JobStatus status={job.status} assignedAt={job.assignedAt?.toISOString() ?? null} reportedAt={job.reportedAt?.toISOString() ?? null} paid={job.paid} reward={formatZ(reward)} timeoutMinutes={JOB_TIMEOUT_MINUTES} />
-        </span>
-      </Link>
+      </span>
+      <span className="hidden w-[120px] shrink-0 md:flex">
+        <span className={`rounded-md px-2 py-0.5 text-xs font-bold ${status.tone}`}>{status.label}</span>
+      </span>
     </li>
   );
+}
+
+/** The job's status in one word: checking, reported, or paid to you. */
+function statusOf(job: AgentJobRow): { label: string; tone: string } {
+  if (job.status === "checking") return { label: "Checking", tone: "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300" };
+  if (job.paid) return { label: "Paid", tone: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" };
+  return { label: "Reported", tone: "bg-zk-chip text-zk-text2" };
 }

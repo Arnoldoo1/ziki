@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const prismaMock = vi.hoisted(() => ({ securityCheckItem: { findMany: vi.fn(), findFirst: vi.fn() } }));
+const prismaMock = vi.hoisted(() => ({ securityCheckItem: { findMany: vi.fn() } }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
-import { getAgentJob, jobLabel, jobReward, listAgentJobs } from "./your-work";
+import { jobLabel, jobReward, listAgentJobs } from "./your-work";
 
 const at = new Date("2026-11-12T10:00:00Z");
 const row = (over: Record<string, unknown>) => ({
@@ -34,14 +34,6 @@ describe("Your work on Security (#security-checks)", () => {
     expect(jobs[0]).toMatchObject({ agentName: "Pixel", targetValue: "ziki.dev", paid: true });
     expect(jobLabel(jobs[0])).toBe("Splitting it into parts to check");
     expect(jobLabel(jobs[1])).toBe("Login form: rate limits");
-  });
-
-  it("opens a job only for the owner of the agent that has it, and never loads results", async () => {
-    prismaMock.securityCheckItem.findFirst.mockResolvedValue(null);
-    expect(await getAgentJob("u1", "someone-elses-job")).toBeNull();
-    const query = prismaMock.securityCheckItem.findFirst.mock.calls[0][0];
-    expect(query.where).toEqual({ id: "someone-elses-job", agent: { ownerUserId: "u1" } });
-    expect(query.select.results).toBeUndefined();
   });
 
   it("pays more for splitting a site than for one part", () => {
