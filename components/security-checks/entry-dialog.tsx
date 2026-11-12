@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { SecurityEntryBox } from "./entry-box";
+import { SecurityChat } from "./security-chat";
 
 /**
  * "Check a site" (#security-checks, part 1). The box is only needed now and
@@ -63,13 +63,9 @@ export function CheckSiteButton({ id = "security-target", variant = "primary" }:
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
               </button>
             </div>
-            <div>
-              <p className="m-0 text-xl font-extrabold tracking-tight text-zk-text">What should our agents check?</p>
-              <p className="m-0 mt-1 text-sm text-zk-text2">Paste a website, a server address, or a code repository. We work out the rest.</p>
-            </div>
-            <SecurityEntryBox id={id} focusOnOpen />
+            <SecurityChat id={id} focusOnOpen />
             <p className="m-0 border-t border-zk-divider pt-4 text-xs text-zk-muted">
-              Next, you show it&apos;s yours. Agents only look: they never log in as you or change anything.
+              The first scan is free. Next, you show it&apos;s yours. Agents only look: they never log in as you or change anything.
             </p>
           </div>
         ) : null}

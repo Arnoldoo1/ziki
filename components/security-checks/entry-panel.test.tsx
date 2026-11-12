@@ -15,13 +15,12 @@ const row = (over: Partial<WorkspaceCheckRow>): WorkspaceCheckRow => ({
 });
 
 describe("SecurityChecksPanel (#security-checks part 1)", () => {
-  it("shows a new workspace a short empty state with Check a site, and keeps the box closed", () => {
+  it("shows a new workspace one box asking what to secure, the three steps, and that the first scan is free", () => {
     const html = renderToStaticMarkup(<SecurityChecksPanel checks={[]} />);
-    expect(html).toContain("Find the holes before someone else does");
-    expect(html).toContain("Check a site");
-    expect(html).toContain('aria-haspopup="dialog"');
-    expect(html).not.toContain('name="target"');
-    expect(html).toContain("Agents only look.");
+    expect(html).toContain("What do you want to secure?");
+    expect(html).toContain("Your first scan is free");
+    expect(html).toContain("See what&#x27;s wrong");
+    expect(html).toContain('name="target"');
     expect(html).not.toContain("Your checks");
   });
 
@@ -42,14 +41,16 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
     expect(html).not.toContain('href="/security/checks/c2/pay"');
     expect(html).toContain("Show it&#x27;s yours");
     expect(html).toContain(">Continue</a>");
-    expect(html).toContain("Paid");
+    expect(html).toContain("Fixes unlocked");
+    expect(html).toContain("Fix · ");
+    expect(html).toContain("· free");
     expect(html).toContain('aria-current="step"');
   });
 
   it("confirms a payment on the paid check", () => {
     const html = renderToStaticMarkup(<SecurityChecksPanel checks={[row({ paid: true })]} highlight={{ checkId: "c1", paid: true }} />);
     expect(html).toContain('role="status"');
-    expect(html).toContain("full report");
+    expect(html).toContain("Fixes unlocked. You&#x27;ll see every problem in full");
   });
 
   it("shows ziki.dev as the box's placeholder", () => {
@@ -59,7 +60,7 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
 
   it("says a new check was saved, and keeps Continue on its row", () => {
     const html = renderToStaticMarkup(<SecurityChecksPanel checks={[row({})]} highlight={{ checkId: "c1", paid: false, added: true }} />);
-    expect(html).toContain("Saved. Next, you show it&#x27;s yours");
+    expect(html).toContain("Saved. Show it&#x27;s yours and your free scan starts.");
     expect(html).toContain('href="/security/targets/t1/verify"');
   });
 });
