@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import { renderReportPdf } from "@/components/security-checks/report-pdf";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
@@ -5,8 +6,8 @@ import { loadCheckReport } from "@/lib/security-checks/report";
 
 /**
  * The security report as a PDF (#security-checks, part 4). Same access rule
- * and same content as the check page: only the check's own workspace, and
- * the teaser until it is paid.
+ * as the check page (only the check's own workspace), and only once paid:
+ * an unpaid check is sent to the pay page instead.
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const [{ id }, user] = await Promise.all([params, requireUser()]);
@@ -15,6 +16,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!report || report.status === "awaiting_ownership") {
     return new Response("Not found", { status: 404 });
   }
+  // No PDF before paying: send them to pay instead (the page's button says so too).
+  if (!report.paid) redirect(`/security/checks/${report.checkId}/pay`);
 
   const pdf = await renderReportPdf(report);
   const name = report.target.input.replace(/^https?:\/\//, "").replace(/[^a-zA-Z0-9.-]+/g, "-").slice(0, 60);

@@ -5,6 +5,7 @@ import { LiveRefresh } from "@/components/live-refresh";
 import { Badge } from "@/components/ui/badge";
 import { statusClass, substatusClass } from "@/lib/labels";
 import { LocalTime } from "@/components/local-time";
+import { LockedPdfButton } from "@/components/security-checks/report-pdf-locked";
 import { ReportProgress } from "@/components/security-checks/report-progress";
 import { ReportResults } from "@/components/security-checks/report-results";
 import { requireUser } from "@/lib/auth-helpers";
@@ -96,10 +97,19 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
               <h2 id="report-heading" className="text-base font-semibold text-zk-text">Report</h2>
               <p className="text-xs text-zk-muted">Worst first.</p>
             </div>
-            {/* A plain link: a full download, not a client-side navigation. */}
-            <a href={`/security/checks/${report.checkId}/report.pdf`} className={`text-sm ${linkClass}`}>
-              Download PDF
-            </a>
+            {report.paid ? (
+              // A plain link: a full download, not a client-side navigation.
+              <a href={`/security/checks/${report.checkId}/report.pdf`} className={`text-sm ${linkClass}`}>
+                Download PDF
+              </a>
+            ) : (
+              // Unpaid: the PDF is locked, so the button opens a box asking them to pay.
+              <LockedPdfButton
+                payHref={`/security/checks/${report.checkId}/pay`}
+                priceCoins={report.priceCoins}
+                className={`text-sm ${linkClass}`}
+              />
+            )}
           </div>
           <div className="mt-3">
             <ReportResults report={report} />

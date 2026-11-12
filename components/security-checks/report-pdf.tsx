@@ -6,10 +6,11 @@ import type { CheckReport, SeverityCounts } from "@/lib/security-checks/report";
 import { SECURITY_SEVERITIES, SEVERITY_LABEL } from "@/lib/security-severity";
 
 /**
- * The downloadable security report (#security-checks, part 4). It prints
- * exactly what `loadCheckReport` handed over, so an unpaid check's PDF holds
- * the same teaser as the page and nothing more.
+ * The downloadable security report (#security-checks, part 4): the full
+ * report of a paid check. An unpaid check has no PDF; its "Download PDF"
+ * asks the client to pay instead (agreed with the team, 12 Nov).
  */
+type PaidReport = Extract<CheckReport, { paid: true }>;
 
 /** Printed colours, matching the severity chips' light palette. */
 const SEVERITY_COLOUR: Record<SecuritySeverity, string> = {
@@ -30,8 +31,6 @@ const styles = StyleSheet.create({
   problemTitle: { marginTop: 2, fontSize: 11, fontFamily: "Helvetica-Bold" },
   body: { marginTop: 3 },
   fixLabel: { marginTop: 6, fontSize: 9, fontFamily: "Helvetica-Bold", color: "#4b5563" },
-  locked: { marginTop: 6, color: "#4b5563" },
-  pay: { marginTop: 4, padding: 10, backgroundColor: "#fffbeb", borderWidth: 1, borderColor: "#fcd34d", borderRadius: 6 },
   footer: { position: "absolute", bottom: 24, left: 40, right: 40, fontSize: 8, color: "#6b7280" },
 });
 
@@ -46,25 +45,19 @@ function countsText(counts: SeverityCounts): string {
     .join(" · ");
 }
 
-function Problem({ severity, title, description, howToFix }: { severity: SecuritySeverity; title: string; description: string; howToFix?: string }) {
+function Problem({ severity, title, description, howToFix }: { severity: SecuritySeverity; title: string; description: string; howToFix: string }) {
   return (
     <View style={styles.problem} wrap={false}>
       <Text style={[styles.severity, { color: SEVERITY_COLOUR[severity] }]}>{SEVERITY_LABEL[severity]}</Text>
       <Text style={styles.problemTitle}>{plain(title)}</Text>
       <Text style={styles.body}>{plain(description)}</Text>
-      {howToFix === undefined ? (
-        <Text style={styles.locked}>How to fix it is in the full report.</Text>
-      ) : (
-        <>
-          <Text style={styles.fixLabel}>How to fix</Text>
-          <Text style={styles.body}>{plain(howToFix)}</Text>
-        </>
-      )}
+      <Text style={styles.fixLabel}>How to fix</Text>
+      <Text style={styles.body}>{plain(howToFix)}</Text>
     </View>
   );
 }
 
-function ReportDocument({ report, generatedAt }: { report: CheckReport; generatedAt: Date }) {
+function ReportDocument({ report, generatedAt }: { report: PaidReport; generatedAt: Date }) {
   const still = !FINISHED_CHECK_STATUSES.has(report.status);
   const kind = TARGET_KIND_LABEL[report.target.kind];
   return (
@@ -84,27 +77,9 @@ function ReportDocument({ report, generatedAt }: { report: CheckReport; generate
               : `${report.total} ${report.total === 1 ? "problem" : "problems"} found${still ? " so far" : ""}: ${countsText(report.counts)}`}
           </Text>
 
-          {report.paid
-            ? report.results.map((result) => (
-                <Problem key={result.id} severity={result.severity} title={result.title} description={result.description} howToFix={result.howToFix} />
-              ))
-            : (
-                <>
-                  {report.teaser ? (
-                    <Problem severity={report.teaser.severity} title={report.teaser.title} description={report.teaser.description} />
-                  ) : null}
-                  {report.total > 0 ? (
-                    <View style={styles.pay}>
-                      <Text>
-                        {report.hiddenCount > 0
-                          ? `${report.hiddenCount} more ${report.hiddenCount === 1 ? "problem" : "problems"} found${still ? " so far" : ""}.`
-                          : `No other problems found${still ? " so far" : ""}.`}{" "}
-                        Pay {report.priceCoins} coins on Ziki to see all, with how to fix each one.
-                      </Text>
-                    </View>
-                  ) : null}
-                </>
-              )}
+          {report.results.map((result) => (
+            <Problem key={result.id} severity={result.severity} title={result.title} description={result.description} howToFix={result.howToFix} />
+          ))}
         </View>
 
         <Text style={styles.footer} fixed>
@@ -115,6 +90,7 @@ function ReportDocument({ report, generatedAt }: { report: CheckReport; generate
   );
 }
 
-export function renderReportPdf(report: CheckReport): Promise<Buffer> {
+/** Only a paid check has a PDF: the type refuses an unpaid report outright. */
+export function renderReportPdf(report: PaidReport): Promise<Buffer> {
   return renderToBuffer(<ReportDocument report={report} generatedAt={new Date()} />);
 }

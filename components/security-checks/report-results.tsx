@@ -37,8 +37,10 @@ export function ReportResults({ report }: { report: CheckReport }) {
             </li>
           ))}
         </ol>
-        {/* Fix on Ziki (part 5) goes here once its component lands: it gets the
-            check id and these results, and shows only on a paid check. */}
+        {/* Fix on Ziki (part 5, agreed with Oluwasanmi): once his
+            components/security-checks/fix-on-ziki.tsx is on main, render
+            <FixOnZiki checkId={report.checkId} results={report.results.map(({ id, severity, title }) => ({ id, severity, title }))} />
+            here. This branch is the paid one, so it never shows unpaid. */}
       </div>
     );
   }
