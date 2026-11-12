@@ -6,6 +6,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 vi.mock("@/components/local-time", () => ({ LocalTime: () => <time>2 days ago</time> }));
 
 import { SecurityChecksPanel } from "./entry-panel";
+import { SecurityEntryBox } from "./entry-box";
 import type { WorkspaceCheckRow } from "@/lib/security-checks/entry";
 
 const row = (over: Partial<WorkspaceCheckRow>): WorkspaceCheckRow => ({
@@ -41,12 +42,24 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
     expect(html).not.toContain('href="/security/checks/c2/pay"');
     expect(html).toContain("Show it&#x27;s yours");
     expect(html).toContain(">Continue</a>");
-    expect(html).toContain(" · paid");
+    expect(html).toContain("Paid");
+    expect(html).toContain('aria-current="step"');
   });
 
   it("confirms a payment on the paid check", () => {
     const html = renderToStaticMarkup(<SecurityChecksPanel checks={[row({ paid: true })]} highlight={{ checkId: "c1", paid: true }} />);
     expect(html).toContain('role="status"');
     expect(html).toContain("full report");
+  });
+
+  it("shows ziki.dev as the box's placeholder", () => {
+    const html = renderToStaticMarkup(<SecurityEntryBox />);
+    expect(html).toContain('placeholder="ziki.dev"');
+  });
+
+  it("says a new check was saved, and keeps Continue on its row", () => {
+    const html = renderToStaticMarkup(<SecurityChecksPanel checks={[row({})]} highlight={{ checkId: "c1", paid: false, added: true }} />);
+    expect(html).toContain("Saved. Next, you show it&#x27;s yours");
+    expect(html).toContain('href="/security/targets/t1/verify"');
   });
 });
