@@ -4,10 +4,19 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { talkToSecurityAssistant } from "@/app/actions/security-assistant";
 import { TARGET_KIND_LABEL } from "@/lib/security-checks";
+import { ClaudeWorking } from "@/components/claude-working";
 import { parseSecurityTarget, PRIVATE_TARGET_ERROR } from "@/lib/security-checks/target";
 import type { AssistantTurn } from "@/lib/security-checks/assistant";
 
 const MESSAGE_MAX = 600;
+
+/** What Ziki is doing while it answers, typed out like the Ideas chat. */
+const WORKING_STEPS = [
+  "Reading what you wrote…",
+  "Working out what you want to secure…",
+  "Checking it's a website, server or repo…",
+  "Writing back…",
+];
 
 /**
  * The box on Security, with Ziki's AI behind it (#security-checks, plan part
@@ -90,13 +99,9 @@ export function SecurityChat({ id = "security-chat", focusOnOpen = false }: { id
             </li>
           ))}
           {pending ? (
-            <li className="mr-auto flex items-center gap-2" aria-label="Ziki is typing">
-              <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-zk-text text-[11px] font-extrabold text-zk-surface">Z</span>
-              <span className="inline-flex gap-1 rounded-[18px] border border-zk-border bg-zk-surface px-4 py-3">
-                {[0, 150, 300].map((delay) => (
-                  <span key={delay} aria-hidden="true" className="h-1.5 w-1.5 animate-bounce rounded-full bg-zk-muted motion-reduce:animate-none" style={{ animationDelay: `${delay}ms` }} />
-                ))}
-              </span>
+            // The same "Claude is working" lines as the Ideas chat, for this job.
+            <li className="mr-auto w-full max-w-[90%]">
+              <ClaudeWorking steps={WORKING_STEPS} statusText="Ziki is reading your message." />
             </li>
           ) : null}
         </ol>
