@@ -3,6 +3,7 @@ import { CHECK_STATUS_LABEL, TARGET_KIND_LABEL } from "@/lib/security-checks";
 import { nextStepPath, type WorkspaceCheckRow } from "@/lib/security-checks/entry";
 import { LocalTime } from "@/components/local-time";
 import { KindIcon } from "./entry-box";
+import { SecurityWelcome } from "./security-welcome";
 import { CheckSiteButton } from "./entry-dialog";
 import { FlashNote } from "./flash-note";
 
@@ -30,37 +31,22 @@ function PrivacyNote({ className = "" }: { className?: string }) {
 export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCheckRow[]; highlight?: { checkId: string; paid: boolean; added?: boolean } }) {
   return (
     <>
-      {checks.length === 0 ? (
-        <section aria-labelledby="security-empty-heading" className={`${card} grid gap-8 p-6 sm:p-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-center`}>
-          <div className="min-w-0">
-            <h2 id="security-empty-heading" className="m-0 text-2xl font-extrabold tracking-tight text-zk-text sm:text-3xl">
-              Find the holes before someone else does
-            </h2>
-            <p className="mb-6 mt-2 max-w-xl text-base text-zk-text2">
-              Ziki&apos;s agents check your website, servers or code and tell you privately what they find, with how to fix each one.
-            </p>
-            <CheckSiteButton id="security-target-empty" variant="large" />
-            <PrivacyNote className="mt-6" />
-          </div>
-          <AgentsPicture />
-        </section>
-      ) : null}
+      {checks.length === 0 ? <SecurityWelcome /> : null}
 
       {checks.length ? (
         <section aria-labelledby="security-checks-heading" className={`${card} overflow-hidden`}>
-          <div className="px-4 pb-4 pt-6 sm:px-6">
-            <div className="min-w-0">
-              <h2 id="security-checks-heading" className="m-0 text-lg font-bold text-zk-text">Your checks</h2>
-              <p className="m-0 mt-1 text-sm text-zk-text2">Newest first. Agents start once you&apos;ve shown a check is yours.</p>
-            </div>
+          {/* Like a project's list: the add button on the left of the card's top bar. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zk-divider px-4 py-3 sm:px-6">
+            <CheckSiteButton variant="inline" />
+            <h2 id="security-checks-heading" className="m-0 text-sm font-normal text-zk-muted">Your sites, newest first</h2>
           </div>
           {highlight?.added && !highlight.paid ? (
-            <FlashNote>Saved. Next, you show it&apos;s yours, then agents can start. You can pay now or later.</FlashNote>
+            <FlashNote>Saved. Show it&apos;s yours and your free scan starts.</FlashNote>
           ) : null}
           {highlight?.paid ? (
-            <FlashNote>Paid. You&apos;ll see the full report, with how to fix each problem, once agents finish.</FlashNote>
+            <FlashNote>Fixes unlocked. You&apos;ll see every problem in full, with how to fix it, once the scan finishes.</FlashNote>
           ) : null}
-          <ul className="m-0 list-none divide-y divide-zk-border border-t border-zk-border p-0">
+          <ul className="m-0 list-none divide-y divide-zk-border p-0">
             {checks.map((check) => (
               <CheckRow key={check.id} check={check} highlighted={highlight?.checkId === check.id} />
             ))}
@@ -77,7 +63,6 @@ export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCh
 function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighted: boolean }) {
   const cancelled = check.status === "cancelled";
   const proving = check.status === "awaiting_ownership" && !check.verified;
-  const payable = !check.paid && !cancelled;
   const payHref = `/security/checks/${check.id}/pay`;
   const running = !proving && !cancelled;
 
@@ -101,16 +86,16 @@ function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
         <ol aria-label={`Steps for ${check.value}`} className="m-0 flex list-none flex-wrap items-center gap-x-1.5 gap-y-1 p-0 text-[13px]">
           <Step state={proving ? "now" : "done"}>Show it&apos;s yours</Step>
           <StepLine />
-          <Step state={check.paid ? "done" : !proving ? "now" : "later"}>
-            {check.paid ? "Paid" : (
-              <Link href={payHref} className="hover:underline">
-                Pay <span className="tabular-nums">{check.priceCoins}</span> coins
-              </Link>
-            )}
+          <Step state={check.status === "done" ? "done" : running ? "now" : "later"}>
+            {running && check.status !== "queued" ? CHECK_STATUS_LABEL[check.status] : "Check"} <span className="font-normal text-zk-muted">· free</span>
           </Step>
           <StepLine />
-          <Step state={check.status === "done" ? "done" : running && check.paid ? "now" : "later"}>
-            {running ? CHECK_STATUS_LABEL[check.status] : "Check"}
+          <Step state={check.paid ? "done" : check.status === "done" ? "now" : "later"}>
+            {check.paid ? "Fixes unlocked" : (
+              <Link href={payHref} className="hover:underline">
+                Fix · <span className="tabular-nums">{check.priceCoins}</span> coins
+              </Link>
+            )}
           </Step>
         </ol>
       )}
@@ -120,8 +105,6 @@ function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
           <Link href={nextStepPath({ targetId: check.targetId, checkId: check.id, verified: false })} className={PRIMARY_ROW_BUTTON}>
             Continue
           </Link>
-        ) : payable ? (
-          <Link href={payHref} className={PRIMARY_ROW_BUTTON}>Pay</Link>
         ) : (
           <Link href={`/security/checks/${check.id}`} className={ROW_BUTTON}>Open</Link>
         )}
@@ -150,42 +133,4 @@ function Step({ state, children }: { state: "done" | "now" | "later"; children: 
 
 function StepLine() {
   return <li aria-hidden="true" className="h-px w-3 bg-zk-border sm:w-6" />;
-}
-
-/** A picture of agents circling a shield. Decoration only, so screen readers skip it. */
-function AgentsPicture() {
-  const agents = [
-    { label: "Web", x: 50, y: 11 },
-    { label: "API", x: 82, y: 22 },
-    { label: "Code", x: 18, y: 22 },
-    { label: "Login", x: 16, y: 70 },
-    { label: "Ports", x: 84, y: 70 },
-  ];
-  return (
-    <div aria-hidden="true" className="relative hidden aspect-[6/5] overflow-hidden rounded-[22px] bg-[#0b1733] lg:block">
-      {[92, 64, 36].map((size) => (
-        <span
-          key={size}
-          className="absolute left-1/2 top-[48%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10"
-          style={{ width: `${size}%`, aspectRatio: "1" }}
-        />
-      ))}
-      <span className="absolute left-1/2 top-[48%] grid h-[72px] w-[72px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-2xl bg-electric-blue-strong text-white shadow-[0_0_40px_rgba(37,99,235,0.55)]">
-        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" /><path d="M9 12l2 2 4-4" /></svg>
-      </span>
-      {agents.map((agent) => (
-        <span
-          key={agent.label}
-          className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-[#13254d] px-2.5 py-1 text-[11px] font-bold text-white/85"
-          style={{ left: `${agent.x}%`, top: `${agent.y}%` }}
-        >
-          {agent.label}
-        </span>
-      ))}
-      <span className="absolute inset-x-5 bottom-4 flex justify-between text-xs text-white/70">
-        <span>Ziki&apos;s agents</span>
-        <span>Ready</span>
-      </span>
-    </div>
-  );
 }

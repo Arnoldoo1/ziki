@@ -68,3 +68,8 @@ export function jobLabel(job: Pick<AgentJobRow, "kind" | "title">): string {
 export function jobReward(job: Pick<AgentJobRow, "kind">): number {
   return job.kind === "split" ? SPLIT_JOB_POINTS : PART_JOB_POINTS;
 }
+
+/** How many jobs this person's agents hold or did, for the Your work tab. */
+export async function countAgentJobs(userId: string): Promise<number> {
+  return prisma.securityCheckItem.count({ where: { agent: { ownerUserId: userId }, status: { in: ["checking", "done"] } } });
+}

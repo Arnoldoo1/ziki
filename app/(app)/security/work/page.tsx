@@ -4,7 +4,9 @@ import { TARGET_KIND_LABEL } from "@/lib/security-checks";
 import { jobLabel, jobReward, listAgentJobs, type AgentJobRow } from "@/lib/security-checks/your-work";
 import { formatZ } from "@/lib/points/rules";
 import { KindIcon } from "@/components/security-checks/entry-box";
-import { PipelineSteps } from "@/components/pipeline-steps";
+import { SecurityTabs } from "@/components/security-checks/security-tabs";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
+import { listWorkspaceChecks } from "@/lib/security-checks/entry";
 import { LocalTime } from "@/components/local-time";
 // The same table as a project's Your Work list, so this reads like the rest of Ziki.
 import "../../[org]/[project]/issues/_list/issues.css";
@@ -28,7 +30,12 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
   // Opens on what your agents are checking now; Done is the other tab.
   const selected: Tab = params.tab === "done" ? "done" : "checking";
   const user = await requireUser();
-  const jobs = await listAgentJobs(user.id);
+  const access = await currentOrganisationAccess(user.id, user.role);
+  const [jobs, checks] = await Promise.all([
+    listAgentJobs(user.id),
+    access.organisationId ? listWorkspaceChecks(access.organisationId, user.id) : Promise.resolve([]),
+  ]);
+  const checkCount = checks.length;
   const counts: Record<Tab, number> = {
     checking: jobs.filter((job) => job.status === "checking").length,
     done: jobs.filter((job) => job.status === "done").length,
@@ -37,28 +44,26 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
 
   return (
     <div className="flex w-full flex-col gap-5 pb-10">
-      <nav aria-label="Breadcrumb" className="text-sm text-zk-text2">
-        <Link href="/security" className="hover:text-zk-text hover:underline">Security</Link>
-        <span aria-hidden="true" className="px-2 text-zk-muted">/</span>
-        <span className="font-semibold text-zk-text">Your Work</span>
-      </nav>
-
-      <div className="flex justify-center">
-        <PipelineSteps
-          label="Your security work"
-          stages={TABS.map(({ tab, label }) => ({
-            label,
-            count: counts[tab],
-            href: tab === "checking" ? "/security/work" : `/security/work?tab=${tab}`,
-            selected: selected === tab,
-          }))}
-        />
-      </div>
+      <h1 className="sr-only">Your work</h1>
+      <SecurityTabs selected="work" checks={checkCount} jobs={jobs.length} />
 
       <section aria-label="Jobs" className="rounded-[20px] border border-zk-border bg-zk-surface p-3 sm:p-6">
-        <p className="mb-4 mt-0 px-1 text-sm text-zk-text2">
-          Security checks your agents are doing for other people. You see the job and what it pays you, not the client&apos;s payment or what was found.
-        </p>
+        {/* Checking or Done, like the filter at the top of a project's list. */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
+          <nav aria-label="Show" className="inline-flex rounded-lg border border-zk-border bg-zk-bg p-0.5 text-[13px] font-semibold">
+            {TABS.map(({ tab, label }) => (
+              <Link
+                key={tab}
+                href={tab === "checking" ? "/security/work" : `/security/work?tab=${tab}`}
+                aria-current={selected === tab ? "page" : undefined}
+                className={`rounded-md px-3 py-1.5 ${selected === tab ? "bg-zk-surface text-zk-text shadow-[0_1px_2px_rgba(11,23,51,0.12)]" : "text-zk-muted hover:text-zk-text"}`}
+              >
+                {label} <span className="tabular-nums text-zk-muted">{counts[tab]}</span>
+              </Link>
+            ))}
+          </nav>
+          <p className="m-0 text-sm text-zk-muted">Jobs your agents do for others. You see the job and the pay, not their results.</p>
+        </div>
 
         {shown.length === 0 ? (
           <div className="rounded-[10px] border border-zk-border bg-zk-bg px-6 py-12 text-center">
