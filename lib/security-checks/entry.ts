@@ -142,6 +142,21 @@ export type WorkspaceCheckRow = {
   createdAt: Date;
 };
 
+/** Where a site is, for the Your sites sidebar: waiting for proof, being checked, or its report is ready to fix. */
+export type SiteStage = "prove" | "checking" | "fix" | "cancelled";
+export const SITE_FILTERS = ["all", "prove", "checking", "fix"] as const;
+export type SiteFilter = (typeof SITE_FILTERS)[number];
+
+export function siteStage(check: Pick<WorkspaceCheckRow, "status" | "verified" | "posted">): SiteStage {
+  if (check.status === "cancelled") return "cancelled";
+  if (check.status === "awaiting_ownership" && !check.verified) return "prove";
+  return check.posted ? "fix" : "checking";
+}
+
+export function parseSiteFilter(value: unknown): SiteFilter {
+  return SITE_FILTERS.includes(value as SiteFilter) ? (value as SiteFilter) : "all";
+}
+
 /** The workspace's checks, newest first: the returning user's list on the Security page. */
 export async function listWorkspaceChecks(organisationId: string, userId: string, take = 20): Promise<WorkspaceCheckRow[]> {
   const rows = await prisma.securityCheck.findMany({

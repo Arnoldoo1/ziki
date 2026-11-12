@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { CHECK_STATUS_LABEL, TARGET_KIND_LABEL } from "@/lib/security-checks";
-import { nextStepPath, type WorkspaceCheckRow } from "@/lib/security-checks/entry";
+import { nextStepPath, siteStage, SITE_FILTERS, type SiteFilter, type WorkspaceCheckRow } from "@/lib/security-checks/entry";
 import { LocalTime } from "@/components/local-time";
 import { KindIcon } from "./entry-box";
 import { SecurityWelcome } from "./security-welcome";
 import { CheckSiteButton } from "./entry-dialog";
 import { FlashNote } from "./flash-note";
+import { SIDE_ICONS, SecuritySideLayout, SecuritySideNav, type SideNavItem } from "./security-side-nav";
 
 const card = "rounded-[24px] border border-zk-border bg-zk-surface";
 const PRIMARY_ROW_BUTTON =
@@ -28,39 +29,70 @@ function PrivacyNote({ className = "" }: { className?: string }) {
  * sees a short card; a returning one sees its checks. The findings dashboard
  * sits behind the "Findings" link.
  */
-export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCheckRow[]; highlight?: { checkId: string; unlocked: number; added?: boolean } }) {
-  return (
-    <>
-      {checks.length === 0 ? <SecurityWelcome /> : null}
+export function SecurityChecksPanel({
+  checks,
+  highlight,
+  show = "all",
+}: {
+  checks: WorkspaceCheckRow[];
+  highlight?: { checkId: string; unlocked: number; added?: boolean };
+  show?: SiteFilter;
+}) {
+  if (checks.length === 0) return <SecurityWelcome />;
 
-      {checks.length ? (
-        <section aria-labelledby="security-checks-heading" className={`${card} overflow-hidden`}>
-          {/* Like a project's list: the add button on the left of the card's top bar. */}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zk-divider px-4 py-3 sm:px-6">
-            <CheckSiteButton variant="inline" />
-            <h2 id="security-checks-heading" className="m-0 text-sm font-normal text-zk-muted">Your sites, newest first</h2>
-          </div>
-          {highlight?.added && !highlight.unlocked ? (
-            <FlashNote>Saved. Show it&apos;s yours and your free scan starts.</FlashNote>
-          ) : null}
-          {highlight?.unlocked ? (
-            <FlashNote>
-              {highlight.unlocked === 1 ? "1 fix unlocked." : `${highlight.unlocked} fixes unlocked.`} Open the report to read each one in full, with how to fix it.
-            </FlashNote>
-          ) : null}
+  const count = (filter: SiteFilter) => (filter === "all" ? checks.length : checks.filter((check) => siteStage(check) === filter).length);
+  const shown = show === "all" ? checks : checks.filter((check) => siteStage(check) === show);
+  const items: SideNavItem[] = SITE_FILTERS.map((filter) => ({
+    key: filter,
+    ...SITE_FILTER_TEXT[filter],
+    count: count(filter),
+    href: filter === "all" ? "/security" : `/security?show=${filter}`,
+  }));
+
+  return (
+    <SecuritySideLayout nav={<SecuritySideNav label="Show sites" items={items} selected={show} />}>
+      <section aria-labelledby="security-checks-heading" className={`${card} overflow-hidden`}>
+        {/* Like a project's list: the add button on the left of the card's top bar. */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zk-divider px-4 py-3 sm:px-6">
+          <CheckSiteButton variant="inline" />
+          <h2 id="security-checks-heading" className="m-0 text-sm font-normal text-zk-muted">
+            {show === "all" ? "Your sites, newest first" : `${SITE_FILTER_TEXT[show].label}, newest first`}
+          </h2>
+        </div>
+        {highlight?.added && !highlight.unlocked ? (
+          <FlashNote>Saved. Show it&apos;s yours and your free scan starts.</FlashNote>
+        ) : null}
+        {highlight?.unlocked ? (
+          <FlashNote>
+            {highlight.unlocked === 1 ? "1 fix unlocked." : `${highlight.unlocked} fixes unlocked.`} Open the report to read each one in full, with how to fix it.
+          </FlashNote>
+        ) : null}
+        {shown.length ? (
           <ul className="m-0 list-none divide-y divide-zk-border p-0">
-            {checks.map((check) => (
+            {shown.map((check) => (
               <CheckRow key={check.id} check={check} highlighted={highlight?.checkId === check.id} />
             ))}
           </ul>
-          <div className="border-t border-zk-border bg-zk-bg px-4 py-3 sm:px-6">
-            <PrivacyNote />
+        ) : (
+          <div className="px-6 py-12 text-center">
+            <p className="m-0 font-semibold text-zk-text">{SITE_FILTER_TEXT[show].empty}</p>
+            <Link href="/security" className="mt-2 inline-flex text-sm font-semibold text-zk-accent hover:underline">Show all your sites</Link>
           </div>
-        </section>
-      ) : null}
-    </>
+        )}
+        <div className="border-t border-zk-border bg-zk-bg px-4 py-3 sm:px-6">
+          <PrivacyNote />
+        </div>
+      </section>
+    </SecuritySideLayout>
   );
 }
+
+const SITE_FILTER_TEXT: Record<SiteFilter, { label: string; hint: string; icon: string; empty: string }> = {
+  all: { label: "All", hint: "Every site you've added", icon: SIDE_ICONS.all, empty: "No sites yet" },
+  prove: { label: "Show it's yours", hint: "Waiting for your proof", icon: SIDE_ICONS.prove, empty: "Nothing waiting for proof" },
+  checking: { label: "Checking", hint: "Agents are on it", icon: SIDE_ICONS.checking, empty: "Nothing being checked right now" },
+  fix: { label: "Fix", hint: "Report ready", icon: SIDE_ICONS.fix, empty: "No reports ready yet" },
+};
 
 function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighted: boolean }) {
   const cancelled = check.status === "cancelled";
@@ -73,20 +105,20 @@ function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
 
   return (
     <li className={`flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-6 ${highlighted ? "bg-zk-tint" : ""}`}>
-      <div className="flex min-w-[14rem] flex-1 items-center gap-3">
+      {/* The site, then its three steps under it; the button stays on the right. */}
+      <div className="flex min-w-[14rem] flex-1 items-start gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-zk-border bg-zk-bg">
           <KindIcon kind={check.kind} className="text-zk-text2" />
         </span>
-        <div className="min-w-0">
-          <p className="m-0 truncate text-base font-bold text-zk-text">{check.value}</p>
-          <p className="m-0 text-sm text-zk-muted">
-            {TARGET_KIND_LABEL[check.kind]} · added <LocalTime date={check.createdAt} />
-          </p>
-        </div>
-      </div>
-
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="min-w-0">
+            <p className="m-0 truncate text-base font-bold text-zk-text">{check.value}</p>
+            <p className="m-0 text-sm text-zk-muted">
+              {TARGET_KIND_LABEL[check.kind]} · added <LocalTime date={check.createdAt} />
+            </p>
+          </div>
       {cancelled ? (
-        <span className="inline-flex rounded-full bg-zk-chip px-2.5 py-0.5 text-xs font-bold text-zk-muted">{CHECK_STATUS_LABEL[check.status]}</span>
+        <span className="inline-flex w-fit rounded-full bg-zk-chip px-2.5 py-0.5 text-xs font-bold text-zk-muted">{CHECK_STATUS_LABEL[check.status]}</span>
       ) : (
         <ol aria-label={`Steps for ${check.value}`} className="m-0 flex list-none flex-wrap items-center gap-x-1.5 gap-y-1 p-0 text-[13px]">
           <Step state={proving ? "now" : "done"}>Show it&apos;s yours</Step>
@@ -118,6 +150,8 @@ function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
           </Step>
         </ol>
       )}
+        </div>
+      </div>
 
       <div className="flex shrink-0 items-center">
         {proving ? (

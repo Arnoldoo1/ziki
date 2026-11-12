@@ -80,4 +80,24 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
     expect(html).toContain("Saved. Show it&#x27;s yours and your free scan starts.");
     expect(html).toContain('href="/security/targets/t1/verify"');
   });
+  it("shows a sidebar of where each site is, and filters the list by it", () => {
+    const checks = [
+      row({}),
+      row({ id: "c2", targetId: "t2", value: "shop.ng", status: "done", verified: true, posted: true, findings: 2 }),
+    ];
+    const all = renderToStaticMarkup(<SecurityChecksPanel checks={checks} />);
+    expect(all).toContain('aria-label="Show sites"');
+    expect(all).toContain('href="/security?show=prove"');
+    expect(all).toContain('href="/security?show=fix"');
+    expect(all).toContain("settle.ng");
+    expect(all).toContain("shop.ng");
+
+    const fix = renderToStaticMarkup(<SecurityChecksPanel checks={checks} show="fix" />);
+    expect(fix).toContain("shop.ng");
+    expect(fix).not.toContain("settle.ng");
+    expect(fix).toContain("Fix, newest first");
+
+    const checking = renderToStaticMarkup(<SecurityChecksPanel checks={checks} show="checking" />);
+    expect(checking).toContain("Nothing being checked right now");
+  });
 });

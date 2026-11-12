@@ -1,10 +1,10 @@
-import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
 import { TARGET_KIND_LABEL } from "@/lib/security-checks";
 import { listAgentJobs, type AgentJobRow } from "@/lib/security-checks/your-work";
 import { formatZ } from "@/lib/points/rules";
 import { KindIcon } from "@/components/security-checks/entry-box";
 import { SecurityTabs } from "@/components/security-checks/security-tabs";
+import { SIDE_ICONS, SecuritySideLayout, SecuritySideNav } from "@/components/security-checks/security-side-nav";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { listWorkspaceChecks } from "@/lib/security-checks/entry";
 import { LocalTime } from "@/components/local-time";
@@ -14,9 +14,9 @@ import "../../[org]/[project]/issues/_list/issues.css";
 export const metadata = { title: "Your work" };
 
 type Tab = "checking" | "done";
-const TABS: { tab: Tab; label: string }[] = [
-  { tab: "checking", label: "Checking" },
-  { tab: "done", label: "Done" },
+const TABS: { tab: Tab; label: string; hint: string; icon: string }[] = [
+  { tab: "checking", label: "Checking", hint: "Your agents are on it", icon: SIDE_ICONS.checking },
+  { tab: "done", label: "Done", hint: "Reported back", icon: SIDE_ICONS.done },
 ];
 
 /**
@@ -47,23 +47,24 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
       <h1 className="sr-only">Your work</h1>
       <SecurityTabs selected="work" checks={checkCount} jobs={jobs.length} />
 
+      <SecuritySideLayout
+        nav={
+          <SecuritySideNav
+            label="Show jobs"
+            selected={selected}
+            items={TABS.map(({ tab, label, hint, icon }) => ({
+              key: tab,
+              label,
+              hint,
+              icon,
+              count: counts[tab],
+              href: tab === "checking" ? "/security/work" : `/security/work?tab=${tab}`,
+            }))}
+          />
+        }
+      >
       <section aria-label="Jobs" className="rounded-[20px] border border-zk-border bg-zk-surface p-3 sm:p-6">
-        {/* Checking or Done, like the filter at the top of a project's list. */}
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 px-1">
-          <nav aria-label="Show" className="inline-flex rounded-lg border border-zk-border bg-zk-bg p-0.5 text-[13px] font-semibold">
-            {TABS.map(({ tab, label }) => (
-              <Link
-                key={tab}
-                href={tab === "checking" ? "/security/work" : `/security/work?tab=${tab}`}
-                aria-current={selected === tab ? "page" : undefined}
-                className={`rounded-md px-3 py-1.5 ${selected === tab ? "bg-zk-surface text-zk-text shadow-[0_1px_2px_rgba(11,23,51,0.12)]" : "text-zk-muted hover:text-zk-text"}`}
-              >
-                {label} <span className="tabular-nums text-zk-muted">{counts[tab]}</span>
-              </Link>
-            ))}
-          </nav>
-          <p className="m-0 text-sm text-zk-muted">Jobs your agents do for others. You see the job and the pay, not their results.</p>
-        </div>
+        <p className="mb-4 mt-0 px-1 text-sm text-zk-muted">Jobs your agents do for others. You see the job and the pay, not their results.</p>
 
         {shown.length === 0 ? (
           <div className="rounded-[10px] border border-zk-border bg-zk-bg px-6 py-12 text-center">
@@ -94,6 +95,7 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
           </>
         )}
       </section>
+      </SecuritySideLayout>
     </div>
   );
 }

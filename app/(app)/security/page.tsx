@@ -21,7 +21,7 @@ import {
 import { LocalTime } from "@/components/local-time";
 import { SecurityChecksPanel } from "@/components/security-checks/entry-panel";
 import { SecurityTabs } from "@/components/security-checks/security-tabs";
-import { listWorkspaceChecks } from "@/lib/security-checks/entry";
+import { listWorkspaceChecks, parseSiteFilter } from "@/lib/security-checks/entry";
 import { countAgentJobs } from "@/lib/security-checks/your-work";
 import { OrgPageHeader, ReadOnlyNote, orgCard, orgListCard } from "../[org]/[project]/org/org-ui";
 
@@ -44,6 +44,7 @@ type SearchParams = Promise<{
   unlocked?: string | string[];
   added?: string | string[];
   view?: string | string[];
+  show?: string | string[];
 }>;
 
 const FINDINGS_PATH = "/security?view=findings";
@@ -91,7 +92,7 @@ export default async function SecurityPage(props: {
       <div className="flex w-full flex-col gap-5 pb-10">
         <h1 className="sr-only">Security</h1>
         <SecurityTabs selected="checks" checks={checks.length} jobs={jobs} />
-        <SecurityChecksPanel checks={checks} highlight={highlight} />
+        <SecurityChecksPanel checks={checks} highlight={highlight} show={parseSiteFilter(params.show)} />
       </div>
     );
   }

@@ -8,7 +8,7 @@ const prismaMock = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
-import { addTargetAndCheck, listWorkspaceChecks, newOwnershipToken, nextStepPath, refusedMessage } from "./entry";
+import { addTargetAndCheck, listWorkspaceChecks, newOwnershipToken, nextStepPath, parseSiteFilter, refusedMessage, siteStage } from "./entry";
 import { findingPrice, unlockFindings } from "./payment";
 
 const site = { kind: "website" as const, value: "settle.ng", input: "https://settle.ng" };
@@ -181,5 +181,20 @@ describe("unlocking fixes per finding (plan C1, simulated payment)", () => {
     expect(findingPrice({ severity: "critical", priceCoins: null })).toBe(5);
     expect(findingPrice({ severity: "medium", priceCoins: null })).toBe(2);
     expect(findingPrice({ severity: "high", priceCoins: 3 })).toBe(3);
+  });
+});
+
+describe("siteStage and parseSiteFilter (Your sites sidebar)", () => {
+  it("puts each site in one place", () => {
+    expect(siteStage({ status: "awaiting_ownership", verified: false, posted: false })).toBe("prove");
+    expect(siteStage({ status: "checking", verified: true, posted: false })).toBe("checking");
+    expect(siteStage({ status: "done", verified: true, posted: true })).toBe("fix");
+    expect(siteStage({ status: "cancelled", verified: true, posted: false })).toBe("cancelled");
+  });
+
+  it("falls back to all for anything unknown", () => {
+    expect(parseSiteFilter("fix")).toBe("fix");
+    expect(parseSiteFilter("nope")).toBe("all");
+    expect(parseSiteFilter(undefined)).toBe("all");
   });
 });
