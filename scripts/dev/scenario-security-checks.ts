@@ -47,6 +47,8 @@ type Scenario = {
   verified: boolean;
   status: SecurityCheckStatus;
   paid: boolean;
+  /** The collating agent's summary; a done check is posted with it (#648). */
+  summary?: string;
   parts: Part[];
 };
 
@@ -121,6 +123,8 @@ const SCENARIOS: Scenario[] = [
     verified: true,
     status: "done",
     paid: true,
+    summary:
+      "We found 4 problems in acme/web-app. Start with the live payment key committed in config: revoke it today and issue a new one. Then fix the search query, which lets crafted input change the SQL. The other two (stack traces on error pages and a missing HSTS header) are quick to fix.",
     parts: [
       {
         title: "Secrets committed to the repository",
@@ -157,6 +161,8 @@ const SCENARIOS: Scenario[] = [
     verified: true,
     status: "done",
     paid: false,
+    summary:
+      "We found 3 problems on 203.0.113.10. The database port is open to the internet: close it first. The other two are smaller.",
     parts: [
       {
         title: "Open ports",
@@ -228,6 +234,9 @@ async function main() {
           paidAt: scenario.paid ? new Date(now - 90 * MIN) : null,
           startedAt: scenario.verified ? started : null,
           finishedAt: scenario.status === "done" ? new Date(now - 30 * MIN) : null,
+          // Done means the collated report is posted (#648): only then does the client see results.
+          postedAt: scenario.status === "done" ? new Date(now - 30 * MIN) : null,
+          summary: scenario.status === "done" ? (scenario.summary ?? null) : null,
           createdAt: new Date(now - 3 * HOUR),
         },
       });

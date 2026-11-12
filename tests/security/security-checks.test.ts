@@ -112,11 +112,13 @@ describe("security check words (#security-checks)", () => {
 
 describe("what a client sees of a check (#security-checks, part 4)", () => {
   const at = (minutes: number) => new Date(Date.UTC(2026, 10, 12, 9, minutes));
-  function check(paidAt: Date | null) {
+  function check(paidAt: Date | null, postedAt: Date | null = at(9)) {
     return {
       id: "check1",
       status: "checking",
       paidAt,
+      postedAt,
+      summary: "Fix the admin login first: it allows unlimited guesses.",
       priceCoins: 50,
       createdAt: at(0),
       finishedAt: null,
@@ -175,6 +177,8 @@ describe("what a client sees of a check (#security-checks, part 4)", () => {
 
     expect(report).toMatchObject({ paid: false, total: 3, hiddenCount: 2, teaser: { id: "crit", agent: { id: "a1", name: "Atlas Agent", avatar: null } } });
     expect(report).not.toHaveProperty("results");
+    // The summary talks about the hidden problems too: paid only.
+    expect(report).not.toHaveProperty("summary");
     expect(report?.counts).toEqual({ critical: 1, high: 1, medium: 0, low: 1 });
     // A skipped part counts as finished (3 of 5); a finished part that found nothing is clear.
     expect(report?.progress).toEqual({ done: 3, total: 5, percent: 60 });
@@ -205,7 +209,24 @@ describe("what a client sees of a check (#security-checks, part 4)", () => {
     if (!report?.paid) throw new Error("expected a paid report");
     expect(report.results.map((r) => r.id)).toEqual(["crit", "high", "high-late", "low"]);
     expect(report.results[0]).toMatchObject({ howToFix: "crit fix", agent: { name: "Atlas Agent" } });
+    expect(report.summary).toBe("Fix the admin login first: it allows unlimited guesses.");
     expect(db.securityCheckResult.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("before the report is posted: progress only, no result read, even when paid; the PDF goes back to the check", async () => {
+    db.securityCheck.findFirst.mockResolvedValue(check(at(5), null));
+
+    const report = await loadCheckReport("check1", "org1", "owner");
+
+    expect(db.securityCheckResult.findMany).not.toHaveBeenCalled();
+    expect(db.securityCheckResult.findUnique).not.toHaveBeenCalled();
+    expect(report).toMatchObject({ posted: false, paid: false, total: 0, teaser: null, hiddenCount: 0, clearParts: [] });
+    expect(report).not.toHaveProperty("summary");
+    expect(report?.progress).toEqual({ done: 3, total: 5, percent: 60 });
+
+    const params = { params: Promise.resolve({ id: "check1" }) };
+    await expect(downloadReportPdf(new Request("http://localhost/x"), params)).rejects.toThrow(/^redirect:\/security\/checks\/check1$/);
+    expect(renderReportPdf).not.toHaveBeenCalled();
   });
 
   it("PDF: an unpaid check is sent to pay and no PDF is made; a stranger gets 404", async () => {

@@ -6,8 +6,9 @@ import { loadCheckReport } from "@/lib/security-checks/report";
 
 /**
  * The security report as a PDF (#security-checks, part 4). Same access rule
- * as the check page (only the check's own workspace), and only once paid:
- * an unpaid check is sent to the pay page instead.
+ * as the check page (only the check's own workspace), and only once the report
+ * is posted (#648) and paid: before posting it goes back to the check's page,
+ * and an unpaid check is sent to the pay page instead.
  */
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const [{ id }, user] = await Promise.all([params, requireUser()]);
@@ -16,6 +17,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
   if (!report || report.status === "awaiting_ownership") {
     return new Response("Not found", { status: 404 });
   }
+  // No PDF before the report is posted: the page shows progress until then.
+  if (!report.posted) redirect(`/security/checks/${report.checkId}`);
   // No PDF before paying: send them to pay instead (the page's button says so too).
   if (!report.paid) redirect(`/security/checks/${report.checkId}/pay`);
 

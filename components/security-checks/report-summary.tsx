@@ -2,6 +2,7 @@ import type { SecuritySeverity } from "@prisma/client";
 import "@/components/security-finding.css";
 import { Badge } from "@/components/ui/badge";
 import { LocalTime } from "@/components/local-time";
+import { RichText } from "@/components/rich-text";
 import { LockedPdfButton } from "@/components/security-checks/report-pdf-locked";
 import { statusClass, substatusClass } from "@/lib/labels";
 import { CHECK_STATUS_LABEL, FINISHED_CHECK_STATUSES } from "@/lib/security-checks";
@@ -39,7 +40,8 @@ const plural = (count: number, one: string, many = `${one}s`) => `${count} ${cou
 /**
  * The top of a security check's page (#security-checks, part 4): where it
  * stands, what was found in one line, the counts by severity, and the report
- * download (locked until paid).
+ * download (locked until paid). Before the report is posted (#648) it says
+ * only where the check stands; once paid, the agent's summary sits here too.
  */
 export function ReportSummary({ report }: { report: CheckReport }) {
   const finished = FINISHED_CHECK_STATUSES.has(report.status);
@@ -52,8 +54,11 @@ export function ReportSummary({ report }: { report: CheckReport }) {
         ? "Check finished"
         : CHECK_STATUS_LABEL[report.status];
 
-  const headline =
-    report.total === 0
+  const headline = !report.posted
+    ? report.status === "cancelled"
+      ? `No report for ${site}`
+      : `Checking ${site}`
+    : report.total === 0
       ? finished
         ? `No problems found on ${site}`
         : `Checking ${site}`
@@ -75,12 +80,15 @@ export function ReportSummary({ report }: { report: CheckReport }) {
           <h1 id="check-headline" className="wrap-break-word text-2xl font-extrabold tracking-[-0.02em] text-zk-text sm:text-[28px]">
             {headline}
           </h1>
+          {report.paid && report.summary ? (
+            <RichText content={report.summary} className="text-sm text-zk-text" />
+          ) : null}
           {worst ? (
             <p className="text-sm text-zk-text2">
               Start with the {SEVERITY_LABEL[worst.severity].toLowerCase()} one: {worst.title}.
             </p>
-          ) : !finished ? (
-            <p className="text-sm text-zk-text2">Problems show up here as agents find them.</p>
+          ) : !report.posted && !finished ? (
+            <p className="text-sm text-zk-text2">Your report shows here once every part is checked.</p>
           ) : null}
           {report.paid && report.results.some((result) => result.fix) ? <FixingLine results={report.results} /> : null}
           {report.total || report.clearParts.length ? (
@@ -102,6 +110,7 @@ export function ReportSummary({ report }: { report: CheckReport }) {
           ) : null}
         </div>
 
+        {report.posted ? (
         <div className="flex shrink-0 flex-col gap-2 sm:min-w-56">
           {report.paid ? (
             // A plain link: a full download, not a client-side navigation.
@@ -136,6 +145,7 @@ export function ReportSummary({ report }: { report: CheckReport }) {
           {/* One line on wider screens; on a phone it may wrap rather than run off the edge. */}
           <p className="text-center text-xs text-zk-muted sm:whitespace-nowrap">Fixing on Ziki sends these to your board, privately.</p>
         </div>
+        ) : null}
       </div>
     </section>
   );

@@ -87,6 +87,13 @@ function ReportDocument({ report, generatedAt }: { report: PaidReport; generated
           {generatedAt.toISOString().slice(0, 10)}
         </Text>
 
+        {report.summary ? (
+          <View style={styles.section}>
+            <Text style={styles.heading}>Summary</Text>
+            <Text>{plain(report.summary)}</Text>
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <Text style={styles.heading}>
             {report.total === 0

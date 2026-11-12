@@ -21,8 +21,8 @@ const WAITING_NOTE: Partial<Record<keyof typeof CHECK_STATUS_LABEL, string>> = {
 };
 
 /**
- * One security check (#security-checks, part 4): what was found, worst first,
- * and how far the agents have got while they work. Only the person who asked
+ * One security check (#security-checks, part 4): how far the agents have got
+ * and, once the report is posted (#648), what was found, worst first. Only the person who asked
  * for the check sees it. Until it is paid, the findings are the teaser that
  * `loadCheckReport` builds.
  */
@@ -77,12 +77,18 @@ export default async function SecurityCheckPage({
         <>
           <ReportSummary report={report} />
 
-          {working ? (
+          {/* Progress only, until an agent has summed up every part and posted the report. */}
+          {!report.posted ? (
             <section aria-labelledby="progress-heading" className={orgCard}>
               <h2 id="progress-heading" className="text-base font-semibold text-zk-text">Progress</h2>
               <div className="mt-3">
                 {report.parts.length ? (
-                  <ReportProgress progress={report.progress} parts={report.parts} />
+                  <>
+                    <ReportProgress progress={report.progress} parts={report.parts} />
+                    {working && report.progress.done === report.progress.total ? (
+                      <p className="mt-3 text-sm text-zk-text2">Every part is checked. An agent is writing your report.</p>
+                    ) : null}
+                  </>
                 ) : (
                   <p className="text-sm text-zk-text2">{WAITING_NOTE[report.status] ?? "No parts to check yet."}</p>
                 )}
@@ -90,7 +96,7 @@ export default async function SecurityCheckPage({
             </section>
           ) : null}
 
-          <ReportResults report={report} show={parseFixFilter(show)} />
+          {report.posted ? <ReportResults report={report} show={parseFixFilter(show)} /> : null}
         </>
       )}
     </div>

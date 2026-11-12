@@ -13,7 +13,7 @@ import { issuePath } from "@/lib/issue-ref";
 import { prisma } from "@/lib/prisma";
 import { refOf } from "@/lib/project-paths";
 import { safeHref } from "@/lib/rich-text";
-import { isCheckPaid } from "@/lib/security-checks";
+import { isCheckPaid, isReportPosted } from "@/lib/security-checks";
 import { SECURITY_SEVERITIES } from "@/lib/security-severity";
 
 /**
@@ -21,8 +21,10 @@ import { SECURITY_SEVERITIES } from "@/lib/security-severity";
  * The page and the PDF both read the report through `loadCheckReport`, so
  * they always show the same thing.
  *
- * Until the check is paid, the hidden results' text is never read from the
- * database at all: only their severities and parts (for the counts) and the
+ * Until an agent has collated every part and posted the report
+ * (`isReportPosted`, #648), no result is read at all: the client sees progress
+ * only. Once posted and until paid, the hidden results' text is never read
+ * from the database: only their severities and parts (for the counts) and the
  * title and description of the one worst result (the teaser). How to fix
  * stays hidden.
  */
@@ -143,9 +145,14 @@ type ReportBase = {
   total: number;
 };
 
+/**
+ * `posted`: whether the report is posted; before that there are no results at
+ * all. `summary` is the collating agent's summary of everything found: paid
+ * only, since it talks about the hidden problems too.
+ */
 export type CheckReport =
-  | (ReportBase & { paid: true; results: FullResult[] })
-  | (ReportBase & { paid: false; teaser: TeaserResult | null; hiddenCount: number });
+  | (ReportBase & { posted: true; paid: true; summary: string | null; results: FullResult[] })
+  | (ReportBase & { posted: boolean; paid: false; teaser: TeaserResult | null; hiddenCount: number });
 
 /** Lower is worse: critical first. */
 function severityRank(severity: SecuritySeverity): number {
@@ -195,6 +202,8 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
       id: true,
       status: true,
       paidAt: true,
+      postedAt: true,
+      summary: true,
       priceCoins: true,
       createdAt: true,
       startedAt: true,
@@ -229,6 +238,20 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
     agentCount: new Set(check.items.map((item) => item.agentId).filter(Boolean)).size,
   };
 
+  // Not posted yet: progress only, so no result is read, not even a count.
+  if (!isReportPosted(check)) {
+    return {
+      ...base,
+      posted: false,
+      paid: false,
+      clearParts: [],
+      counts: countBySeverity([]),
+      total: 0,
+      teaser: null,
+      hiddenCount: 0,
+    };
+  }
+
   if (isCheckPaid(check)) {
     const rows = await prisma.securityCheckResult.findMany({
       where: { checkId: check.id },
@@ -236,7 +259,9 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
     });
     return {
       ...base,
+      posted: true,
       paid: true,
+      summary: check.summary,
       clearParts: clearPartTitles(parts, rows),
       counts: countBySeverity(rows),
       total: rows.length,
@@ -271,6 +296,7 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
     : null;
   return {
     ...base,
+    posted: true,
     paid: false,
     clearParts: clearPartTitles(parts, rows),
     counts: countBySeverity(rows),
