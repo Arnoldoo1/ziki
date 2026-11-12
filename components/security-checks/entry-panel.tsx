@@ -4,7 +4,6 @@ import { nextStepPath, type WorkspaceCheckRow } from "@/lib/security-checks/entr
 import { LocalTime } from "@/components/local-time";
 import { KindIcon } from "./entry-box";
 import { CheckSiteButton } from "./entry-dialog";
-import { ExampleReport } from "./example-report";
 
 const card = "rounded-[24px] border border-zk-border bg-zk-surface";
 const PRIMARY_ROW_BUTTON =
@@ -30,7 +29,21 @@ function PrivacyNote({ className = "" }: { className?: string }) {
 export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCheckRow[]; highlight?: { checkId: string; paid: boolean; added?: boolean } }) {
   return (
     <>
-      {checks.length === 0 ? <FirstCheck /> : null}
+      {checks.length === 0 ? (
+        <section aria-labelledby="security-empty-heading" className={`${card} grid gap-8 p-6 sm:p-10 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-center`}>
+          <div className="min-w-0">
+            <h2 id="security-empty-heading" className="m-0 text-2xl font-extrabold tracking-tight text-zk-text sm:text-3xl">
+              Find the holes before someone else does
+            </h2>
+            <p className="mb-6 mt-2 max-w-xl text-base text-zk-text2">
+              Ziki&apos;s agents check your website, servers or code and tell you privately what they find, with how to fix each one.
+            </p>
+            <CheckSiteButton id="security-target-empty" variant="large" />
+            <PrivacyNote className="mt-6" />
+          </div>
+          <AgentsPicture />
+        </section>
+      ) : null}
 
       {checks.length ? (
         <section aria-labelledby="security-checks-heading" className={`${card} overflow-hidden`}>
@@ -142,53 +155,40 @@ function StepLine() {
   return <li aria-hidden="true" className="h-px w-3 bg-zk-border sm:w-6" />;
 }
 
-/**
- * What a workspace sees before it has checked anything: what Ziki does, one
- * button, a small example of the report, and the three steps.
- */
-function FirstCheck() {
+/** A picture of agents circling a shield. Decoration only, so screen readers skip it. */
+function AgentsPicture() {
+  const agents = [
+    { label: "Web", x: 50, y: 11 },
+    { label: "API", x: 82, y: 22 },
+    { label: "Code", x: 18, y: 22 },
+    { label: "Login", x: 16, y: 70 },
+    { label: "Ports", x: 84, y: 70 },
+  ];
   return (
-    <>
-      <section aria-labelledby="security-empty-heading" className={`${card} overflow-hidden`}>
-        <div className="grid gap-10 p-6 sm:p-10 lg:grid-cols-[minmax(0,1fr)_400px] lg:items-center">
-          <div className="min-w-0">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-zk-tint px-3 py-1 text-xs font-bold text-zk-accent">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" /></svg>
-              Security checks
-            </span>
-            <h2 id="security-empty-heading" className="mb-0 mt-4 max-w-xl text-3xl font-extrabold leading-tight tracking-tight text-zk-text sm:text-[40px]">
-              Find the holes before someone else does
-            </h2>
-            <p className="mb-0 mt-4 max-w-lg text-base leading-relaxed text-zk-text2">
-              Ziki&apos;s agents check your website, server or code for weaknesses, then tell you privately what they found and how to fix each one.
-            </p>
-            <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-3">
-              <CheckSiteButton id="security-target-empty" variant="large" />
-              <span className="text-sm text-zk-muted">
-                <span className="font-semibold text-zk-text">50 coins</span> a check
-              </span>
-            </div>
-            <PrivacyNote className="mt-8 max-w-lg" />
-          </div>
-          <ExampleReport />
-        </div>
-      </section>
-
-      <ol aria-label="How a check works" className="m-0 grid list-none gap-3 p-0 sm:grid-cols-3">
-        {[
-          { title: "Add a site", text: "Paste a website, server address or GitHub repo. Ziki works out which it is." },
-          { title: "Show it's yours", text: "Prove you own it, so nobody can point agents at someone else's site." },
-          { title: "Get the report", text: "Agents look for weaknesses and tell you privately how to fix each one." },
-        ].map((step, index) => (
-          <li key={step.title} className="group flex gap-4 rounded-[20px] border border-zk-border bg-zk-surface p-5 transition duration-200 hover:-translate-y-0.5 hover:border-zk-accent hover:shadow-[0_14px_30px_-22px_rgba(11,23,51,0.5)] motion-reduce:transition-none motion-reduce:hover:translate-y-0">
-            <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-zk-tint text-sm font-extrabold text-zk-accent transition group-hover:bg-electric-blue-strong group-hover:text-white">{index + 1}</span>
-            <div className="min-w-0">
-              <p className="m-0 text-sm font-bold text-zk-text">{step.title}</p>
-              <p className="m-0 mt-1 text-sm leading-relaxed text-zk-text2">{step.text}</p>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </>
+    <div aria-hidden="true" className="relative hidden aspect-[6/5] overflow-hidden rounded-[22px] bg-[#0b1733] lg:block">
+      {[92, 64, 36].map((size) => (
+        <span
+          key={size}
+          className="absolute left-1/2 top-[48%] -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/10"
+          style={{ width: `${size}%`, aspectRatio: "1" }}
+        />
+      ))}
+      <span className="absolute left-1/2 top-[48%] grid h-[72px] w-[72px] -translate-x-1/2 -translate-y-1/2 place-items-center rounded-2xl bg-electric-blue-strong text-white shadow-[0_0_40px_rgba(37,99,235,0.55)]">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" /><path d="M9 12l2 2 4-4" /></svg>
+      </span>
+      {agents.map((agent) => (
+        <span
+          key={agent.label}
+          className="absolute -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-[#13254d] px-2.5 py-1 text-[11px] font-bold text-white/85"
+          style={{ left: `${agent.x}%`, top: `${agent.y}%` }}
+        >
+          {agent.label}
+        </span>
+      ))}
+      <span className="absolute inset-x-5 bottom-4 flex justify-between text-xs text-white/70">
+        <span>Ziki&apos;s agents</span>
+        <span>Ready</span>
+      </span>
+    </div>
   );
 }

@@ -18,8 +18,6 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
   it("shows a new workspace a short empty state with Check a site, and keeps the box closed", () => {
     const html = renderToStaticMarkup(<SecurityChecksPanel checks={[]} />);
     expect(html).toContain("Find the holes before someone else does");
-    expect(html).toContain("How a check works");
-    expect(html).toContain("Example");
     expect(html).toContain("Check a site");
     expect(html).toContain('aria-haspopup="dialog"');
     expect(html).not.toContain('name="target"');
