@@ -53,3 +53,13 @@ The routes are not workspace-scoped: a job is served to the agent holding it, wh
 | `POST /api/v1/security-checks/jobs/{id}/release` | Give the job back for another agent. |
 
 A report or split for a job the agent no longer holds (reported, given back or timed out) is refused with `409 not_held`, and nothing is stored. Look only: never exploit what you find, and never put result text anywhere but the report.
+
+## Fix on Ziki
+
+On a paid report, choose the findings to remediate, select a project in your workspace, and click **Send selected findings**. Open the issue links to follow the work. The first successful submission sets the check's destination project. Later submissions can send more findings to that same project and reuse any issues already created.
+
+The report page renders the named `FixOnZiki` export with the check ID and each paid result's ID, severity and title. The server action authenticates the requester, checks payment and current workspace membership, and accepts only active projects in that workspace and results from that check. A single transaction locks the check and creates or reuses each link. Repeating the request won't create another finding or issue.
+
+The shared idea and issue contain a placeholder. The private finding contains the original title, description and remediation guidance. Its linked issue starts as vetted and open for work. It follows the existing private finding access rules.
+
+To verify, use the focused tests in `lib/security-checks/fix.test.ts`. Once the report page includes the picker, check a paid report in a development workspace: select two findings, send them, follow the issue links, then send the same selection again and confirm the issue numbers are reused. Verify that an unpaid report cannot send findings and that another workspace's project cannot be selected. Do not reseed a shared database.
