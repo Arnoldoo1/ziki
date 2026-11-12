@@ -1,29 +1,47 @@
 "use client";
 
 import Link from "next/link";
-import { useRef } from "react";
+import { useId, useRef } from "react";
 
 /**
- * "Download PDF" on an unpaid check (#security-checks, part 4): the PDF comes
- * only with the full report, so the button opens a centred box asking the
- * client to pay. Same dialog style as Ziki's other modals (Add idea): the page
- * stays visible behind a light blur.
+ * A paid-only action on an unpaid check (#security-checks, part 4): "Download
+ * report" or "Fix them on Ziki". It comes only with the full report, so the
+ * button opens a centred box asking the client to pay. Same dialog style as
+ * Ziki's other modals (Add idea): the page stays visible behind a light blur.
  */
-export function LockedPdfButton({ payHref, priceCoins, className }: { payHref: string; priceCoins: number; className: string }) {
+export function LockedPdfButton({
+  payHref,
+  priceCoins,
+  className,
+  label = "Download PDF",
+  message = "The PDF comes with the full report.",
+}: {
+  payHref: string;
+  priceCoins: number;
+  className: string;
+  label?: string;
+  /** What paying unlocks, shown in the box. */
+  message?: string;
+}) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
   const close = () => dialogRef.current?.close();
 
   return (
     <>
       <button type="button" onClick={() => dialogRef.current?.showModal()} className={`cursor-pointer ${className}`}>
-        Download PDF
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="5" y="11" width="14" height="9" rx="2" />
+          <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+        </svg>
+        {label}
       </button>
       {/* A click on the blurred area outside the box closes it, as on Add idea. Keyboard
           users close it with Escape (the dialog's own) or the Close button. */}
       {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions */}
       <dialog
         ref={dialogRef}
-        aria-labelledby="locked-pdf-title"
+        aria-labelledby={titleId}
         onClick={(event) => {
           if (event.target === event.currentTarget) close();
         }}
@@ -40,8 +58,8 @@ export function LockedPdfButton({ payHref, priceCoins, className }: { payHref: s
               <path d="M18 6 6 18M6 6l12 12" />
             </svg>
           </button>
-          <h2 id="locked-pdf-title" className="pr-8 text-base font-semibold text-zk-text">Download PDF</h2>
-          <p className="mt-2 text-sm text-zk-text2">The PDF comes with the full report.</p>
+          <h2 id={titleId} className="pr-8 text-base font-semibold text-zk-text">{label}</h2>
+          <p className="mt-2 text-sm text-zk-text2">{message}</p>
           <div className="mt-5 flex flex-wrap items-center gap-2">
             <Link
               href={payHref}

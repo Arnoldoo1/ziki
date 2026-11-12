@@ -1,103 +1,182 @@
 import Link from "next/link";
 import type { SecuritySeverity } from "@prisma/client";
+import { AgentAvatar } from "@/components/agent-avatar";
 import { RichText } from "@/components/rich-text";
 import { SeverityChip } from "@/components/security-finding-panel";
+import { ReportProgress } from "@/components/security-checks/report-progress";
 import { FINISHED_CHECK_STATUSES } from "@/lib/security-checks";
-import type { CheckReport, SeverityCounts } from "@/lib/security-checks/report";
+import type { CheckReport, ReportAgent, SeverityCounts } from "@/lib/security-checks/report";
 import { SECURITY_SEVERITIES, SEVERITY_LABEL } from "@/lib/security-severity";
 
 /**
- * The problems a security check found (#security-checks, part 4), worst
- * first. A paid check shows every one with how to fix it. An unpaid one shows
- * only what `loadCheckReport` handed over: the worst problem without its fix,
- * and how many more there are.
+ * "What we found" on a security check (#security-checks, part 4): one row per
+ * problem, worst first, with who found it. A paid check shows every problem
+ * with how to fix it. An unpaid one shows only what `loadCheckReport` handed
+ * over: the worst problem without its fix, and how many more there are.
  */
 export function ReportResults({ report }: { report: CheckReport }) {
-  if (report.total === 0) {
-    return (
-      <p className="text-sm text-zk-text2">
-        {report.status === "done" ? "The agents found no problems." : "Nothing found yet. Problems show up here as agents find them."}
-      </p>
-    );
-  }
+  const still = !FINISHED_CHECK_STATUSES.has(report.status);
 
-  if (report.paid) {
-    return (
-      <div className="space-y-4">
-        <CountsLine counts={report.counts} prefix={`${report.total} ${report.total === 1 ? "problem" : "problems"}:`} />
-        <ol className="space-y-3">
+  return (
+    <section aria-labelledby="found-heading" className="overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface">
+      <div className="flex items-start justify-between gap-3 px-4 pt-4 sm:px-6 sm:pt-5">
+        <div>
+          <h2 id="found-heading" className="text-base font-semibold text-zk-text">What we found</h2>
+          <p className="text-xs text-zk-muted">Worst first. Only you can see these.</p>
+        </div>
+        <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-zk-text2">
+          <LockIcon />
+          Private
+        </span>
+      </div>
+
+      {report.total === 0 ? (
+        <p className="px-4 py-4 text-sm text-zk-text2 sm:px-6">
+          {still ? "Nothing found yet. Problems show up here as agents find them." : "The agents found no problems."}
+        </p>
+      ) : report.paid ? (
+        <ol className="mt-3 divide-y divide-zk-border border-t border-zk-border">
           {report.results.map((result) => (
             <li key={result.id}>
-              <ProblemCard severity={result.severity} title={result.title} description={result.description} sentToZiki={result.sentToZiki}>
-                <div className="mt-3 rounded-[14px] bg-zk-tint p-3">
-                  <h4 className="text-xs font-semibold uppercase tracking-wide text-zk-muted">How to fix</h4>
-                  <RichText content={result.howToFix} className="mt-1 text-sm" />
-                </div>
-              </ProblemCard>
+              <ProblemRow severity={result.severity} title={result.title} description={result.description} agent={result.agent} sentToZiki={result.sentToZiki}>
+                <HowToFix>
+                  <RichText content={result.howToFix} className="min-w-0 text-sm" />
+                </HowToFix>
+              </ProblemRow>
             </li>
           ))}
         </ol>
-        {/* Fix on Ziki (part 5, agreed with Oluwasanmi): once his
-            components/security-checks/fix-on-ziki.tsx is on main, render
-            <FixOnZiki checkId={report.checkId} results={report.results.map(({ id, severity, title }) => ({ id, severity, title }))} />
-            here. This branch is the paid one, so it never shows unpaid. */}
-      </div>
-    );
-  }
+      ) : (
+        <>
+          {report.teaser ? (
+            <div className="mt-3 border-t border-zk-border">
+              <ProblemRow severity={report.teaser.severity} title={report.teaser.title} description={report.teaser.description} agent={report.teaser.agent}>
+                <HowToFix>
+                  <span className="text-zk-text2">in the full report.</span>
+                </HowToFix>
+              </ProblemRow>
+            </div>
+          ) : null}
+          <div className="border-t border-zk-border px-4 py-4 sm:px-6">
+            <div className="rounded-[14px] border border-zk-warn-bd bg-zk-warn-bg p-4">
+              {report.hiddenCount > 0 ? (
+                <CountsLine
+                  counts={restCounts(report.counts, report.teaser?.severity)}
+                  prefix={`${report.hiddenCount} more ${report.hiddenCount === 1 ? "problem" : "problems"} found${still ? " so far" : ""}:`}
+                />
+              ) : (
+                <p className="text-sm font-medium text-zk-text">No other problems found{still ? " so far" : ""}.</p>
+              )}
+              <Link
+                href={`/security/checks/${report.checkId}/pay`}
+                className="mt-3 inline-flex h-10 items-center rounded-full bg-electric-blue-strong px-5 text-sm font-bold text-white hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2"
+              >
+                Pay {report.priceCoins} coins to see all
+              </Link>
+            </div>
+          </div>
+        </>
+      )}
 
-  const rest = restCounts(report.counts, report.teaser?.severity);
-  /** Agents are still at work, so the counts can still grow. */
-  const still = !FINISHED_CHECK_STATUSES.has(report.status);
-  return (
-    <div className="space-y-4">
-      {report.teaser ? (
-        <ProblemCard severity={report.teaser.severity} title={report.teaser.title} description={report.teaser.description}>
-          <p className="mt-3 rounded-[14px] bg-zk-tint p-3 text-sm text-zk-text2">How to fix it is in the full report.</p>
-        </ProblemCard>
-      ) : null}
-      <div className="rounded-[14px] border border-zk-warn-bd bg-zk-warn-bg p-4">
-        {report.hiddenCount > 0 ? (
-          <CountsLine
-            counts={rest}
-            prefix={`${report.hiddenCount} more ${report.hiddenCount === 1 ? "problem" : "problems"} found${still ? " so far" : ""}:`}
-          />
-        ) : (
-          <p className="text-sm font-medium text-zk-text">No other problems found{still ? " so far" : ""}.</p>
-        )}
-        <Link
-          href={`/security/checks/${report.checkId}/pay`}
-          className="mt-3 inline-flex h-10 items-center rounded-full bg-electric-blue-strong px-5 text-sm font-bold text-white hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2"
-        >
-          Pay {report.priceCoins} coins to see all
-        </Link>
-      </div>
-    </div>
+      {/* While agents work, the Progress card lists the parts; once finished, this footer does. */}
+      {!still && report.parts.length ? <ClearFooter report={report} /> : null}
+    </section>
   );
 }
 
-function ProblemCard({
+function ProblemRow({
   severity,
   title,
   description,
+  agent,
   sentToZiki = false,
   children,
 }: {
   severity: SecuritySeverity;
   title: string;
   description: string;
+  agent: ReportAgent | null;
   sentToZiki?: boolean;
-  children?: React.ReactNode;
+  children: React.ReactNode;
 }) {
   return (
-    <article className="rounded-[14px] border border-zk-border p-4">
-      <div className="flex flex-wrap items-center gap-2">
+    <article className="grid gap-2 px-4 py-4 sm:grid-cols-[6rem_minmax(0,1fr)_auto] sm:gap-4 sm:px-6">
+      <div>
         <SeverityChip severity={severity} />
-        {sentToZiki ? <span className="rounded-full bg-zk-ok-bg px-2.5 py-0.5 text-xs font-semibold text-zk-ok-fg">Sent to Ziki</span> : null}
       </div>
-      <h3 className="mt-2 wrap-break-word text-base font-semibold text-zk-text">{title}</h3>
-      <RichText content={description} className="mt-1 text-sm" />
-      {children}
+      <div className="min-w-0">
+        {/* A step above the description and fix (text-sm) so each problem's name stands out. */}
+        <h3 className="wrap-break-word text-base font-bold text-zk-text">{title}</h3>
+        <RichText content={description} className="mt-1 text-sm text-zk-text2" />
+        <div className="mt-2 text-sm">{children}</div>
+        {sentToZiki ? (
+          <span className="mt-2 inline-block rounded-full bg-zk-ok-bg px-2.5 py-0.5 text-xs font-semibold text-zk-ok-fg">Sent to Ziki</span>
+        ) : null}
+      </div>
+      {agent ? <AgentTag agent={agent} /> : null}
     </article>
+  );
+}
+
+/** "How to fix:" then the fix, on one line when it fits. A div, since the fix may be Markdown with its own blocks. */
+function HowToFix({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-1 text-zk-text">
+      <span className="font-semibold">How to fix:</span>
+      {children}
+    </div>
+  );
+}
+
+/** The agent that found it: its Ziki avatar, then its name. */
+function AgentTag({ agent }: { agent: ReportAgent }) {
+  return (
+    <div className="flex items-center gap-2 text-xs text-zk-text2 sm:justify-end sm:self-start">
+      <AgentAvatar agentId={agent.id} avatar={agent.avatar} size={24} />
+      <span className="wrap-break-word">
+        <span className="sr-only">Found by </span>
+        {agent.name}
+      </span>
+    </div>
+  );
+}
+
+/** "36 clear · Security headers, Open pages and 34 more checks found nothing. See all checks" */
+function ClearFooter({ report }: { report: CheckReport }) {
+  const clear = report.clearParts;
+  const named = clear.slice(0, 3);
+  const rest = clear.length - named.length;
+  return (
+    <details className="security-report group border-t border-zk-border bg-zk-tint">
+      <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 px-4 py-3 text-sm sm:px-6">
+        {clear.length ? (
+          <>
+            <span className="rounded-full bg-zk-ok-bg px-2.5 py-0.5 text-xs font-bold text-zk-ok-fg">{clear.length} clear</span>
+            <span className="min-w-0 flex-1 text-zk-text2">
+              {named.join(", ")}
+              {rest > 0 ? ` and ${rest} more ${rest === 1 ? "check" : "checks"}` : ""} found nothing.
+            </span>
+          </>
+        ) : (
+          <span className="min-w-0 flex-1 text-zk-text2">{report.progress.done} of {report.progress.total} checks done.</span>
+        )}
+        {/* The words follow the list: "See all checks" while closed, "Hide checks" once open. */}
+        <span className="font-semibold text-zk-accent group-open:hidden">See all checks</span>
+        <span className="hidden font-semibold text-zk-accent group-open:inline">Hide checks</span>
+      </summary>
+      <div className="border-t border-zk-border bg-zk-surface px-4 py-3 sm:px-6">
+        <ReportProgress progress={report.progress} parts={report.parts} />
+      </div>
+    </details>
+  );
+}
+
+function LockIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <rect x="5" y="11" width="14" height="9" rx="2" />
+      <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+    </svg>
   );
 }
 

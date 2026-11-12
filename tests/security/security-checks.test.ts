@@ -91,17 +91,20 @@ describe("what a client sees of a check (#security-checks, part 4)", () => {
       priceCoins: 50,
       createdAt: at(0),
       finishedAt: null,
-      target: { id: "t1", kind: "website", input: "shop.example.test", verifiedAt: at(0) },
+      startedAt: at(0),
+      target: { id: "t1", kind: "website", value: "shop.example.test", input: "https://shop.example.test", verifiedAt: at(0) },
       items: [
-        { id: "i1", title: "Login", status: "done" },
-        { id: "i2", title: "TLS", status: "skipped" },
-        { id: "i3", title: "Headers", status: "checking" },
-        { id: "i4", title: "CORS", status: "waiting" },
+        { id: "i1", title: "Login", status: "done", agentId: "a1" },
+        { id: "i2", title: "TLS", status: "skipped", agentId: "a1" },
+        { id: "i3", title: "Headers", status: "checking", agentId: "a2" },
+        { id: "i4", title: "CORS", status: "waiting", agentId: null },
+        { id: "i5", title: "Cookies", status: "done", agentId: "a2" },
       ],
     };
   }
   const full = (id: string, severity: string, minute: number) => ({
-    id, severity, title: `${id} title`, description: `${id} description`, howToFix: `${id} fix`, createdAt: at(minute), findingId: null,
+    id, itemId: "i1", severity, title: `${id} title`, description: `${id} description`, howToFix: `${id} fix`, createdAt: at(minute), findingId: null,
+    item: { agent: { id: "a1", name: "Atlas Agent", avatar: null } },
   });
 
   beforeEach(() => {
@@ -124,35 +127,39 @@ describe("what a client sees of a check (#security-checks, part 4)", () => {
   it("unpaid: shows the worst problem without its fix, and never reads the hidden ones' text", async () => {
     db.securityCheck.findFirst.mockResolvedValue(check(null));
     db.securityCheckResult.findMany.mockResolvedValue([
-      { id: "low", severity: "low", createdAt: at(1) },
-      { id: "crit", severity: "critical", createdAt: at(2) },
-      { id: "high", severity: "high", createdAt: at(3) },
+      { id: "low", itemId: "i1", severity: "low", createdAt: at(1) },
+      { id: "crit", itemId: "i1", severity: "critical", createdAt: at(2) },
+      { id: "high", itemId: "i1", severity: "high", createdAt: at(3) },
     ]);
-    db.securityCheckResult.findUnique.mockResolvedValue({ id: "crit", severity: "critical", title: "crit title", description: "crit description" });
+    db.securityCheckResult.findUnique.mockResolvedValue({
+      id: "crit", severity: "critical", title: "crit title", description: "crit description", item: { agent: { id: "a1", name: "Atlas Agent", avatar: null } },
+    });
 
     const report = await loadCheckReport("check1", "org1", "owner");
 
-    // The list query reads severities only, and the teaser query never reads how to fix.
+    // The list query reads no text at all, and the teaser query never reads how to fix.
     const listSelect = db.securityCheckResult.findMany.mock.calls[0][0].select;
-    expect(Object.keys(listSelect).sort()).toEqual(["createdAt", "id", "severity"]);
+    expect(Object.keys(listSelect).sort()).toEqual(["createdAt", "id", "itemId", "severity"]);
     const teaserQuery = db.securityCheckResult.findUnique.mock.calls[0][0];
     expect(teaserQuery.where).toEqual({ id: "crit" });
     expect(teaserQuery.select).not.toHaveProperty("howToFix");
 
-    expect(report).toMatchObject({ paid: false, total: 3, hiddenCount: 2, teaser: { id: "crit" } });
+    expect(report).toMatchObject({ paid: false, total: 3, hiddenCount: 2, teaser: { id: "crit", agent: { id: "a1", name: "Atlas Agent", avatar: null } } });
     expect(report).not.toHaveProperty("results");
     expect(report?.counts).toEqual({ critical: 1, high: 1, medium: 0, low: 1 });
-    // A skipped part counts as finished: 2 of 4.
-    expect(report?.progress).toEqual({ done: 2, total: 4, percent: 50 });
+    // A skipped part counts as finished (3 of 5); a finished part that found nothing is clear.
+    expect(report?.progress).toEqual({ done: 3, total: 5, percent: 60 });
+    expect(report?.clearParts).toEqual(["Cookies"]);
+    expect(report?.agentCount).toBe(2);
   });
 
   it("unpaid with no critical: the teaser is the worst problem found", async () => {
     db.securityCheck.findFirst.mockResolvedValue(check(null));
     db.securityCheckResult.findMany.mockResolvedValue([
-      { id: "medium", severity: "medium", createdAt: at(1) },
-      { id: "high", severity: "high", createdAt: at(2) },
+      { id: "medium", itemId: "i1", severity: "medium", createdAt: at(1) },
+      { id: "high", itemId: "i5", severity: "high", createdAt: at(2) },
     ]);
-    db.securityCheckResult.findUnique.mockResolvedValue({ id: "high", severity: "high", title: "t", description: "d" });
+    db.securityCheckResult.findUnique.mockResolvedValue({ id: "high", severity: "high", title: "t", description: "d", item: { agent: null } });
 
     await loadCheckReport("check1", "org1", "owner");
 
@@ -168,7 +175,7 @@ describe("what a client sees of a check (#security-checks, part 4)", () => {
     expect(report?.paid).toBe(true);
     if (!report?.paid) throw new Error("expected a paid report");
     expect(report.results.map((r) => r.id)).toEqual(["crit", "high", "high-late", "low"]);
-    expect(report.results[0].howToFix).toBe("crit fix");
+    expect(report.results[0]).toMatchObject({ howToFix: "crit fix", agent: { name: "Atlas Agent" } });
     expect(db.securityCheckResult.findUnique).not.toHaveBeenCalled();
   });
 

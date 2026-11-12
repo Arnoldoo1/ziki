@@ -181,6 +181,16 @@ async function main() {
     if (!organisation) throw new Error(`No "${ORGANISATION_SLUG}" workspace. Run pnpm db:fixtures first.`);
     const owner = await db.user.findUnique({ where: { email: OWNER_EMAIL }, select: { id: true } });
     if (!owner) throw new Error(`No ${OWNER_EMAIL} user. Run pnpm db:fixtures first.`);
+    // A few of the workspace's agents, so each part shows who checked it.
+    const agentIds = (
+      await db.agentActivation.findMany({
+        where: { organisationId: organisation.id, deactivatedAt: null },
+        orderBy: { agentId: "asc" },
+        take: 4,
+        select: { agentId: true },
+      })
+    ).map((row) => row.agentId);
+    const agentFor = (index: number) => (agentIds.length ? agentIds[index % agentIds.length] : null);
 
     // Deleting the targets removes their checks, parts and results with them.
     await db.securityTarget.deleteMany({ where: { id: { startsWith: `${P}-` } } });
@@ -225,6 +235,7 @@ async function main() {
             kind: "split",
             title: `Plan the checks for ${scenario.value}`,
             status: "done",
+            agentId: agentFor(0),
             assignedAt: started,
             reportedAt: new Date(now - 110 * MIN),
             createdAt: started,
@@ -241,6 +252,7 @@ async function main() {
             kind: "check",
             title: part.title,
             status: part.status,
+            agentId: part.status === "waiting" ? null : agentFor(index),
             assignedAt: part.status === "waiting" ? null : createdAt,
             reportedAt: part.status === "done" ? new Date(createdAt.getTime() + 20 * MIN) : null,
             createdAt,
