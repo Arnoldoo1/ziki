@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
-import { isPublicAddress, pageHasTag, PrivateAddressError, proveOwnership, publicOnlyLookup, realNetwork, type OwnershipNetwork } from "./ownership";
+import { isPublicAddress, OWNERSHIP_METHODS, type OwnershipMethod, pageHasTag, PrivateAddressError, proveOwnership, publicOnlyLookup, realNetwork, type OwnershipNetwork } from "./ownership";
 
 const TOKEN = "ziki-verify-0123456789abcdef0123456789abcdef";
 const site = { organisationId: "org1", kind: "website" as const, value: "settle.ng", ownershipToken: TOKEN };
@@ -44,7 +44,7 @@ describe("ownership proof (#security-checks part 2)", () => {
 
     // A public-looking name that points inside a private network is refused before anything is fetched.
     const net = network({ addresses: { "settle.ng": ["10.1.2.3"] }, pages: { "https://settle.ng/": { status: 200, body: tag } } });
-    const result = await proveOwnership(site, "html_tag", {}, net);
+    const result = await proveOwnership(site, "html_tag", net);
     expect(result.ok).toBe(false);
     expect(net.get).not.toHaveBeenCalled();
   });
@@ -54,10 +54,10 @@ describe("ownership proof (#security-checks part 2)", () => {
     expect(pageHasTag(tag, "ziki-verify-someone-else")).toBe(false);
 
     const found = network({ addresses: { "settle.ng": ["8.8.8.8"] }, pages: { "https://settle.ng/": { status: 200, body: tag } } });
-    expect(await proveOwnership(site, "html_tag", {}, found)).toEqual({ ok: true });
+    expect(await proveOwnership(site, "html_tag", found)).toEqual({ ok: true });
 
     const missing = network({ addresses: { "settle.ng": ["8.8.8.8"] }, pages: { "https://settle.ng/": { status: 200, body: "<html></html>" } } });
-    expect((await proveOwnership(site, "html_tag", {}, missing)).ok).toBe(false);
+    expect((await proveOwnership(site, "html_tag", missing)).ok).toBe(false);
   });
 
   it("follows a redirect on the same site but not to another one", async () => {
@@ -68,7 +68,7 @@ describe("ownership proof (#security-checks part 2)", () => {
         "https://www.settle.ng/": { status: 200, body: tag },
       },
     });
-    expect(await proveOwnership(site, "html_tag", {}, www)).toEqual({ ok: true });
+    expect(await proveOwnership(site, "html_tag", www)).toEqual({ ok: true });
 
     // Someone else's page can't prove settle.ng is yours.
     const away = network({
@@ -78,42 +78,47 @@ describe("ownership proof (#security-checks part 2)", () => {
         "https://other.example.org/": { status: 200, body: tag },
       },
     });
-    expect((await proveOwnership(site, "html_tag", {}, away)).ok).toBe(false);
+    expect((await proveOwnership(site, "html_tag", away)).ok).toBe(false);
   });
 
   it("finds the DNS record, even when DNS splits it into pieces", async () => {
     const split = network({ txt: { "settle.ng": [["v=spf1 -all"], [TOKEN.slice(0, 20), TOKEN.slice(20)]] } });
-    expect(await proveOwnership(site, "dns_txt", {}, split)).toEqual({ ok: true });
-    expect((await proveOwnership(site, "dns_txt", {}, network({}))).ok).toBe(false);
+    expect(await proveOwnership(site, "dns_txt", split)).toEqual({ ok: true });
+    expect((await proveOwnership(site, "dns_txt", network({}))).ok).toBe(false);
   });
 
-  it("proves a server by its file, or by a domain that really points to it", async () => {
-    const file = network({ pages: { "http://8.8.4.4/.well-known/ziki-verification.txt": { status: 200, body: `\n${TOKEN}\n` } } });
-    expect(await proveOwnership(server, "server_file", {}, file)).toEqual({ ok: true });
+  it("proves a server only by a file on the server itself", async () => {
+    const file = network({ pages: { "http://8.8.4.4/.well-known/ziki-verification.txt": { status: 200, body: `
+${TOKEN}
+` } } });
+    expect(await proveOwnership(server, "server_file", file)).toEqual({ ok: true });
+    expect((await proveOwnership(server, "server_file", network({}))).ok).toBe(false);
+  });
 
-    const record = { txt: { "settle.ng": [[TOKEN]] } };
-    // The record alone isn't enough: the domain must point to this server.
-    const elsewhere = network({ ...record, addresses: { "settle.ng": ["1.1.1.1"] } });
-    expect((await proveOwnership(server, "server_dns", { domain: "settle.ng" }, elsewhere)).ok).toBe(false);
-    const pointing = network({ ...record, addresses: { "settle.ng": ["8.8.4.4"] } });
-    expect(await proveOwnership(server, "server_dns", { domain: "settle.ng" }, pointing)).toEqual({ ok: true });
+  it("never proves a server through a domain that points at it", async () => {
+    // Anyone can point their own domain at someone else's server and add the
+    // TXT record, so that must not count as proof the server is theirs.
+    const pointing = network({ txt: { "settle.ng": [[TOKEN]] }, addresses: { "settle.ng": ["8.8.4.4"] } });
+    expect(OWNERSHIP_METHODS.server).toEqual(["server_file"]);
+    expect((await proveOwnership(server, "dns_txt", pointing)).ok).toBe(false);
+    expect((await proveOwnership(server, "server_dns" as OwnershipMethod, pointing)).ok).toBe(false);
   });
 
   it("proves a repo through the workspace's own GitHub App or a file in the repo", async () => {
-    expect(await proveOwnership(repo, "github", {}, network({ appSees: ["settle/app"] }))).toEqual({ ok: true });
-    expect((await proveOwnership(repo, "github", {}, network({}))).ok).toBe(false);
-    expect(await proveOwnership(repo, "repo_file", {}, network({ files: { "settle/app/.ziki-verification": `${TOKEN}\n` } }))).toEqual({ ok: true });
-    expect((await proveOwnership(repo, "repo_file", {}, network({ files: { "settle/app/.ziki-verification": "wrong" } }))).ok).toBe(false);
+    expect(await proveOwnership(repo, "github", network({ appSees: ["settle/app"] }))).toEqual({ ok: true });
+    expect((await proveOwnership(repo, "github", network({}))).ok).toBe(false);
+    expect(await proveOwnership(repo, "repo_file", network({ files: { "settle/app/.ziki-verification": `${TOKEN}\n` } }))).toEqual({ ok: true });
+    expect((await proveOwnership(repo, "repo_file", network({ files: { "settle/app/.ziki-verification": "wrong" } }))).ok).toBe(false);
   });
 
   it("says what failed when the network itself is down", async () => {
     const down = { ...network({}), txt: async () => { throw Object.assign(new Error("refused"), { code: "ECONNREFUSED" }); } };
-    const result = await proveOwnership(site, "dns_txt", {}, down);
+    const result = await proveOwnership(site, "dns_txt", down);
     expect(result).toEqual({ ok: false, reason: expect.stringContaining("DNS") });
   });
 
   it("refuses a way that doesn't fit the target", async () => {
-    expect((await proveOwnership(site, "github", {}, network({ appSees: ["settle.ng"] }))).ok).toBe(false);
+    expect((await proveOwnership(site, "github", network({ appSees: ["settle.ng"] }))).ok).toBe(false);
   });
 
   it("connects only to the address it checked, so DNS rebinding can't reach a private one", async () => {
@@ -133,7 +138,7 @@ describe("ownership proof (#security-checks part 2)", () => {
 
     // The first lookup said public, but the connection would go private: refused with the private-network reason.
     const rebinding = { ...network({ addresses: { "settle.ng": ["8.8.8.8"] } }), get: vi.fn(async () => { throw new PrivateAddressError("settle.ng"); }) };
-    expect(await proveOwnership(site, "html_tag", {}, rebinding)).toEqual({ ok: false, reason: expect.stringContaining("private network") });
+    expect(await proveOwnership(site, "html_tag", rebinding)).toEqual({ ok: false, reason: expect.stringContaining("private network") });
   });
 
   it("never opens a connection to an internal server, by name or by number", async () => {
@@ -155,7 +160,7 @@ describe("ownership proof (#security-checks part 2)", () => {
 
   it("doesn't tell the client what status a page answered", async () => {
     const forbidden = network({ addresses: { "settle.ng": ["8.8.8.8"] }, pages: { "https://settle.ng/": { status: 403 } } });
-    const result = await proveOwnership(site, "html_tag", {}, forbidden);
+    const result = await proveOwnership(site, "html_tag", forbidden);
     expect(result.ok).toBe(false);
     expect(JSON.stringify(result)).not.toContain("403");
   });

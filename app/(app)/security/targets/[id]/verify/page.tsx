@@ -66,7 +66,7 @@ export default async function VerifySecurityTargetPage({ params }: { params: Pro
 
       <div className="space-y-4">
         <OrgPageHeader heading="h1" title="Show it's yours">
-          Agents only check what their owners ask for. Pick one way below. You only do this once per {noun}.
+          Agents only check what their owners ask for. {target.kind === "server" ? "Follow the step below." : "Pick one way below."} You only do this once per {noun}.
         </OrgPageHeader>
         <ol aria-label="Steps" className="m-0 flex list-none flex-wrap items-center gap-x-1.5 gap-y-1 p-0 text-[13px]">
           <Step state={target.verifiedAt ? "done" : "now"}>Show it&apos;s yours</Step>

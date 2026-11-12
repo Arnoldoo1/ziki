@@ -57,16 +57,12 @@ describe("verifySecurityTarget (#security-checks part 2)", () => {
     expect(mocks.record).toHaveBeenCalledWith("t1", "org1", "u1", "html_tag");
   });
 
-  it("only tries the domain way for a server once a domain is typed", async () => {
+  it("proves a server only by the file on it, never by a typed domain", async () => {
     mocks.findTarget.mockResolvedValue({ ...target, kind: "server", value: "8.8.4.4" });
     mocks.prove.mockResolvedValue({ ok: false, reason: "no" });
-    await verifySecurityTarget("t1", {}, form());
+    expect(await verifySecurityTarget("t1", {}, form({ domain: "settle.ng" }))).toEqual({ missing: { server_file: "no" } });
     expect(mocks.prove.mock.calls.map((call) => call[1])).toEqual(["server_file"]);
-
-    mocks.prove.mockClear();
-    await verifySecurityTarget("t1", {}, form({ domain: " settle.ng " }));
-    expect(mocks.prove.mock.calls.map((call) => call[1])).toEqual(["server_file", "server_dns"]);
-    expect(mocks.prove).toHaveBeenLastCalledWith(expect.anything(), "server_dns", { domain: "settle.ng" });
+    expect(mocks.record).not.toHaveBeenCalled();
   });
 
   it("never asks a proven target again", async () => {

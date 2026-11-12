@@ -6,16 +6,16 @@ import https from "node:https";
 import type { SecurityTargetKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { FINISHED_CHECK_STATUSES } from "@/lib/security-checks";
-import { parseSecurityTarget } from "@/lib/security-checks/target";
 
 /**
  * Proving a target is yours (#security-checks, part 2). Until a target is
  * proven, no agent is given a job on it and nothing probes it. Each kind has
- * two ways to prove it, both built on the target's secret `ownershipToken`:
+ * its ways to prove it, both built on the target's secret `ownershipToken`:
  *
  * - Website: a DNS TXT record on the domain, or a tag on the homepage.
- * - Server: a small file at a fixed address on the server, or a TXT record
- *   on a domain that points to the server.
+ * - Server: a small file at a fixed address on the server. Only one way,
+ *   because a domain that points at a server proves nothing: anyone can point
+ *   their own domain at someone else's server.
  * - Repo: the workspace's own GitHub App can see the repo, or a file in the
  *   repo holds the token.
  *
@@ -27,12 +27,12 @@ import { parseSecurityTarget } from "@/lib/security-checks/target";
  * same site, gives up after a few seconds, and reads at most a small amount.
  */
 
-export type OwnershipMethod = "dns_txt" | "html_tag" | "server_file" | "server_dns" | "github" | "repo_file";
+export type OwnershipMethod = "dns_txt" | "html_tag" | "server_file" | "github" | "repo_file";
 
 /** The ways to prove each kind, the recommended one first. */
 export const OWNERSHIP_METHODS: Record<SecurityTargetKind, readonly OwnershipMethod[]> = {
   website: ["dns_txt", "html_tag"],
-  server: ["server_file", "server_dns"],
+  server: ["server_file"],
   repo: ["github", "repo_file"],
 };
 
@@ -133,7 +133,6 @@ export type OwnershipNetwork = {
 export async function proveOwnership(
   target: { organisationId: string; kind: SecurityTargetKind; value: string; ownershipToken: string },
   method: OwnershipMethod,
-  extra: { domain?: string } = {},
   network: OwnershipNetwork = realNetwork,
 ): Promise<ProofResult> {
   if (!isOwnershipMethodFor(target.kind, method)) return { ok: false, reason: "That way of showing it's yours doesn't fit this target." };
@@ -163,21 +162,6 @@ export async function proveOwnership(
           : { ok: false, reason: `We found ${SERVER_FILE_PATH} on ${target.value}, but it doesn't hold your code. Put only the code in the file and try again.` };
       }
 
-      case "server_dns": {
-        const parsed = parseSecurityTarget(extra.domain ?? "");
-        if (!parsed.ok || parsed.target.kind !== "website") return { ok: false, reason: "Type the domain that points to your server, like example.com." };
-        const domain = parsed.target.value;
-        const [serverAddresses, domainAddresses] = await Promise.all([
-          isIP(target.value) ? Promise.resolve([target.value]) : network.addresses(target.value),
-          network.addresses(domain),
-        ]);
-        if (!domainAddresses.some((address) => serverAddresses.includes(address))) {
-          return { ok: false, reason: `${domain} doesn't point to ${target.value}. Point it at the server first, or use the file instead.` };
-        }
-        return (await findTxt(network, domain, token))
-          ? { ok: true }
-          : { ok: false, reason: `${domain} points to your server, but we can't see the TXT record yet. It can take up to an hour to show.` };
-      }
 
       case "github":
         return (await network.workspaceAppSeesRepo(target.organisationId, target.value))
@@ -203,7 +187,6 @@ const UNREACHABLE: Record<OwnershipMethod, string> = {
   dns_txt: "We couldn't look up the DNS records just now. Try again in a minute.",
   html_tag: "We couldn't open the homepage just now. Check the site is online and try again.",
   server_file: "We couldn't reach the server just now. Check it's online and answers on port 80, then try again.",
-  server_dns: "We couldn't look up that domain just now. Try again in a minute.",
   github: "We couldn't reach GitHub just now. Try again in a minute.",
   repo_file: "We couldn't reach GitHub just now. Try again in a minute.",
 };

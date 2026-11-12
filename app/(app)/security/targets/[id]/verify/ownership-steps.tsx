@@ -40,8 +40,6 @@ export function OwnershipSteps({
 }) {
   const [state, action, pending] = useActionState<VerifyState, FormData>(verifySecurityTarget.bind(null, targetId), {});
   const missing = state.missing ?? {};
-  // Kept in state so a failed check doesn't empty the box (React resets a form after its action).
-  const [domain, setDomain] = useState("");
   const why = (method: OwnershipMethod) => (pending ? undefined : missing[method]);
 
   return (
@@ -65,29 +63,10 @@ export function OwnershipSteps({
 
         {kind === "server" ? (
           <>
-            <Way title="Put a file on your server" recommended missing={why("server_file")}>
+            <Way title="Put a file on your server" missing={why("server_file")}>
               <p className="m-0">Save this code as a file at the address below. The server must answer on the web (port 80).</p>
               <CopyRow label="Code" value={token} />
               <CopyRow label="Address" value={`http://${value.includes(":") ? `[${value}]` : value}${SERVER_FILE_PATH}`} />
-            </Way>
-            <Way title="Or use a domain that points to it" missing={why("server_dns")}>
-              <p className="m-0">Add this TXT record to a domain of yours that points to {value}, then type the domain here.</p>
-              <CopyRow label="TXT" value={token} />
-              <label className="mt-3 block max-w-sm">
-                <span className="mb-1.5 block text-xs font-semibold text-zk-muted">Your domain</span>
-                <input
-                  name="domain"
-                  value={domain}
-                  onChange={(event) => setDomain(event.target.value)}
-                  type="text"
-                  inputMode="url"
-                  autoComplete="off"
-                  autoCapitalize="none"
-                  spellCheck={false}
-                  placeholder="example.com"
-                  className="w-full rounded-xl border border-zk-border bg-zk-surface px-3.5 py-2.5 font-mono text-sm text-zk-text placeholder:text-zk-muted focus:border-electric-blue focus:outline-none focus:ring-2 focus:ring-electric-blue/20"
-                />
-              </label>
             </Way>
           </>
         ) : null}

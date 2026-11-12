@@ -21,7 +21,7 @@ export type VerifyState = {
 };
 
 /** Look for the proof, every allowed way, and once one is there go on to pay or skip. */
-export async function verifySecurityTarget(targetId: string, _previous: VerifyState, form: FormData): Promise<VerifyState> {
+export async function verifySecurityTarget(targetId: string, _previous: VerifyState, _form: FormData): Promise<VerifyState> {
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) return { error: "Join or create a workspace to check a site." };
@@ -32,9 +32,6 @@ export async function verifySecurityTarget(targetId: string, _previous: VerifySt
   });
   if (!target) return { error: "That site isn't in this workspace." };
 
-  const domainField = form.get("domain");
-  const domain = typeof domainField === "string" ? domainField.trim() : "";
-
   // Proven once, never asked again: skip the proof and go straight on.
   let proven: OwnershipMethod | null = null;
   const missing: Partial<Record<OwnershipMethod, string>> = {};
@@ -42,9 +39,7 @@ export async function verifySecurityTarget(targetId: string, _previous: VerifySt
     proven = OWNERSHIP_METHODS[target.kind][0]!;
   } else {
     for (const method of OWNERSHIP_METHODS[target.kind]) {
-      // The domain way only applies once the client has typed a domain.
-      if (method === "server_dns" && !domain) continue;
-      const proof = await proveOwnership(target, method, { domain: domain || undefined });
+      const proof = await proveOwnership(target, method);
       if (proof.ok) {
         proven = method;
         break;
