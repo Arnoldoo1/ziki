@@ -1,5 +1,27 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
+
+const db = vi.hoisted(() => ({
+  securityCheck: { findFirst: vi.fn() },
+  securityCheckResult: { findMany: vi.fn(), findUnique: vi.fn() },
+}));
+vi.mock("@/lib/prisma", () => ({ prisma: db }));
+
+const session = vi.hoisted(() => ({ userId: "owner", organisationId: "org1" }));
+vi.mock("@/lib/auth-helpers", () => ({ requireUser: async () => ({ id: session.userId, role: "user" }) }));
+vi.mock("@/lib/organisation-access", () => ({
+  currentOrganisationAccess: async () => ({ organisationId: session.organisationId, admin: false }),
+}));
+const renderReportPdf = vi.hoisted(() => vi.fn());
+vi.mock("@/components/security-checks/report-pdf", () => ({ renderReportPdf }));
+vi.mock("next/navigation", () => ({
+  redirect: (to: string) => {
+    throw new Error(`redirect:${to}`);
+  },
+}));
+
+import { loadCheckReport } from "@/lib/security-checks/report";
+import { GET as downloadReportPdf } from "@/app/(app)/security/checks/[id]/report.pdf/route";
 import {
   CHECK_STATUS_LABEL,
   ITEM_STATUS_LABEL,
@@ -56,5 +78,112 @@ describe("security check words (#security-checks)", () => {
     expect(isCheckPaid({ paidAt: null })).toBe(false);
     expect(isCheckPaid({ paidAt: new Date() })).toBe(true);
     expect(SECURITY_CHECK_PRICE_COINS).toBe(50);
+  });
+});
+
+describe("what a client sees of a check (#security-checks, part 4)", () => {
+  const at = (minutes: number) => new Date(Date.UTC(2026, 10, 12, 9, minutes));
+  function check(paidAt: Date | null) {
+    return {
+      id: "check1",
+      status: "checking",
+      paidAt,
+      priceCoins: 50,
+      createdAt: at(0),
+      finishedAt: null,
+      target: { id: "t1", kind: "website", input: "shop.example.test", verifiedAt: at(0) },
+      items: [
+        { id: "i1", title: "Login", status: "done" },
+        { id: "i2", title: "TLS", status: "skipped" },
+        { id: "i3", title: "Headers", status: "checking" },
+        { id: "i4", title: "CORS", status: "waiting" },
+      ],
+    };
+  }
+  const full = (id: string, severity: string, minute: number) => ({
+    id, severity, title: `${id} title`, description: `${id} description`, howToFix: `${id} fix`, createdAt: at(minute), findingId: null,
+  });
+
+  beforeEach(() => {
+    db.securityCheck.findFirst.mockReset();
+    db.securityCheckResult.findMany.mockReset();
+    db.securityCheckResult.findUnique.mockReset();
+    renderReportPdf.mockReset();
+    session.userId = "owner";
+  });
+
+  it("is the requester's alone: another person, even in the same workspace, gets nothing", async () => {
+    db.securityCheck.findFirst.mockResolvedValue(null);
+    expect(await loadCheckReport("check1", "org1", "teammate")).toBeNull();
+    expect(db.securityCheck.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "check1", organisationId: "org1", requestedById: "teammate" } }),
+    );
+    expect(db.securityCheckResult.findMany).not.toHaveBeenCalled();
+  });
+
+  it("unpaid: shows the worst problem without its fix, and never reads the hidden ones' text", async () => {
+    db.securityCheck.findFirst.mockResolvedValue(check(null));
+    db.securityCheckResult.findMany.mockResolvedValue([
+      { id: "low", severity: "low", createdAt: at(1) },
+      { id: "crit", severity: "critical", createdAt: at(2) },
+      { id: "high", severity: "high", createdAt: at(3) },
+    ]);
+    db.securityCheckResult.findUnique.mockResolvedValue({ id: "crit", severity: "critical", title: "crit title", description: "crit description" });
+
+    const report = await loadCheckReport("check1", "org1", "owner");
+
+    // The list query reads severities only, and the teaser query never reads how to fix.
+    const listSelect = db.securityCheckResult.findMany.mock.calls[0][0].select;
+    expect(Object.keys(listSelect).sort()).toEqual(["createdAt", "id", "severity"]);
+    const teaserQuery = db.securityCheckResult.findUnique.mock.calls[0][0];
+    expect(teaserQuery.where).toEqual({ id: "crit" });
+    expect(teaserQuery.select).not.toHaveProperty("howToFix");
+
+    expect(report).toMatchObject({ paid: false, total: 3, hiddenCount: 2, teaser: { id: "crit" } });
+    expect(report).not.toHaveProperty("results");
+    expect(report?.counts).toEqual({ critical: 1, high: 1, medium: 0, low: 1 });
+    // A skipped part counts as finished: 2 of 4.
+    expect(report?.progress).toEqual({ done: 2, total: 4, percent: 50 });
+  });
+
+  it("unpaid with no critical: the teaser is the worst problem found", async () => {
+    db.securityCheck.findFirst.mockResolvedValue(check(null));
+    db.securityCheckResult.findMany.mockResolvedValue([
+      { id: "medium", severity: "medium", createdAt: at(1) },
+      { id: "high", severity: "high", createdAt: at(2) },
+    ]);
+    db.securityCheckResult.findUnique.mockResolvedValue({ id: "high", severity: "high", title: "t", description: "d" });
+
+    await loadCheckReport("check1", "org1", "owner");
+
+    expect(db.securityCheckResult.findUnique.mock.calls[0][0].where).toEqual({ id: "high" });
+  });
+
+  it("paid: every problem, worst first, with how to fix", async () => {
+    db.securityCheck.findFirst.mockResolvedValue(check(at(5)));
+    db.securityCheckResult.findMany.mockResolvedValue([full("low", "low", 1), full("crit", "critical", 2), full("high-late", "high", 4), full("high", "high", 3)]);
+
+    const report = await loadCheckReport("check1", "org1", "owner");
+
+    expect(report?.paid).toBe(true);
+    if (!report?.paid) throw new Error("expected a paid report");
+    expect(report.results.map((r) => r.id)).toEqual(["crit", "high", "high-late", "low"]);
+    expect(report.results[0].howToFix).toBe("crit fix");
+    expect(db.securityCheckResult.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("PDF: an unpaid check is sent to pay and no PDF is made; a stranger gets 404", async () => {
+    const params = { params: Promise.resolve({ id: "check1" }) };
+    db.securityCheck.findFirst.mockResolvedValue(check(null));
+    db.securityCheckResult.findMany.mockResolvedValue([]);
+
+    await expect(downloadReportPdf(new Request("http://localhost/x"), params)).rejects.toThrow("redirect:/security/checks/check1/pay");
+    expect(renderReportPdf).not.toHaveBeenCalled();
+
+    session.userId = "stranger";
+    db.securityCheck.findFirst.mockResolvedValue(null);
+    const response = await downloadReportPdf(new Request("http://localhost/x"), params);
+    expect(response.status).toBe(404);
+    expect(renderReportPdf).not.toHaveBeenCalled();
   });
 });

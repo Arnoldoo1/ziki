@@ -18,10 +18,12 @@ export function LockedPdfButton({ payHref, priceCoins, className }: { payHref: s
       <button type="button" onClick={() => dialogRef.current?.showModal()} className={`cursor-pointer ${className}`}>
         Download PDF
       </button>
+      {/* A click on the blurred area outside the box closes it, as on Add idea. Keyboard
+          users close it with Escape (the dialog's own) or the Close button. */}
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions */}
       <dialog
         ref={dialogRef}
         aria-labelledby="locked-pdf-title"
-        // A click on the blurred area outside the box closes it.
         onClick={(event) => {
           if (event.target === event.currentTarget) close();
         }}
