@@ -4,6 +4,7 @@ import { nextStepPath, type WorkspaceCheckRow } from "@/lib/security-checks/entr
 import { LocalTime } from "@/components/local-time";
 import { KindIcon } from "./entry-box";
 import { SecurityWelcome } from "./security-welcome";
+import { CheckSiteButton } from "./entry-dialog";
 import { FlashNote } from "./flash-note";
 
 const card = "rounded-[24px] border border-zk-border bg-zk-surface";
@@ -34,11 +35,10 @@ export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCh
 
       {checks.length ? (
         <section aria-labelledby="security-checks-heading" className={`${card} overflow-hidden`}>
-          <div className="px-4 pb-4 pt-6 sm:px-6">
-            <div className="min-w-0">
-              <h2 id="security-checks-heading" className="m-0 text-lg font-bold text-zk-text">Your checks</h2>
-              <p className="m-0 mt-1 text-sm text-zk-text2">Newest first. Your free scan starts once you&apos;ve shown a site is yours.</p>
-            </div>
+          {/* Like a project's list: the add button on the left of the card's top bar. */}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zk-divider px-4 py-3 sm:px-6">
+            <CheckSiteButton variant="inline" />
+            <h2 id="security-checks-heading" className="m-0 text-sm font-normal text-zk-muted">Your sites, newest first</h2>
           </div>
           {highlight?.added && !highlight.paid ? (
             <FlashNote>Saved. Show it&apos;s yours and your free scan starts.</FlashNote>
@@ -46,7 +46,7 @@ export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCh
           {highlight?.paid ? (
             <FlashNote>Fixes unlocked. You&apos;ll see every problem in full, with how to fix it, once the scan finishes.</FlashNote>
           ) : null}
-          <ul className="m-0 list-none divide-y divide-zk-border border-t border-zk-border p-0">
+          <ul className="m-0 list-none divide-y divide-zk-border p-0">
             {checks.map((check) => (
               <CheckRow key={check.id} check={check} highlighted={highlight?.checkId === check.id} />
             ))}

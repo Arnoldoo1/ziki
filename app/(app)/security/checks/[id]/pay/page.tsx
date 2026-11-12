@@ -44,7 +44,7 @@ export default async function PaySecurityCheckPage({ params }: { params: Promise
     <div className="mx-auto flex w-full max-w-[520px] flex-col pb-12 pt-2">
       <Link href={back} className="inline-flex w-fit items-center gap-1.5 text-sm text-zk-text2 hover:text-zk-text">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
-        Your checks
+        Your sites
       </Link>
 
       <p className="mb-0 mt-8 text-sm text-zk-muted">Step 3 of 3 · Fix</p>
@@ -86,7 +86,7 @@ export default async function PaySecurityCheckPage({ params }: { params: Promise
           <div role="status" className="rounded-2xl border border-zk-border bg-zk-surface px-5 py-4">
             <p className="m-0 font-semibold text-zk-ok-fg">Fixes unlocked</p>
             <p className="m-0 mt-1 text-sm text-zk-text2">Fixes are unlocked. You&apos;ll see every problem on {site} in full once the scan finishes.</p>
-            <Link href={back} className="mt-3 inline-flex text-sm font-semibold text-zk-accent hover:underline">Back to your checks</Link>
+            <Link href={back} className="mt-3 inline-flex text-sm font-semibold text-zk-accent hover:underline">Back to your sites</Link>
           </div>
         ) : payable ? (
           <PayCheckForm checkId={check.id} priceCoins={check.priceCoins} skipHref={back} />

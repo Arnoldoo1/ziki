@@ -20,8 +20,9 @@ import {
 } from "@/components/security-stage-filter";
 import { LocalTime } from "@/components/local-time";
 import { SecurityChecksPanel } from "@/components/security-checks/entry-panel";
-import { CheckSiteButton } from "@/components/security-checks/entry-dialog";
+import { SecurityTabs } from "@/components/security-checks/security-tabs";
 import { listWorkspaceChecks } from "@/lib/security-checks/entry";
+import { countAgentJobs } from "@/lib/security-checks/your-work";
 import { OrgPageHeader, ReadOnlyNote, orgCard, orgListCard } from "../[org]/[project]/org/org-ui";
 
 export const metadata = { title: "Security" };
@@ -83,21 +84,13 @@ export default async function SecurityPage(props: {
   // one link away, and any old link that carries a findings filter still lands on it.
   const showFindings = params.view === "findings" || FINDINGS_FILTERS.some((key) => params[key] !== undefined);
   if (!showFindings) {
-    const checks = await listWorkspaceChecks(organisationId, user.id);
+    const [checks, jobs] = await Promise.all([listWorkspaceChecks(organisationId, user.id), countAgentJobs(user.id)]);
     const highlight = typeof params.check === "string" ? { checkId: params.check, paid: params.paid === "1", added: params.added === "1" } : undefined;
+    // Your sites and Your work are always there. With nothing added yet, Your sites holds the box and the three steps.
     return (
-      <div className="flex w-full flex-col gap-4 pb-10 sm:gap-6">
-        <OrgPageHeader heading="h1" title="Security" actions={
-          <div className="flex flex-wrap items-center gap-4">
-            <Link href={FINDINGS_PATH} className="text-sm font-semibold text-zk-accent hover:underline">Findings</Link>
-            {/* What your agents are checking (#security-checks). Activity lives with the findings. */}
-            <Link href="/security/work" className="text-sm font-semibold text-zk-accent hover:underline">Your work</Link>
-            <SecuritySettingsLink />
-            {checks.length ? <CheckSiteButton /> : null}
-          </div>
-        }>
-          Agents check your website, servers and code for holes and tell you privately what they find.
-        </OrgPageHeader>
+      <div className="flex w-full flex-col gap-5 pb-10">
+        <h1 className="sr-only">Security</h1>
+        <SecurityTabs selected="checks" checks={checks.length} jobs={jobs} />
         <SecurityChecksPanel checks={checks} highlight={highlight} />
       </div>
     );

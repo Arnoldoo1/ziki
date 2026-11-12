@@ -21,7 +21,7 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
     expect(html).toContain("Your first scan is free");
     expect(html).toContain("See what&#x27;s wrong");
     expect(html).toContain('name="target"');
-    expect(html).not.toContain("Your checks");
+    expect(html).not.toContain("Your sites");
   });
 
   it("shows a returning workspace its checks, without the empty state", () => {
@@ -33,7 +33,7 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
         ]}
       />,
     );
-    expect(html).toContain("Your checks");
+    expect(html).toContain("Your sites");
     expect(html).not.toContain("Find the holes");
     expect(html).toContain('href="/security/targets/t1/verify"');
     expect(html).toContain('href="/security/checks/c1/pay"');

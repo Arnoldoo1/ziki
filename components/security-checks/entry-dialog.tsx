@@ -7,7 +7,7 @@ import { SecurityChat } from "./security-chat";
  * "Check a site" (#security-checks, part 1). The box is only needed now and
  * then, so it waits behind a button and opens in a pop-up, like "Add idea".
  */
-export function CheckSiteButton({ id = "security-target", variant = "primary" }: { id?: string; variant?: "primary" | "large" }) {
+export function CheckSiteButton({ id = "security-target", variant = "primary" }: { id?: string; variant?: "primary" | "large" | "inline" }) {
   const [open, setOpen] = useState(false);
   const dialog = useRef<HTMLDialogElement>(null);
 
@@ -24,9 +24,14 @@ export function CheckSiteButton({ id = "security-target", variant = "primary" }:
         type="button"
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
-        className={`inline-flex shrink-0 items-center gap-2 rounded-full bg-electric-blue-strong font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2 ${
-          variant === "large" ? "h-12 px-6 text-base" : "h-10 px-5 text-sm"
-        }`}
+        className={
+          variant === "inline"
+            ? // Like Add Idea at the top of a project's list.
+              "inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-zk-border bg-zk-surface px-2.5 text-[13px] font-semibold text-zk-text hover:bg-zk-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue"
+            : `inline-flex shrink-0 items-center gap-2 rounded-full bg-electric-blue-strong font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2 ${
+                variant === "large" ? "h-12 px-6 text-base" : "h-10 px-5 text-sm"
+              }`
+        }
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
         Check a site

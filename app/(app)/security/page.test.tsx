@@ -19,6 +19,7 @@ vi.mock("@/lib/organisation-access", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     securityCheck: { findMany: vi.fn().mockResolvedValue([]) },
+    securityCheckItem: { count: vi.fn().mockResolvedValue(0) },
     agentActivation: {
       findMany: vi.fn().mockResolvedValue([
         {
@@ -121,7 +122,7 @@ describe("SecurityPage (/security)", () => {
     expect(html).not.toContain('href="/issues/2829"');
   });
 
-  it("opens on the chat, with a free first scan and the findings one link away (#security-checks)", async () => {
+  it("opens on Your sites with the box, beside Your work, and Findings one icon away (#security-checks)", async () => {
     const markup = renderToStaticMarkup(await SecurityPage({}));
 
     expect(markup).toContain("What do you want to secure?");
@@ -129,6 +130,7 @@ describe("SecurityPage (/security)", () => {
     expect(markup).toContain('href="/security?view=findings"');
     expect(markup).toContain('href="/security/work"');
     expect(markup).not.toContain('href="/security/activity"');
+    expect(markup).toContain(">Your sites<");
     expect(markup).not.toContain("Open findings");
     expect(markup).not.toContain("Apply filters");
   });
