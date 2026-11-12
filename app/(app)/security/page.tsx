@@ -90,7 +90,8 @@ export default async function SecurityPage(props: {
         <OrgPageHeader heading="h1" title="Security" actions={
           <div className="flex flex-wrap items-center gap-4">
             <Link href={FINDINGS_PATH} className="text-sm font-semibold text-zk-accent hover:underline">Findings</Link>
-            <Link href="/security/activity" className="text-sm font-semibold text-zk-accent hover:underline">Activity</Link>
+            {/* What your agents are checking (#security-checks). Activity lives with the findings. */}
+            <Link href="/security/work" className="text-sm font-semibold text-zk-accent hover:underline">Your work</Link>
             <SecuritySettingsLink />
             {checks.length ? <CheckSiteButton /> : null}
           </div>
