@@ -6,7 +6,7 @@ vi.mock("@/lib/agent-api/idea-verdicts", () => ({ convertClientVettedIdea: vi.fn
 
 import { convertClientVettedIdea } from "@/lib/agent-api/idea-verdicts";
 import { PLACEHOLDER_DESCRIPTION, PLACEHOLDER_SUMMARY } from "@/lib/security-findings";
-import { sendCheckFindings } from "./fix";
+import { listFixProjects, sendCheckFindings } from "./fix";
 
 const client = { userId: "u1", organisationId: "o1", superAdmin: false };
 const selection = { checkId: "c1", projectId: "p1", resultIds: ["r1"] };
@@ -25,7 +25,7 @@ const send = (input = selection) => sendCheckFindings(client, input, db as never
 
 beforeEach(() => {
   vi.clearAllMocks();
-  tx.$queryRaw.mockResolvedValue([{ paidAt: new Date(), projectId: null }]);
+  tx.$queryRaw.mockResolvedValue([{ paidAt: new Date(), postedAt: new Date(), projectId: null }]);
   tx.$executeRaw.mockResolvedValue(1);
   tx.project.findFirst.mockResolvedValue({ slug: "web", organisation: { slug: "ziki" } });
   tx.securityCheckResult.findMany.mockResolvedValue([{ id: "r1", severity: "high", finding: null }]);
@@ -36,11 +36,28 @@ beforeEach(() => {
 
 describe("Fix on Ziki", () => {
   it("rejects unpaid checks before reading or writing findings", async () => {
-    tx.$queryRaw.mockResolvedValue([{ paidAt: null, projectId: null }]);
+    tx.$queryRaw.mockResolvedValue([{ paidAt: null, postedAt: new Date(), projectId: null }]);
     await expect(send()).resolves.toMatchObject({ ok: false, error: expect.stringContaining("Pay") });
     expect(tx.project.findFirst).not.toHaveBeenCalled();
     expect(tx.securityCheckResult.findMany).not.toHaveBeenCalled();
     expect(tx.idea.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a paid check before its report is posted", async () => {
+    tx.$queryRaw.mockResolvedValue([{ paidAt: new Date(), postedAt: null, projectId: null }]);
+    await expect(send()).resolves.toMatchObject({ ok: false, error: expect.stringContaining("posted") });
+    expect(tx.project.findFirst).not.toHaveBeenCalled();
+    expect(tx.securityCheckResult.findMany).not.toHaveBeenCalled();
+    expect(tx.idea.create).not.toHaveBeenCalled();
+  });
+
+  it("does not list projects for a paid check whose report is not posted", async () => {
+    const lookup = {
+      securityCheck: { findFirst: vi.fn().mockResolvedValue({ paidAt: new Date(), postedAt: null, projectId: null }) },
+      project: { findMany: vi.fn() },
+    };
+    await expect(listFixProjects(client, "c1", lookup as never)).resolves.toBeNull();
+    expect(lookup.project.findMany).not.toHaveBeenCalled();
   });
 
   it("scopes the locked check to the requester and workspace", async () => {
@@ -75,7 +92,7 @@ describe("Fix on Ziki", () => {
   });
 
   it("keeps the first destination on subsequent submissions", async () => {
-    tx.$queryRaw.mockResolvedValue([{ paidAt: new Date(), projectId: "p2" }]);
+    tx.$queryRaw.mockResolvedValue([{ paidAt: new Date(), postedAt: new Date(), projectId: "p2" }]);
     await expect(send()).resolves.toMatchObject({ ok: false, error: expect.stringContaining("already has a destination") });
     expect(tx.idea.create).not.toHaveBeenCalled();
   });
@@ -94,7 +111,7 @@ describe("Fix on Ziki", () => {
     expect(tx.securityCheckResult.update).toHaveBeenCalledWith({ where: { id: "r1" }, data: { findingId: "f1" } });
     expect(tx.securityCheck.update).toHaveBeenCalledWith({ where: { id: "c1" }, data: { projectId: "p1" } });
 
-    tx.$queryRaw.mockResolvedValue([{ paidAt: new Date(), projectId: "p1" }]);
+    tx.$queryRaw.mockResolvedValue([{ paidAt: new Date(), postedAt: new Date(), projectId: "p1" }]);
     tx.securityCheckResult.findMany.mockResolvedValue([{ id: "r1", severity: "high", finding: { bug: { number: 42 } } }]);
     await expect(send()).resolves.toEqual({ ok: true, created: 0, reused: 1, issues: [{ number: 42, href: "/ziki/web/42" }] });
     expect(tx.idea.create).toHaveBeenCalledTimes(1);
