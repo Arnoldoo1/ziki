@@ -53,9 +53,9 @@ describe("addSecurityTarget (#security-checks part 1)", () => {
     expect(mocks.addTargetAndCheck).toHaveBeenCalledWith("org1", "u1", { kind: "website", value: "settle.ng", input: "https://www.settle.ng/" });
   });
 
-  it("skips to paying when the target was already proven", async () => {
+  it("goes back to Security with the free scan starting when the target was already proven", async () => {
     mocks.addTargetAndCheck.mockResolvedValue({ targetId: "t1", checkId: "c9", verified: true, reused: false });
-    await expect(addSecurityTarget({}, form("github.com/settle/app"))).rejects.toThrow("REDIRECT /security/checks/c9/pay");
+    await expect(addSecurityTarget({}, form("github.com/settle/app"))).rejects.toThrow("REDIRECT /security?check=c9&added=1");
   });
 });
 

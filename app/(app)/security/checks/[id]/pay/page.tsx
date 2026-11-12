@@ -9,7 +9,7 @@ import { canPayForCheck } from "@/lib/security-checks/payment";
 import { PayCheckForm } from "@/components/security-checks/entry-pay-form";
 import { KindIcon } from "@/components/security-checks/entry-box";
 
-export const metadata = { title: "Pay for a check" };
+export const metadata = { title: "Unlock fixes" };
 
 /**
  * Step 3, pay or skip (#security-checks, part 1). Paying is simulated for now:
@@ -44,14 +44,14 @@ export default async function PaySecurityCheckPage({ params }: { params: Promise
     <div className="mx-auto flex w-full max-w-[520px] flex-col pb-12 pt-2">
       <Link href={back} className="inline-flex w-fit items-center gap-1.5 text-sm text-zk-text2 hover:text-zk-text">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
-        Your checks
+        Your sites
       </Link>
 
-      <p className="mb-0 mt-8 text-sm text-zk-muted">Step 2 of 3 · Pay</p>
+      <p className="mb-0 mt-8 text-sm text-zk-muted">Step 3 of 3 · Fix</p>
       <h1 className="mb-0 mt-1 text-[28px] font-bold leading-tight tracking-tight text-zk-text">
-        Pay for the <span className="break-all">{site}</span> check
+        Unlock fixes for <span className="break-all">{site}</span>
       </h1>
-      <p className="mb-0 mt-2 text-[15px] leading-relaxed text-zk-text2">{WHAT_AGENTS_DO[kind](site)}</p>
+      <p className="mb-0 mt-2 text-[15px] leading-relaxed text-zk-text2">{WHAT_AGENTS_DO[kind](site)} The scan is free. Paying shows every problem in full, with how to fix it.</p>
 
       <section aria-label="Receipt" className="mt-8 rounded-2xl border border-zk-border bg-zk-surface">
         <div className="flex items-center gap-3 border-b border-zk-border px-5 py-4">
@@ -65,8 +65,8 @@ export default async function PaySecurityCheckPage({ params }: { params: Promise
         </div>
 
         <dl className="m-0 px-5 py-4 text-[15px]">
-          <Line label="Security check" detail={`Agents go through ${site} part by part`} value={`${check.priceCoins} coins`} />
-          <Line label="Report, worst first" detail="With how to fix each problem" value="Included" muted />
+          <Line label="Basic scan" detail={`Agents go through ${site} part by part`} value="Free" muted />
+          <Line label="Every problem in full" detail="Worst first, with how to fix each one" value={`${check.priceCoins} coins`} />
           <Line label="PDF or Fix on Ziki" detail="Download it, or send problems to your team" value="Included" muted />
           <div className="mt-3 flex items-baseline justify-between border-t border-dashed border-zk-border pt-4">
             <dt className="font-semibold text-zk-text">Total</dt>
@@ -77,16 +77,16 @@ export default async function PaySecurityCheckPage({ params }: { params: Promise
 
       {!verified && !check.paidAt && payable ? (
         <p className="mb-0 mt-4 text-[13px] leading-relaxed text-zk-text2">
-          Nothing runs until you&apos;ve shown {site} is yours. Paying now just means you won&apos;t have to come back.
+          The free scan starts once you&apos;ve shown {site} is yours. You can unlock fixes now or when the scan is done.
         </p>
       ) : null}
 
       <div className="mt-6">
         {check.paidAt ? (
           <div role="status" className="rounded-2xl border border-zk-border bg-zk-surface px-5 py-4">
-            <p className="m-0 font-semibold text-zk-ok-fg">Paid</p>
-            <p className="m-0 mt-1 text-sm text-zk-text2">You&apos;ll get the full report on {site} once agents finish.</p>
-            <Link href={back} className="mt-3 inline-flex text-sm font-semibold text-zk-accent hover:underline">Back to your checks</Link>
+            <p className="m-0 font-semibold text-zk-ok-fg">Fixes unlocked</p>
+            <p className="m-0 mt-1 text-sm text-zk-text2">Fixes are unlocked. You&apos;ll see every problem on {site} in full once the scan finishes.</p>
+            <Link href={back} className="mt-3 inline-flex text-sm font-semibold text-zk-accent hover:underline">Back to your sites</Link>
           </div>
         ) : payable ? (
           <PayCheckForm checkId={check.id} priceCoins={check.priceCoins} skipHref={back} />

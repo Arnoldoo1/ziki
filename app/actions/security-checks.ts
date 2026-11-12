@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { parseSecurityTarget } from "@/lib/security-checks/target";
-import { addTargetAndCheck, nextStepPath } from "@/lib/security-checks/entry";
+import { addTargetAndCheck } from "@/lib/security-checks/entry";
 import { payForCheck } from "@/lib/security-checks/payment";
 
 /**
@@ -36,7 +36,9 @@ export async function addSecurityTarget(_previous: AddTargetState, form: FormDat
 
   const added = await addTargetAndCheck(access.organisationId, user.id, parsed.target);
   revalidatePath("/security");
-  redirect(added.verified ? nextStepPath(added) : `/security?check=${encodeURIComponent(added.checkId)}&added=1`);
+  // The first scan is free: a site already proven starts it straight away, so
+  // either way the client goes back to Security with the new check highlighted.
+  redirect(`/security?check=${encodeURIComponent(added.checkId)}&added=1`);
 }
 
 /** Step 3: "Pay 50 coins". Simulated: it only marks the check paid. */
