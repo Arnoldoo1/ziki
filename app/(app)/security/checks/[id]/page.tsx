@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LiveRefresh } from "@/components/live-refresh";
 import { Badge } from "@/components/ui/badge";
+import { FixOnZiki } from "@/components/security-checks/fix-on-ziki";
 import { ReportProgress } from "@/components/security-checks/report-progress";
 import { ReportResults, parseFixFilter } from "@/components/security-checks/report-results";
 import { ReportSummary } from "@/components/security-checks/report-summary";
@@ -97,6 +98,13 @@ export default async function SecurityCheckPage({
           ) : null}
 
           {report.posted ? <ReportResults report={report} show={parseFixFilter(show)} /> : null}
+
+          {/* Fix on Ziki (part 5, #647): paid, and so posted, checks only. "Fix them on Ziki" above jumps here. */}
+          {report.paid ? (
+            <div id="fix-on-ziki" className="scroll-mt-20 rounded-lg bg-zk-surface">
+              <FixOnZiki checkId={report.checkId} results={report.results.map(({ id, severity, title }) => ({ id, severity, title }))} />
+            </div>
+          ) : null}
         </>
       )}
     </div>

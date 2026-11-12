@@ -127,12 +127,10 @@ export function ReportSummary({ report }: { report: CheckReport }) {
             />
           )}
           {report.paid ? (
-            // Fix on Ziki (part 5, agreed with Oluwasanmi): once his
-            // components/security-checks/fix-on-ziki.tsx is on main, this button becomes
-            // <FixOnZiki checkId={report.checkId} results={report.results.map(({ id, severity, title }) => ({ id, severity, title }))} />.
-            <button type="button" disabled title="Fix on Ziki is coming soon" className={`${SECONDARY_BUTTON} cursor-not-allowed`}>
+            // Jumps to Fix on Ziki (part 5, #647), the form below "What we found".
+            <a href="#fix-on-ziki" className={SECONDARY_BUTTON}>
               Fix them on Ziki
-            </button>
+            </a>
           ) : (
             <LockedPdfButton
               payHref={`/security/checks/${report.checkId}/pay`}
