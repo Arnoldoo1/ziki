@@ -46,7 +46,7 @@ export function SecurityEntryBox({ focusOnOpen = false, id = "security-target" }
           name="target"
           value={value}
           onChange={(event) => setValue(event.target.value)}
-          placeholder="yourshop.com"
+          placeholder="ziki.dev"
           maxLength={TARGET_INPUT_MAX}
           ref={input}
           autoComplete="off"

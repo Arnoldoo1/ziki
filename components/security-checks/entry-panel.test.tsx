@@ -6,6 +6,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 vi.mock("@/components/local-time", () => ({ LocalTime: () => <time>2 days ago</time> }));
 
 import { SecurityChecksPanel } from "./entry-panel";
+import { SecurityEntryBox } from "./entry-box";
 import type { WorkspaceCheckRow } from "@/lib/security-checks/entry";
 
 const row = (over: Partial<WorkspaceCheckRow>): WorkspaceCheckRow => ({
@@ -48,5 +49,10 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
     const html = renderToStaticMarkup(<SecurityChecksPanel checks={[row({ paid: true })]} highlight={{ checkId: "c1", paid: true }} />);
     expect(html).toContain('role="status"');
     expect(html).toContain("full report");
+  });
+
+  it("shows ziki.dev as the box's placeholder", () => {
+    const html = renderToStaticMarkup(<SecurityEntryBox />);
+    expect(html).toContain('placeholder="ziki.dev"');
   });
 });
