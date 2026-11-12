@@ -5,6 +5,7 @@ import https from "node:https";
 import tls from "node:tls";
 import type { SecuritySeverity, SecurityTargetKind } from "@prisma/client";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import { PREVIEW_SCANS_PER_VISITOR_PER_HOUR } from "@/lib/security-checks";
 import { isPublicAddress, PrivateAddressError, publicOnlyLookup, realNetwork } from "@/lib/security-checks/ownership";
 import { parseSecurityTarget } from "@/lib/security-checks/target";
 
@@ -23,8 +24,6 @@ import { parseSecurityTarget } from "@/lib/security-checks/target";
  * It is rate-limited per visitor and cached per link for a short while.
  */
 
-/** Preview scans one visitor (by IP) may run in an hour. */
-export const PREVIEW_SCANS_PER_VISITOR_PER_HOUR = 5;
 /** How long one link's result is reused. */
 export const PREVIEW_CACHE_MS = 10 * 60 * 1000;
 

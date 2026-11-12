@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 
 import { setRateLimitStore } from "@/lib/rate-limit";
+import { PREVIEW_SCANS_PER_VISITOR_PER_HOUR } from "@/lib/security-checks";
 import {
   certificateFindings,
   clearPreviewCache,
@@ -12,7 +13,6 @@ import {
   emailFindings,
   headerFindings,
   previewScan,
-  PREVIEW_SCANS_PER_VISITOR_PER_HOUR,
   realPreviewNetwork,
   type CertificateAnswer,
   type PageAnswer,
