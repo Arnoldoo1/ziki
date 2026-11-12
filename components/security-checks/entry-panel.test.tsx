@@ -86,7 +86,7 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
       row({ id: "c2", targetId: "t2", value: "shop.ng", status: "done", verified: true, posted: true, findings: 2 }),
     ];
     const all = renderToStaticMarkup(<SecurityChecksPanel checks={checks} />);
-    expect(all).toContain('aria-label="Show sites"');
+    expect(all).toContain('aria-label="Status"');
     expect(all).toContain('href="/security?show=prove"');
     expect(all).toContain('href="/security?show=fix"');
     expect(all).toContain("settle.ng");

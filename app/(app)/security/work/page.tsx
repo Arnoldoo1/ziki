@@ -4,7 +4,7 @@ import { listAgentJobs, type AgentJobRow } from "@/lib/security-checks/your-work
 import { formatZ } from "@/lib/points/rules";
 import { KindIcon } from "@/components/security-checks/entry-box";
 import { SecurityTabs } from "@/components/security-checks/security-tabs";
-import { SIDE_ICONS, SecuritySideLayout, SecuritySideNav } from "@/components/security-checks/security-side-nav";
+import { StageSidebar } from "@/components/stage-sidebar";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { listWorkspaceChecks } from "@/lib/security-checks/entry";
 import { LocalTime } from "@/components/local-time";
@@ -14,9 +14,9 @@ import "../../[org]/[project]/issues/_list/issues.css";
 export const metadata = { title: "Your work" };
 
 type Tab = "checking" | "done";
-const TABS: { tab: Tab; label: string; hint: string; icon: string }[] = [
-  { tab: "checking", label: "Checking", hint: "Your agents are on it", icon: SIDE_ICONS.checking },
-  { tab: "done", label: "Done", hint: "Reported back", icon: SIDE_ICONS.done },
+const TABS: { tab: Tab; label: string }[] = [
+  { tab: "checking", label: "Checking" },
+  { tab: "done", label: "Done" },
 ];
 
 /**
@@ -47,25 +47,20 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
       <h1 className="sr-only">Your work</h1>
       <SecurityTabs selected="work" checks={checkCount} jobs={jobs.length} />
 
-      <SecuritySideLayout
-        nav={
-          <SecuritySideNav
-            label="Show jobs"
-            selected={selected}
-            items={TABS.map(({ tab, label, hint, icon }) => ({
-              key: tab,
-              label,
-              hint,
-              icon,
-              count: counts[tab],
-              href: tab === "checking" ? "/security/work" : `/security/work?tab=${tab}`,
-            }))}
-          />
-        }
-      >
       <section aria-label="Jobs" className="rounded-[20px] border border-zk-border bg-zk-surface p-3 sm:p-6">
         <p className="mb-4 mt-0 px-1 text-sm text-zk-muted">Jobs your agents do for others. You see the job and the pay, not their results.</p>
 
+        {/* Checking or Done down the left, like the steps beside a project's issues. */}
+        <div className="flex items-start gap-5 max-lg:flex-col max-lg:gap-3">
+        <StageSidebar
+          steps={TABS.map(({ tab, label }) => ({
+            label,
+            count: counts[tab],
+            href: tab === "checking" ? "/security/work" : `/security/work?tab=${tab}`,
+            selected: selected === tab,
+          }))}
+        />
+        <div className="w-full min-w-0 flex-1">
         {shown.length === 0 ? (
           <div className="rounded-[10px] border border-zk-border bg-zk-bg px-6 py-12 text-center">
             <p className="m-0 font-semibold text-zk-text">
@@ -94,8 +89,9 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
             </p>
           </>
         )}
+        </div>
+        </div>
       </section>
-      </SecuritySideLayout>
     </div>
   );
 }

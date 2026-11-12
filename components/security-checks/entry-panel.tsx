@@ -6,7 +6,7 @@ import { KindIcon } from "./entry-box";
 import { SecurityWelcome } from "./security-welcome";
 import { CheckSiteButton } from "./entry-dialog";
 import { FlashNote } from "./flash-note";
-import { SIDE_ICONS, SecuritySideLayout, SecuritySideNav, type SideNavItem } from "./security-side-nav";
+import { StageSidebar, type SidebarStep } from "@/components/stage-sidebar";
 
 const card = "rounded-[24px] border border-zk-border bg-zk-surface";
 const PRIMARY_ROW_BUTTON =
@@ -42,56 +42,60 @@ export function SecurityChecksPanel({
 
   const count = (filter: SiteFilter) => (filter === "all" ? checks.length : checks.filter((check) => siteStage(check) === filter).length);
   const shown = show === "all" ? checks : checks.filter((check) => siteStage(check) === show);
-  const items: SideNavItem[] = SITE_FILTERS.map((filter) => ({
-    key: filter,
-    ...SITE_FILTER_TEXT[filter],
+  const steps: SidebarStep[] = SITE_FILTERS.map((filter) => ({
+    label: SITE_FILTER_TEXT[filter].label,
     count: count(filter),
     href: filter === "all" ? "/security" : `/security?show=${filter}`,
+    selected: filter === show,
   }));
 
   return (
-    <SecuritySideLayout nav={<SecuritySideNav label="Show sites" items={items} selected={show} />}>
-      <section aria-labelledby="security-checks-heading" className={`${card} overflow-hidden`}>
-        {/* Like a project's list: the add button on the left of the card's top bar. */}
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zk-divider px-4 py-3 sm:px-6">
-          <CheckSiteButton variant="inline" />
-          <h2 id="security-checks-heading" className="m-0 text-sm font-normal text-zk-muted">
-            {show === "all" ? "Your sites, newest first" : `${SITE_FILTER_TEXT[show].label}, newest first`}
-          </h2>
+    <section aria-labelledby="security-checks-heading" className={`${card} overflow-hidden`}>
+      {/* Like a project's list: the add button on the left of the card's top bar. */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zk-divider px-4 py-3 sm:px-6">
+        <CheckSiteButton variant="inline" />
+        <h2 id="security-checks-heading" className="m-0 text-sm font-normal text-zk-muted">
+          {show === "all" ? "Your sites, newest first" : `${SITE_FILTER_TEXT[show].label}, newest first`}
+        </h2>
+      </div>
+      {highlight?.added && !highlight.unlocked ? (
+        <FlashNote>Saved. Show it&apos;s yours and your free scan starts.</FlashNote>
+      ) : null}
+      {highlight?.unlocked ? (
+        <FlashNote>
+          {highlight.unlocked === 1 ? "1 fix unlocked." : `${highlight.unlocked} fixes unlocked.`} Open the report to read each one in full, with how to fix it.
+        </FlashNote>
+      ) : null}
+      {/* Where each site is, down the left, like the steps beside a project's issues. */}
+      <div className="flex items-start gap-5 p-3 max-lg:flex-col max-lg:gap-3 sm:p-6">
+        <StageSidebar steps={steps} />
+        <div className="w-full min-w-0 flex-1 overflow-hidden rounded-[14px] border border-zk-border">
+          {shown.length ? (
+            <ul className="m-0 list-none divide-y divide-zk-border p-0">
+              {shown.map((check) => (
+                <CheckRow key={check.id} check={check} highlighted={highlight?.checkId === check.id} />
+              ))}
+            </ul>
+          ) : (
+            <div className="bg-zk-bg px-6 py-12 text-center">
+              <p className="m-0 font-semibold text-zk-text">{SITE_FILTER_TEXT[show].empty}</p>
+              <Link href="/security" className="mt-2 inline-flex text-sm font-semibold text-zk-accent hover:underline">Show all your sites</Link>
+            </div>
+          )}
         </div>
-        {highlight?.added && !highlight.unlocked ? (
-          <FlashNote>Saved. Show it&apos;s yours and your free scan starts.</FlashNote>
-        ) : null}
-        {highlight?.unlocked ? (
-          <FlashNote>
-            {highlight.unlocked === 1 ? "1 fix unlocked." : `${highlight.unlocked} fixes unlocked.`} Open the report to read each one in full, with how to fix it.
-          </FlashNote>
-        ) : null}
-        {shown.length ? (
-          <ul className="m-0 list-none divide-y divide-zk-border p-0">
-            {shown.map((check) => (
-              <CheckRow key={check.id} check={check} highlighted={highlight?.checkId === check.id} />
-            ))}
-          </ul>
-        ) : (
-          <div className="px-6 py-12 text-center">
-            <p className="m-0 font-semibold text-zk-text">{SITE_FILTER_TEXT[show].empty}</p>
-            <Link href="/security" className="mt-2 inline-flex text-sm font-semibold text-zk-accent hover:underline">Show all your sites</Link>
-          </div>
-        )}
-        <div className="border-t border-zk-border bg-zk-bg px-4 py-3 sm:px-6">
-          <PrivacyNote />
-        </div>
-      </section>
-    </SecuritySideLayout>
+      </div>
+      <div className="border-t border-zk-border bg-zk-bg px-4 py-3 sm:px-6">
+        <PrivacyNote />
+      </div>
+    </section>
   );
 }
 
-const SITE_FILTER_TEXT: Record<SiteFilter, { label: string; hint: string; icon: string; empty: string }> = {
-  all: { label: "All", hint: "Every site you've added", icon: SIDE_ICONS.all, empty: "No sites yet" },
-  prove: { label: "Show it's yours", hint: "Waiting for your proof", icon: SIDE_ICONS.prove, empty: "Nothing waiting for proof" },
-  checking: { label: "Checking", hint: "Agents are on it", icon: SIDE_ICONS.checking, empty: "Nothing being checked right now" },
-  fix: { label: "Fix", hint: "Report ready", icon: SIDE_ICONS.fix, empty: "No reports ready yet" },
+const SITE_FILTER_TEXT: Record<SiteFilter, { label: string; empty: string }> = {
+  all: { label: "All", empty: "No sites yet" },
+  prove: { label: "Show it's yours", empty: "Nothing waiting for proof" },
+  checking: { label: "Checking", empty: "Nothing being checked right now" },
+  fix: { label: "Fix", empty: "No reports ready yet" },
 };
 
 function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighted: boolean }) {
