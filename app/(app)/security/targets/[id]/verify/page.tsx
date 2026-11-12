@@ -75,7 +75,7 @@ export default async function VerifySecurityTargetPage({ params }: { params: Pro
             Pay <span className="tabular-nums">{openCheck?.priceCoins ?? SECURITY_CHECK_PRICE_COINS}</span> coins
           </Step>
           <StepLine />
-          <Step state="later">Agents check</Step>
+          <Step state="later">Check</Step>
         </ol>
       </div>
 

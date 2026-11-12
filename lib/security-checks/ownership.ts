@@ -1,6 +1,8 @@
 import "server-only";
-import { BlockList, isIP } from "node:net";
-import { promises as dns } from "node:dns";
+import { BlockList, isIP, type LookupFunction } from "node:net";
+import { promises as dns, type LookupAddress } from "node:dns";
+import http from "node:http";
+import https from "node:https";
 import type { SecurityTargetKind } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { FINISHED_CHECK_STATUSES } from "@/lib/security-checks";
@@ -17,11 +19,12 @@ import { parseSecurityTarget } from "@/lib/security-checks/target";
  * - Repo: the workspace's own GitHub App can see the repo, or a file in the
  *   repo holds the token.
  *
- * Ziki only reads here: a DNS answer, one page, one file. Before it fetches
- * anything it checks where the name really points and refuses private and
- * internal addresses, follows at most a few redirects on the same site, gives
- * up after a few seconds, and reads at most a small amount of the answer, so a
- * target can't steer it at Ziki's own network or anyone's private one.
+ * Ziki only reads here: a DNS answer, one page, one file. Every connection
+ * looks the name up once, refuses it unless every address is public, and
+ * connects to exactly the address it checked, so a name that answers
+ * differently the second time (DNS rebinding) can't steer Ziki at its own
+ * network or anyone's private one. It follows at most a few redirects on the
+ * same site, gives up after a few seconds, and reads at most a small amount.
  */
 
 export type OwnershipMethod = "dns_txt" | "html_tag" | "server_file" | "server_dns" | "github" | "repo_file";
@@ -51,6 +54,14 @@ export function homepageTag(token: string): string {
 export type ProofResult = { ok: true } | { ok: false; reason: string };
 
 const NOT_PUBLIC = "That address points inside a private network, so Ziki won't look at it.";
+
+/** A connection was refused because the name pointed at a private or internal address. */
+export class PrivateAddressError extends Error {
+  constructor(host: string) {
+    super(`${host} points inside a private network.`);
+    this.name = "PrivateAddressError";
+  }
+}
 const TIMEOUT_MS = 5_000;
 const MAX_BYTES = 512 * 1024;
 const MAX_REDIRECTS = 3;
@@ -181,7 +192,8 @@ export async function proveOwnership(
           : { ok: false, reason: `${REPO_FILE_PATH} is there, but it doesn't hold your code. Put only the code in the file and try again.` };
       }
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof PrivateAddressError) return { ok: false, reason: NOT_PUBLIC };
     return { ok: false, reason: UNREACHABLE[method] };
   }
 }
@@ -223,7 +235,8 @@ async function fetchOnSite(network: OwnershipNetwork, start: string, site: strin
       url = next;
       continue;
     }
-    if (answer.status < 200 || answer.status >= 300) return { ok: false, reason: `${url.host} answered ${answer.status}, so we couldn't read it.` };
+    // No status code in the reason: it would tell the client what answered, and nothing more is needed.
+    if (answer.status < 200 || answer.status >= 300) return { ok: false, reason: `We couldn't open that page on ${site}. Check it opens in a browser, then try again.` };
     return { ok: true, body: answer.body };
   }
   return { ok: false, reason: `${site} keeps redirecting, so we couldn't read it.` };
@@ -233,7 +246,7 @@ async function fetchOnSite(network: OwnershipNetwork, start: string, site: strin
 /* The real network                                                    */
 /* ------------------------------------------------------------------ */
 
-const realNetwork: OwnershipNetwork = {
+export const realNetwork: OwnershipNetwork = {
   async txt(host) {
     try {
       return await dns.resolveTxt(host);
@@ -259,13 +272,44 @@ const realNetwork: OwnershipNetwork = {
     }
   },
   async get(url) {
-    const response = await fetch(url, {
-      redirect: "manual",
-      cache: "no-store",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-      headers: { "User-Agent": "ZikiOwnershipCheck/1.0 (+https://ziki.dev)", Accept: "text/html,text/plain;q=0.9,*/*;q=0.1" },
+    const target = new URL(url);
+    const host = target.hostname.replace(/^\[|\]$/g, "");
+    // An address typed as a number skips the lookup below, so check it here.
+    if (isIP(host) && !isPublicAddress(host)) throw new PrivateAddressError(host);
+    const client = target.protocol === "https:" ? https : http;
+    return new Promise((resolve, reject) => {
+      const request = client.request(
+        target,
+        {
+          method: "GET",
+          // No shared connection pool: every request makes its own checked connection.
+          agent: false,
+          lookup: publicOnlyLookup(),
+          signal: AbortSignal.timeout(TIMEOUT_MS),
+          headers: { "User-Agent": "ZikiOwnershipCheck/1.0 (+https://ziki.dev)", Accept: "text/html,text/plain;q=0.9,*/*;q=0.1" },
+        },
+        (response) => {
+          const chunks: Buffer[] = [];
+          let size = 0;
+          const finish = () =>
+            resolve({
+              status: response.statusCode ?? 0,
+              location: typeof response.headers.location === "string" ? response.headers.location : null,
+              body: Buffer.concat(chunks).subarray(0, MAX_BYTES).toString("utf8"),
+            });
+          response.on("data", (chunk: Buffer) => {
+            chunks.push(chunk);
+            size += chunk.length;
+            if (size >= MAX_BYTES) response.destroy();
+          });
+          response.on("end", finish);
+          response.on("close", finish);
+          response.on("error", reject);
+        },
+      );
+      request.on("error", reject);
+      request.end();
     });
-    return { status: response.status, location: response.headers.get("location"), body: await readCapped(response) };
   },
   async workspaceAppSeesRepo(organisationId, repo) {
     const { githubClientFor } = await import("@/lib/github/client");
@@ -305,19 +349,35 @@ function isNoRecord(error: unknown): boolean {
   return code === "ENODATA" || code === "ENOTFOUND" || code === "NXDOMAIN" || code === "ESERVFAIL";
 }
 
-async function readCapped(response: Response): Promise<string> {
-  const reader = response.body?.getReader();
-  if (!reader) return "";
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  while (size < MAX_BYTES) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    size += value.byteLength;
-  }
-  await reader.cancel().catch(() => undefined);
-  return new TextDecoder().decode(Buffer.concat(chunks).subarray(0, MAX_BYTES));
+type Resolve = (host: string) => Promise<LookupAddress[]>;
+
+const systemResolve: Resolve = (host) => dns.lookup(host, { all: true, verbatim: true });
+
+/**
+ * The lookup a connection itself uses: it resolves the name once and refuses
+ * unless every address is public, and the socket then opens to the very
+ * address returned here. There is no second lookup for a name to answer
+ * differently (DNS rebinding).
+ */
+export function publicOnlyLookup(resolve: Resolve = systemResolve): LookupFunction {
+  return (hostname, options, callback) => {
+    resolve(hostname).then(
+      (found) => {
+        const wanted = options.family === 4 || options.family === 6 ? found.filter((entry) => entry.family === options.family) : found;
+        if (wanted.length === 0) {
+          callback(Object.assign(new Error(`${hostname} doesn't point anywhere.`), { code: "ENOTFOUND" }), "", 0);
+          return;
+        }
+        if (!found.every((entry) => isPublicAddress(entry.address))) {
+          callback(Object.assign(new PrivateAddressError(hostname), { code: "EPRIVATE" }), "", 0);
+          return;
+        }
+        if (options.all) callback(null, wanted);
+        else callback(null, wanted[0]!.address, wanted[0]!.family);
+      },
+      (error: NodeJS.ErrnoException) => callback(error, "", 0),
+    );
+  };
 }
 
 async function workspaceInstallations(organisationId: string): Promise<{ githubInstallationId: string }[]> {
