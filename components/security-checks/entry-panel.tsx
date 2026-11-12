@@ -28,7 +28,7 @@ function PrivacyNote({ className = "" }: { className?: string }) {
  * sees a short card; a returning one sees its checks. The findings dashboard
  * sits behind the "Findings" link.
  */
-export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCheckRow[]; highlight?: { checkId: string; paid: boolean; added?: boolean } }) {
+export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCheckRow[]; highlight?: { checkId: string; unlocked: number; added?: boolean } }) {
   return (
     <>
       {checks.length === 0 ? <SecurityWelcome /> : null}
@@ -40,11 +40,13 @@ export function SecurityChecksPanel({ checks, highlight }: { checks: WorkspaceCh
             <CheckSiteButton variant="inline" />
             <h2 id="security-checks-heading" className="m-0 text-sm font-normal text-zk-muted">Your sites, newest first</h2>
           </div>
-          {highlight?.added && !highlight.paid ? (
+          {highlight?.added && !highlight.unlocked ? (
             <FlashNote>Saved. Show it&apos;s yours and your free scan starts.</FlashNote>
           ) : null}
-          {highlight?.paid ? (
-            <FlashNote>Fixes unlocked. You&apos;ll see every problem in full, with how to fix it, once the scan finishes.</FlashNote>
+          {highlight?.unlocked ? (
+            <FlashNote>
+              {highlight.unlocked === 1 ? "1 fix unlocked." : `${highlight.unlocked} fixes unlocked.`} Open the report to read each one in full, with how to fix it.
+            </FlashNote>
           ) : null}
           <ul className="m-0 list-none divide-y divide-zk-border p-0">
             {checks.map((check) => (
@@ -65,6 +67,9 @@ function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
   const proving = check.status === "awaiting_ownership" && !check.verified;
   const payHref = `/security/checks/${check.id}/pay`;
   const running = !proving && !cancelled;
+  // Findings can be unlocked once the report is posted, while any are still locked.
+  const allUnlocked = check.posted && check.findings > 0 && check.unlocked === check.findings;
+  const canUnlock = check.posted && check.unlocked < check.findings;
 
   return (
     <li className={`flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-4 sm:px-6 ${highlighted ? "bg-zk-tint" : ""}`}>
@@ -90,10 +95,16 @@ function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
             {running && check.status !== "queued" ? CHECK_STATUS_LABEL[check.status] : "Check"} <span className="font-normal text-zk-muted">· free</span>
           </Step>
           <StepLine />
-          <Step state={check.paid ? "done" : check.status === "done" ? "now" : "later"}>
-            {check.paid ? "Fixes unlocked" : (
+          <Step state={allUnlocked ? "done" : canUnlock ? "now" : "later"}>
+            {!check.posted ? (
+              "Fix"
+            ) : check.findings === 0 ? (
+              "Nothing to fix"
+            ) : allUnlocked ? (
+              "Fixes unlocked"
+            ) : (
               <Link href={payHref} className="hover:underline">
-                Fix · <span className="tabular-nums">{check.priceCoins}</span> coins
+                Fix · <span className="tabular-nums">{check.unlocked ? `${check.unlocked} of ${check.findings}` : check.findings}</span> {check.unlocked ? "unlocked" : check.findings === 1 ? "finding" : "findings"}
               </Link>
             )}
           </Step>
@@ -105,6 +116,8 @@ function CheckRow({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
           <Link href={nextStepPath({ targetId: check.targetId, checkId: check.id, verified: false })} className={PRIMARY_ROW_BUTTON}>
             Continue
           </Link>
+        ) : canUnlock ? (
+          <Link href={payHref} className={PRIMARY_ROW_BUTTON}>Unlock fixes</Link>
         ) : (
           <Link href={`/security/checks/${check.id}`} className={ROW_BUTTON}>Open</Link>
         )}

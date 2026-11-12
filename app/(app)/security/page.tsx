@@ -41,7 +41,7 @@ type SearchParams = Promise<{
   assignee?: string | string[];
   reporter?: string | string[];
   check?: string | string[];
-  paid?: string | string[];
+  unlocked?: string | string[];
   added?: string | string[];
   view?: string | string[];
 }>;
@@ -85,7 +85,7 @@ export default async function SecurityPage(props: {
   const showFindings = params.view === "findings" || FINDINGS_FILTERS.some((key) => params[key] !== undefined);
   if (!showFindings) {
     const [checks, jobs] = await Promise.all([listWorkspaceChecks(organisationId, user.id), countAgentJobs(user.id)]);
-    const highlight = typeof params.check === "string" ? { checkId: params.check, paid: params.paid === "1", added: params.added === "1" } : undefined;
+    const highlight = typeof params.check === "string" ? { checkId: params.check, unlocked: Number(params.unlocked) > 0 ? Number(params.unlocked) : 0, added: params.added === "1" } : undefined;
     // Your sites and Your work are always there. With nothing added yet, Your sites holds the box and the three steps.
     return (
       <div className="flex w-full flex-col gap-5 pb-10">

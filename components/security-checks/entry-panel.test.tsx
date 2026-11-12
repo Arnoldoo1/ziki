@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
-vi.mock("@/app/actions/security-checks", () => ({ addSecurityTarget: vi.fn(), paySecurityCheck: vi.fn() }));
+vi.mock("@/app/actions/security-checks", () => ({ unlockSecurityFindings: vi.fn() }));
 vi.mock("@/app/actions/security-assistant", () => ({ talkToSecurityAssistant: vi.fn() }));
 vi.mock("next/navigation", async (importOriginal) => ({
   ...(await importOriginal<typeof import("next/navigation")>()),
@@ -11,12 +11,11 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 vi.mock("@/components/local-time", () => ({ LocalTime: () => <time>2 days ago</time> }));
 
 import { SecurityChecksPanel } from "./entry-panel";
-import { SecurityEntryBox } from "./entry-box";
 import type { WorkspaceCheckRow } from "@/lib/security-checks/entry";
 
 const row = (over: Partial<WorkspaceCheckRow>): WorkspaceCheckRow => ({
   id: "c1", targetId: "t1", kind: "website", value: "settle.ng", status: "awaiting_ownership",
-  verified: false, paid: false, priceCoins: 50, createdAt: new Date("2026-11-11T10:00:00Z"), ...over,
+  verified: false, posted: false, findings: 0, unlocked: 0, createdAt: new Date("2026-11-11T10:00:00Z"), ...over,
 });
 
 describe("SecurityChecksPanel (#security-checks part 1)", () => {
@@ -34,37 +33,48 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
       <SecurityChecksPanel
         checks={[
           row({}),
-          row({ id: "c2", targetId: "t2", kind: "repo", value: "settle/app", status: "checking", verified: true, paid: true }),
+          row({ id: "c2", targetId: "t2", kind: "repo", value: "settle/app", status: "checking", verified: true }),
+          row({ id: "c3", targetId: "t3", value: "shop.ng", status: "done", verified: true, posted: true, findings: 4, unlocked: 1 }),
+          row({ id: "c4", targetId: "t4", value: "blog.ng", status: "done", verified: true, posted: true, findings: 2, unlocked: 2 }),
         ]}
       />,
     );
     expect(html).toContain("Your sites");
     expect(html).not.toContain("Find the holes");
     expect(html).toContain('href="/security/targets/t1/verify"');
-    expect(html).toContain('href="/security/checks/c1/pay"');
-    expect(html).toContain('href="/security/checks/c2"');
-    expect(html).not.toContain('href="/security/checks/c2/pay"');
-    expect(html).toContain("Show it&#x27;s yours");
     expect(html).toContain(">Continue</a>");
+    expect(html).toContain("Show it&#x27;s yours");
+    // No report yet, so nothing to unlock.
+    expect(html).not.toContain('href="/security/checks/c1/pay"');
+    expect(html).not.toContain('href="/security/checks/c2/pay"');
+    expect(html).toContain('href="/security/checks/c2"');
+    // Posted with locked findings: unlock them.
+    expect(html).toContain('href="/security/checks/c3/pay"');
+    expect(html).toContain(">Unlock fixes</a>");
+    expect(html).toContain("1 of 4</span> unlocked");
+    // Every finding unlocked.
     expect(html).toContain("Fixes unlocked");
-    expect(html).toContain("Fix · ");
+    expect(html).not.toContain('href="/security/checks/c4/pay"');
     expect(html).toContain("· free");
     expect(html).toContain('aria-current="step"');
   });
 
-  it("confirms a payment on the paid check", () => {
-    const html = renderToStaticMarkup(<SecurityChecksPanel checks={[row({ paid: true })]} highlight={{ checkId: "c1", paid: true }} />);
-    expect(html).toContain('role="status"');
-    expect(html).toContain("Fixes unlocked. You&#x27;ll see every problem in full");
+  it("says nothing to fix when the report found nothing", () => {
+    const html = renderToStaticMarkup(<SecurityChecksPanel checks={[row({ status: "done", verified: true, posted: true })]} />);
+    expect(html).toContain("Nothing to fix");
+    expect(html).not.toContain("/pay");
   });
 
-  it("shows ziki.dev as the box's placeholder", () => {
-    const html = renderToStaticMarkup(<SecurityEntryBox />);
-    expect(html).toContain('placeholder="ziki.dev"');
+  it("confirms the fixes just unlocked", () => {
+    const html = renderToStaticMarkup(
+      <SecurityChecksPanel checks={[row({ status: "done", verified: true, posted: true, findings: 3, unlocked: 3 })]} highlight={{ checkId: "c1", unlocked: 3 }} />,
+    );
+    expect(html).toContain('role="status"');
+    expect(html).toContain("3 fixes unlocked.");
   });
 
   it("says a new check was saved, and keeps Continue on its row", () => {
-    const html = renderToStaticMarkup(<SecurityChecksPanel checks={[row({})]} highlight={{ checkId: "c1", paid: false, added: true }} />);
+    const html = renderToStaticMarkup(<SecurityChecksPanel checks={[row({})]} highlight={{ checkId: "c1", unlocked: 0, added: true }} />);
     expect(html).toContain("Saved. Show it&#x27;s yours and your free scan starts.");
     expect(html).toContain('href="/security/targets/t1/verify"');
   });

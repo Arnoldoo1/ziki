@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth-helpers";
 import { TARGET_KIND_LABEL } from "@/lib/security-checks";
-import { jobLabel, jobReward, listAgentJobs, type AgentJobRow } from "@/lib/security-checks/your-work";
+import { listAgentJobs, type AgentJobRow } from "@/lib/security-checks/your-work";
 import { formatZ } from "@/lib/points/rules";
 import { KindIcon } from "@/components/security-checks/entry-box";
 import { SecurityTabs } from "@/components/security-checks/security-tabs";
@@ -78,7 +78,7 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
           <>
             <div className="issues-table">
               <div className="issues-table-heading">
-                <span className="w-[76px] shrink-0 text-center">Reward</span>
+                <span className="w-[76px] shrink-0 text-center">Earned</span>
                 <span className="min-w-0 flex-1">Job</span>
                 <span className="hidden w-[120px] shrink-0 md:block">Status</span>
               </div>
@@ -99,25 +99,30 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
 }
 
 function JobRow({ job, last }: { job: AgentJobRow; last: boolean }) {
-  const reward = jobReward(job);
   const status = statusOf(job);
   return (
     <li className={`issues-row flex items-center ${last ? "" : "border-b border-zk-divider"}`}>
+      {/* A finding pays its price once the client unlocks it: until then, nothing is earned yet. */}
       <span className="flex w-[76px] shrink-0 justify-center">
-        <span className={`font-mono text-[14px] font-bold tabular-nums ${job.paid ? "text-zk-text" : "text-zk-ok-fg"}`} title={`Pays ${formatZ(reward)}`}>
-          {formatZ(reward)}
-        </span>
+        {job.earned > 0 ? (
+          <span className="font-mono text-[14px] font-bold tabular-nums text-zk-ok-fg" title={`Earned ${formatZ(job.earned)} from unlocked findings`}>
+            {formatZ(job.earned)}
+          </span>
+        ) : (
+          <span className="text-sm text-zk-muted" title="Earns once the client unlocks its findings">–</span>
+        )}
       </span>
       <span className="flex min-w-0 flex-1 items-center gap-3">
         <span className="hidden h-8 w-8 shrink-0 place-items-center rounded-lg bg-zk-bg sm:grid">
           <KindIcon kind={job.targetKind} className="h-4 w-4 text-zk-text2" />
         </span>
         <span className="min-w-0">
-          <span className="issues-row-title text-zk-text">{jobLabel(job)}</span>
+          <span className="issues-row-title text-zk-text">{job.title}</span>
           <span className="issues-row-meta flex items-center text-zk-muted">
             <span className="font-medium text-zk-text2">{job.targetValue}</span>
             <span>{TARGET_KIND_LABEL[job.targetKind]}</span>
             <span>{job.agentName}</span>
+            {job.status === "done" ? <span>{job.findings === 1 ? "1 finding" : `${job.findings} findings`}</span> : null}
             {job.status === "checking" && job.assignedAt ? <LocalTime date={job.assignedAt} /> : job.reportedAt ? <LocalTime date={job.reportedAt} /> : null}
             <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-bold md:hidden ${status.tone}`}>{status.label}</span>
           </span>
@@ -130,9 +135,9 @@ function JobRow({ job, last }: { job: AgentJobRow; last: boolean }) {
   );
 }
 
-/** The job's status in one word: checking, reported, or paid to you. */
+/** The job's status in one word: checking, reported, or earned. */
 function statusOf(job: AgentJobRow): { label: string; tone: string } {
   if (job.status === "checking") return { label: "Checking", tone: "bg-blue-50 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300" };
-  if (job.paid) return { label: "Paid", tone: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" };
+  if (job.earned > 0) return { label: job.paid ? "Paid" : "Earned", tone: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" };
   return { label: "Reported", tone: "bg-zk-chip text-zk-text2" };
 }
