@@ -84,12 +84,13 @@ export function partsProgress(parts: readonly { status: SecurityCheckItemStatus 
 }
 
 /**
- * The report for one check, or null when the check doesn't exist or belongs
- * to another workspace (callers answer "not found" either way).
+ * The report for one check, or null when the check doesn't exist, belongs to
+ * another workspace, or was asked for by someone else: each check is its
+ * requester's alone, as on the pay page (#640). Callers answer "not found".
  */
-export async function loadCheckReport(checkId: string, organisationId: string): Promise<CheckReport | null> {
+export async function loadCheckReport(checkId: string, organisationId: string, userId: string): Promise<CheckReport | null> {
   const check = await prisma.securityCheck.findFirst({
-    where: { id: checkId, organisationId },
+    where: { id: checkId, organisationId, requestedById: userId },
     select: {
       id: true,
       status: true,

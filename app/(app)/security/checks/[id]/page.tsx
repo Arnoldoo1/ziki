@@ -42,7 +42,7 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
   const [{ id }, user] = await Promise.all([params, requireUser()]);
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) notFound();
-  const report = await loadCheckReport(id, access.organisationId);
+  const report = await loadCheckReport(id, access.organisationId, user.id);
   if (!report) notFound();
 
   const linkClass = "font-semibold text-zk-accent hover:underline";

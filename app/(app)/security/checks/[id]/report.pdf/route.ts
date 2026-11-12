@@ -12,7 +12,7 @@ import { loadCheckReport } from "@/lib/security-checks/report";
 export async function GET(_request: Request, { params }: { params: Promise<{ id: string }> }) {
   const [{ id }, user] = await Promise.all([params, requireUser()]);
   const access = await currentOrganisationAccess(user.id, user.role);
-  const report = access.organisationId ? await loadCheckReport(id, access.organisationId) : null;
+  const report = access.organisationId ? await loadCheckReport(id, access.organisationId, user.id) : null;
   if (!report || report.status === "awaiting_ownership") {
     return new Response("Not found", { status: 404 });
   }
