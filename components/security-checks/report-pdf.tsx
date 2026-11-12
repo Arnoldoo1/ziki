@@ -1,5 +1,6 @@
 import "server-only";
-import { Document, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import path from "node:path";
+import { Document, Font, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import type { SecuritySeverity } from "@prisma/client";
 import { CHECK_STATUS_LABEL, FINISHED_CHECK_STATUSES, TARGET_KIND_LABEL } from "@/lib/security-checks";
 import type { CheckReport, SeverityCounts } from "@/lib/security-checks/report";
@@ -12,6 +13,22 @@ import { SECURITY_SEVERITIES, SEVERITY_LABEL } from "@/lib/security-severity";
  */
 type PaidReport = Extract<CheckReport, { paid: true }>;
 
+/**
+ * The PDF's own font, embedded in every report. The built-in Helvetica can only
+ * draw Western European letters, so Yoruba, Igbo and Hausa names, ₦ and other
+ * text came out garbled. Noto Sans (SIL Open Font License, assets/fonts/OFL.txt)
+ * covers them. next.config.ts ships these files with the PDF route.
+ */
+const FONT = "Noto Sans";
+const fontFile = (name: string) => path.join(process.cwd(), "assets", "fonts", name);
+Font.register({
+  family: FONT,
+  fonts: [
+    { src: fontFile("NotoSans-Regular.ttf"), fontWeight: "normal" },
+    { src: fontFile("NotoSans-Bold.ttf"), fontWeight: "bold" },
+  ],
+});
+
 /** Printed colours, matching the severity chips' light palette. */
 const SEVERITY_COLOUR: Record<SecuritySeverity, string> = {
   critical: "#b91c1c",
@@ -21,16 +38,16 @@ const SEVERITY_COLOUR: Record<SecuritySeverity, string> = {
 };
 
 const styles = StyleSheet.create({
-  page: { padding: 40, fontSize: 10, fontFamily: "Helvetica", color: "#111827", lineHeight: 1.45 },
-  title: { fontSize: 18, fontFamily: "Helvetica-Bold", marginBottom: 10 },
+  page: { padding: 40, fontSize: 10, fontFamily: FONT, color: "#111827", lineHeight: 1.45 },
+  title: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
   meta: { marginTop: 3, color: "#4b5563" },
   section: { marginTop: 18 },
-  heading: { fontSize: 12, fontFamily: "Helvetica-Bold", marginBottom: 6 },
+  heading: { fontSize: 12, fontWeight: "bold", marginBottom: 6 },
   problem: { marginBottom: 10, padding: 10, borderWidth: 1, borderColor: "#e5e7eb", borderRadius: 6 },
-  severity: { fontSize: 9, fontFamily: "Helvetica-Bold", textTransform: "uppercase" },
-  problemTitle: { marginTop: 2, fontSize: 11, fontFamily: "Helvetica-Bold" },
+  severity: { fontSize: 9, fontWeight: "bold", textTransform: "uppercase" },
+  problemTitle: { marginTop: 2, fontSize: 11, fontWeight: "bold" },
   body: { marginTop: 3 },
-  fixLabel: { marginTop: 6, fontSize: 9, fontFamily: "Helvetica-Bold", color: "#4b5563" },
+  fixLabel: { marginTop: 6, fontSize: 9, fontWeight: "bold", color: "#4b5563" },
   footer: { position: "absolute", bottom: 24, left: 40, right: 40, fontSize: 8, color: "#6b7280" },
 });
 

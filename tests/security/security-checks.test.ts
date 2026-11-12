@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { inflateSync } from "node:zlib";
 import { Prisma } from "@prisma/client";
 
 const db = vi.hoisted(() => ({
@@ -38,7 +39,29 @@ import {
   isSecurityTargetKind,
 } from "@/lib/security-checks";
 
-const enumValues = (name: string) =>
+/** Every compressed stream in a PDF, inflated (fonts' ToUnicode maps live in them). */
+function inflatedStreams(pdf: Buffer): string[] {
+  const out: string[] = [];
+  let at = 0;
+  for (;;) {
+    const start = pdf.indexOf("stream", at);
+    if (start < 0) return out;
+    const from = start + (pdf[start + 6] === 0x0d ? 8 : 7);
+    const end = pdf.indexOf("endstream", from);
+    if (end < 0) return out;
+    try {
+      out.push(inflateSync(pdf.subarray(from, end)).toString("latin1"));
+    } catch {
+      // not a compressed stream (the embedded font itself, for example)
+    }
+    at = end + 9;
+  }
+}
+
+/** A ToUnicode target, UTF-16BE hex, as text. */
+const hexToText = (hex: string) => Buffer.from(hex, "hex").swap16().toString("utf16le");
+
+const enumValues =(name: string) =>
   Prisma.dmmf.datamodel.enums.find((e) => e.name === name)?.values.map((v) => v.name) ?? [];
 
 describe("security check words (#security-checks)", () => {
@@ -192,6 +215,33 @@ describe("what a client sees of a check (#security-checks, part 4)", () => {
     const response = await downloadReportPdf(new Request("http://localhost/x"), params);
     expect(response.status).toBe(404);
     expect(renderReportPdf).not.toHaveBeenCalled();
+  });
+
+  it("PDF: a paid report prints ₦ and Yoruba in its own embedded font, not Helvetica", async () => {
+    const { renderReportPdf: render } = await vi.importActual<typeof import("@/components/security-checks/report-pdf")>(
+      "@/components/security-checks/report-pdf",
+    );
+    const yoruba = "Ọjọ́ àti ẹ̀ṣọ́";
+    const result = { ...full("crit", "critical", 1), title: yoruba, description: "Refunds of ₦50,000 skip the owner check.", fix: null };
+    const report = {
+      checkId: "check1", status: "done", priceCoins: 50, createdAt: at(0), startedAt: at(0), finishedAt: at(9),
+      target: { id: "t1", kind: "website", value: "ọjà.example.test", input: "https://ọjà.example.test", verified: true },
+      parts: [], progress: { done: 1, total: 1, percent: 100 }, agentCount: 1, clearParts: [],
+      counts: { critical: 1, high: 0, medium: 0, low: 0 }, total: 1, paid: true, results: [result],
+    } as never;
+
+    const pdf = await render(report);
+    const raw = pdf.toString("latin1");
+    expect(raw.startsWith("%PDF")).toBe(true);
+    expect(raw).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSans-Regular/);
+    expect(raw).toMatch(/\/BaseFont \/[A-Z]{6}\+NotoSans-Bold/);
+    expect(raw).not.toContain("Helvetica");
+
+    // The embedded fonts' ToUnicode maps list the characters drawn with a real
+    // glyph: ₦, the Yoruba letters and their tone marks are among them.
+    const maps = inflatedStreams(pdf).filter((stream) => stream.includes("begincmap")).join("\n");
+    const printed = new Set([...maps.matchAll(/<([0-9a-f]{4,})>/gi)].map((m) => hexToText(m[1])));
+    for (const char of ["₦", "Ọ", "ọ", "ṣ", "à", "́", "̀"]) expect(printed, char).toContain(char);
   });
 
   it("a sent problem's fix follows its finding: Live is fixed, a deleted issue doesn't count, a rejected idea is closed", () => {
