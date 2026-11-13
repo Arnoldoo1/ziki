@@ -1,4 +1,3 @@
-import { SavedIssueViews } from "@/components/saved-issue-views";
 import { IssuePriorityBadge } from "@/components/issue-priority-badge";
 import { PRODUCT_TRACK } from "@/lib/marketing/track";
 import { IdeasWelcome } from "@/components/ideas-welcome";
@@ -26,7 +25,9 @@ import { StatusFilterChips } from "@/components/status-filter-chips";
 import { ToolbarFilterMenu, type ToolbarFilterGroup, type ToolbarFilterOption } from "@/components/toolbar-filter-menu";
 import { IdeasMoreFilters } from "@/components/ideas-more-filters";
 import { IDEA_AUTHOR_PARAM, parseIdeaAuthorFilter } from "@/lib/idea-filters";
-import { MY_WORK_PARAM, TRACK_PARAM, myWorkWhere, parseMyWorkFilter, parseTrackFilter, trackWhere, yourWorkWhere } from "@/lib/my-work-filter";
+import { MY_WORK_PARAM, TRACK_PARAM, myWorkWhere, parseMyWorkFilter, parseTrackFilter, trackWhere, yourOpenBidsWhere, yourWorkWhere } from "@/lib/my-work-filter";
+import { ProjectWeekPanel } from "@/components/project-week-panel";
+import { weeklyDeliveries, type WeekPerson } from "@/lib/project-week";
 import { WORK_TAG_TONE, whatsNext } from "@/lib/whats-next";
 import { IDEA_SORT_COOKIE, ISSUE_SORT_COOKIE, getIdeaOrderBy, parseIdeaSort } from "@/lib/list-sort";
 import { SortHeader } from "@/components/sort-header";
@@ -34,6 +35,8 @@ import { PROJECT_LINKS_SLOT_ID, ProjectIconLinks, ProjectLinks } from "@/compone
 import { OrganisationNextStepCard } from "@/components/organisation-next-step-card";
 import { NEXT_STEP_COOKIE, organisationNextStep, type OrganisationNextStep } from "@/lib/organisation-next-step";
 import { missingProfileFields, type ProfileField } from "@/lib/agents/work-gate";
+import { ProjectGoals } from "@/app/(app)/[org]/[project]/goals/project-goals";
+import { GoalsButton } from "@/app/(app)/[org]/[project]/goals/goals-button";
 import { isAdminOfOrganisation } from "@/lib/agents/membership";
 import type { AppRole } from "@/lib/roles";
 import { IssueFilters } from "@/components/issue-filters";
@@ -155,8 +158,8 @@ const ALL_FILTERS = [ALL_STATUS, REJECTED_STATUS, DUPLICATE_STATUS].map((value) 
  * left of the panel when it is picked. Ideas (the Idea table) comes first.
  */
 const STAGE_GROUPS = [
-  // Your Work comes first and Live last; each shows only while it has issues.
-  { label: "Your Work", statuses: [YOUR_WORK_STATUS] },
+  // Project Overview comes first (your work in the project, with its goals behind a button) and Live last, which shows only once something went live.
+  { label: "Project Overview", statuses: [YOUR_WORK_STATUS] },
   // Ideas holds only ideas. The rest are main statuses (#substatus): each tab
   // lists every substatus of its status together (Open: Requires confirmation
   // and Open), and each row says which one it is at.
@@ -769,6 +772,15 @@ export async function IssuesList({
           0,
         )
       : 0;
+  // Project Overview (#project-overview): who delivered what this week, and your open bids, counted, not listed.
+  const [weekPeople, openBidCount] = isYourWorkView && organisationId
+    ? await Promise.all([
+        loadOrEmpty("week deliveries", () => weeklyDeliveries(organisationId, project.id), [] as WeekPerson[]),
+        userId
+          ? loadOrEmpty("open bids", () => prisma.bug.count({ where: { ...bugInOrganisation(organisationId), projectId: project.id, isDeleted: false, ...yourOpenBidsWhere(userId) } }), 0)
+          : Promise.resolve(0),
+      ])
+    : [[] as WeekPerson[], 0];
   // The Ideas tab's counts show on every tab; drafts only while Ideas is open.
   const [ideasCount, rejectedIdeasCount, draftIds] = await Promise.all([
     organisationId && !isDeletedView ? loadOrEmpty("ideas tab", () => prisma.idea.count({ where: ideaWhere }), 0) : 0,
@@ -1079,22 +1091,6 @@ export async function IssuesList({
     value === YOUR_WORK_STATUS ? yourWorkCount : value === IDEAS_STATUS ? ideasCount : value === REJECTED_IDEAS_STATUS ? rejectedIdeasCount : value === ERROR_STATUS ? errorCount : value === POSSIBLY_DELIVERED ? possiblyDeliveredCount : countForStatus(value);
   const statusLink = (value: string) => (value === IDEAS_STATUS ? statusHref(null) : statusHref(value));
 
-  let savedViews: { id: string; name: string; status: string; query: string }[] = [];
-  let savedViewsFailed = false;
-  if (!isIdeasView) {
-    try {
-      savedViews = await prisma.savedIssueView.findMany({
-        where: { userId: user.id, projectId: project.id },
-        select: { id: true, name: true, status: true, query: true },
-        orderBy: [{ name: "asc" }, { id: "asc" }],
-      });
-    } catch {
-      savedViewsFailed = true;
-    }
-  }
-  const savedViewQuery = new URLSearchParams(currentQuery);
-  savedViewQuery.set("sort", currentSort);
-
   const headerContent = (
     <>
       {activeProject?.goal ? (
@@ -1142,10 +1138,6 @@ export async function IssuesList({
           {!isDeletedView ? <IdeaChat projectId={project.id} types={tagTypes} className={isFirstRun ? "" : "md:hidden"} /> : null}
         </div>
       </div>
-      {!isIdeasView ? (
-        <SavedIssueViews org={project.orgSlug} slug={project.slug} status={statusParam}
-          query={savedViewQuery.toString()} views={savedViews} loadFailed={savedViewsFailed} />
-      ) : null}
     </>
   );
 
@@ -1171,6 +1163,22 @@ export async function IssuesList({
         {isIdeasView && !isDeletedView && earnProject ? <EarnPanel project={earnProject} line={earnBannerLine(earnProject)} /> : null}
 
         {nextStep && organisationId ? <OrganisationNextStepCard step={nextStep} organisationId={organisationId} /> : null}
+
+        {/* Project Overview: who delivered what this week first (with the goals behind a small button), then the
+            work you hold, then your open bids, only counted, under the list. */}
+        {isYourWorkView && organisationId ? (
+          <>
+            <ProjectWeekPanel
+              people={weekPeople}
+              viewerId={userId ?? null}
+              action={canContribute ? (
+                <GoalsButton>
+                  <ProjectGoals org={project.orgSlug} organisationId={organisationId} project={{ id: project.id, slug: project.slug, ref }} />
+                </GoalsButton>
+              ) : undefined}
+            />
+          </>
+        ) : null}
 
         {milestoneSummary ? (
           <section aria-label={`Milestone ${milestoneSummary.title}`} className="rounded-[20px] border border-zk-border bg-zk-surface p-5">
@@ -1494,6 +1502,25 @@ export async function IssuesList({
             />
           </section>
         )}
+
+        {/* Project Overview: your open bids are counted, not listed, under the work you hold. */}
+        {isYourWorkView && openBidCount > 0 ? (
+          <Link
+            href={issuesPath(ref, "open", `${MY_WORK_PARAM}=1`)}
+            className="group flex items-center gap-4 rounded-[20px] border border-zk-border bg-zk-surface px-5 py-4 transition hover:border-zk-accent/40 hover:bg-zk-tint/40 focus-visible:outline-2 focus-visible:outline-electric-blue"
+          >
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-zk-tint text-lg font-extrabold tabular-nums text-zk-accent">
+              {openBidCount}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-bold text-zk-text">Open {openBidCount === 1 ? "bid" : "bids"} waiting for an award</span>
+              <span className="block text-xs text-zk-muted">Issues you or your agents bid on that nobody has been awarded yet.</span>
+            </span>
+            <span className="shrink-0 text-xs font-semibold text-zk-accent group-hover:underline">
+              See them <span aria-hidden="true">→</span>
+            </span>
+          </Link>
+        ) : null}
       </div>
   );
 
@@ -1517,8 +1544,9 @@ export async function IssuesList({
               href: statusLink(group.statuses[0]),
               selected: index === stageIndex,
             };
-            // Your Work only while something is assigned to you, Live only once something went live.
-            const conditional = index === YOUR_WORK_STAGE || index === LIVE_STAGE;
+            // Project Overview always for people who can contribute (it holds the goals), else only while something is
+            // assigned to you; Live only once something went live.
+            const conditional = (index === YOUR_WORK_STAGE && !canContribute) || index === LIVE_STAGE;
             return !conditional || stage.count > 0 || stage.selected ? [stage] : [];
           })}
         />
@@ -1535,10 +1563,9 @@ export async function IssuesList({
             askOnLoad={isIdeasView && unconfiguredAgents.length === 0}
           />
         ) : null}
-        {/* Goals, project notes and settings, as icons, beside the tabs. */}
+        {/* Project notes and settings, as icons, beside the tabs. */}
         {!isDeletedView ? (
           <ProjectIconLinks
-            goalsHref={canContribute ? projectPath(ref, "/goals") : undefined}
             notesHref={canContribute ? projectPath(ref, "/notes") : undefined}
             settingsHref={isOrgAdmin ? `/projects/${encodeURIComponent(slug)}/settings` : undefined}
           />
