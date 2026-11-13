@@ -6,11 +6,12 @@ import { useEffect, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { runPublicScan } from "@/app/actions/security-preview";
 import { addSecurityAsset } from "@/app/actions/security-assistant";
-import { parseSecurityTarget } from "@/lib/security-checks/target";
-import { REPO_NOTE, type PreviewSummary } from "@/lib/security-checks/preview-summary";
+import { parseSecurityTarget, targetAddress } from "@/lib/security-checks/target";
+import type { PreviewSummary } from "@/lib/security-checks/preview-summary";
 import { PreviewResult } from "./preview-result";
 
-const STEPS = ["HTTPS", "Certificate", "Headers", "Cookies", "Email"];
+const SITE_STEPS = ["HTTPS", "Certificate", "Headers", "Cookies", "Email"];
+const REPO_STEPS = ["Secrets in files", "Security policy", "Dependency updates"];
 
 /** The empty place below the header where the scan and its result open. */
 export const SCAN_RESULT_SLOT = "security-scan-result";
@@ -33,9 +34,10 @@ export function PublicScan({ signedIn }: { signedIn: boolean }) {
   const [site, setSite] = useState<string | null>(null);
   const [summary, setSummary] = useState<PreviewSummary | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  /** A repo can't be quick-scanned but can still be added; a site the scan couldn't reach can't. */
+  /** A repo the scan couldn't see (a private one) can still be added; a site the scan couldn't reach can't. */
   const [repo, setRepo] = useState(false);
   const [step, setStep] = useState(0);
+  const STEPS = repo ? REPO_STEPS : SITE_STEPS;
   const [pending, startTransition] = useTransition();
   const [adding, startAdding] = useTransition();
   // The result opens below the header, like the prototype: in the page's own slot, not over the photo.
@@ -64,16 +66,14 @@ export function PublicScan({ signedIn }: { signedIn: boolean }) {
     setError(null);
     setSummary(null);
     setNote(null);
-    setSite(parsed.target.value);
+    // A repo goes by its GitHub address: it is what the scan and Show it's yours read back.
+    const address = targetAddress(parsed.target);
+    setSite(address);
     setStep(0);
     setRepo(parsed.target.kind === "repo");
-    if (parsed.target.kind === "repo") {
-      setNote(REPO_NOTE);
-      return;
-    }
     startTransition(async () => {
       try {
-        const answer = await runPublicScan(parsed.target.value);
+        const answer = await runPublicScan(address);
         if (answer.ok) setSummary(answer.summary);
         else setNote(answer.reason);
       } catch {

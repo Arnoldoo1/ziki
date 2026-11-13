@@ -9,13 +9,9 @@ import type { PreviewArea, PreviewResult } from "./preview";
  * read from the page's HTML or network traffic.
  */
 
-/** Why a GitHub repo gets no quick scan (#security-checks): shown in its place, before Show it's yours. */
-export const REPO_NOTE =
-  "A quick scan can't look inside a GitHub repo: the code isn't something a browser can see, and Ziki only reads it once you let it. Connect GitHub to show the repo is yours, then Ziki's agents read the code and report what they find.";
-
 export type PreviewRisk = "minimal" | "low" | "medium" | "high" | "critical";
 
-export const PREVIEW_AREA_ORDER: PreviewArea[] = ["https", "certificate", "headers", "cookies", "email"];
+export const PREVIEW_AREA_ORDER: PreviewArea[] = ["https", "certificate", "headers", "cookies", "email", "secrets", "policy", "updates"];
 
 export const PREVIEW_AREA_LABEL: Record<PreviewArea, string> = {
   https: "HTTPS",
@@ -23,6 +19,9 @@ export const PREVIEW_AREA_LABEL: Record<PreviewArea, string> = {
   headers: "Security headers",
   cookies: "Cookies",
   email: "Email settings",
+  secrets: "Secrets in files",
+  policy: "Security policy",
+  updates: "Dependency updates",
 };
 
 export const PREVIEW_RISK_LABEL: Record<PreviewRisk, string> = {
@@ -34,7 +33,7 @@ export const PREVIEW_RISK_LABEL: Record<PreviewRisk, string> = {
 };
 
 export type PreviewSummary = {
-  kind: Exclude<SecurityTargetKind, "repo">;
+  kind: SecurityTargetKind;
   target: string;
   checkedAt: string;
   total: number;
