@@ -18,3 +18,8 @@
 - Fast-forwarded to fe40886f after the free-scan PR merged and bumped the package from 0.1.125 to 0.1.126.
 - Verification: the version gate, diff check, and full recheck passed. Lint reported 28 warnings and no errors, typecheck passed, and all 1,809 unit tests passed. The focused run passed all 45 tests.
 - Outcome: N1 is verified locally and ready for PR review. The repeat submission tests use mocked database calls. The report page integration is part of Seyi's follow-up.
+
+## 2026-11-13 — Sync N1 with the report integration (#908)
+
+- Merged main after Seyi's #659 and raised the package version from 0.1.137 to 0.1.138. Confirmed the report page passes only unlocked findings to the picker after posting.
+- The version check, lint and all 1,894 unit tests passed. The first typecheck hit a local Node memory limit while running alongside lint. Retrying typecheck separately and verifying the final PR head in GitHub CI.
