@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { checkRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { OWNERS_ONLY_MESSAGE } from "@/lib/security-checks";
 import { parseSecurityTarget, PRIVATE_TARGET_ERROR } from "@/lib/security-checks/target";
 import { addTargetAndCheck, nextStepPath, refusedMessage } from "@/lib/security-checks/entry";
 import { previewScan } from "@/lib/security-checks/preview";
@@ -44,6 +45,7 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) return { kind: "error", error: NO_WORKSPACE };
+  if (!access.admin) return { kind: "error", error: OWNERS_ONLY_MESSAGE };
 
   const turns = cleanHistory(history);
   const last = turns.at(-1);
@@ -75,6 +77,7 @@ export async function addSecurityAsset(link: string): Promise<ChatAnswer> {
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) return { kind: "error", error: NO_WORKSPACE };
+  if (!access.admin) return { kind: "error", error: OWNERS_ONLY_MESSAGE };
   const parsed = parseSecurityTarget(typeof link === "string" ? link : "");
   if (!parsed.ok) return { kind: "error", error: parsed.error };
   return addAndGo(access.organisationId, user.id, parsed.target, "");
