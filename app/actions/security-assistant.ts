@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { checkRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { OWNERS_ONLY_MESSAGE } from "@/lib/security-checks";
 import { parseSecurityTarget, PRIVATE_TARGET_ERROR } from "@/lib/security-checks/target";
 import { addTargetAndCheck, nextStepPath, refusedMessage, saveQuickScan } from "@/lib/security-checks/entry";
 import { previewScan } from "@/lib/security-checks/preview";
-import { REPO_NOTE, summarisePreview, type PreviewSummary } from "@/lib/security-checks/preview-summary";
+import { summarisePreview, type PreviewSummary } from "@/lib/security-checks/preview-summary";
 import type { ParsedTarget } from "@/lib/security-checks/target";
 import {
   ASSISTANT_HISTORY_MAX,
@@ -23,8 +24,8 @@ import {
  * out the site. Once a site is clear, Dave's quick scan looks at it and the
  * chat shows the counts (never what was found). Nothing is saved until the
  * client clicks "Show it's yours" (`addSecurityAsset`), which adds the asset
- * and goes on to prove it. A GitHub repo can't be quick-scanned, so it goes
- * straight on.
+ * and goes on to prove it. A public GitHub repo gets a quick look too (its file
+ * names only); a private one says so and still goes on.
  */
 
 export type ChatAnswer =
@@ -44,6 +45,7 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) return { kind: "error", error: NO_WORKSPACE };
+  if (!access.admin) return { kind: "error", error: OWNERS_ONLY_MESSAGE };
 
   const turns = cleanHistory(history);
   const last = turns.at(-1);
@@ -75,26 +77,25 @@ export async function addSecurityAsset(link: string): Promise<ChatAnswer> {
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) return { kind: "error", error: NO_WORKSPACE };
+  if (!access.admin) return { kind: "error", error: OWNERS_ONLY_MESSAGE };
   const parsed = parseSecurityTarget(typeof link === "string" ? link : "");
   if (!parsed.ok) return { kind: "error", error: parsed.error };
   // The quick scan the client just saw, run again here (Dave's scan keeps it for ten minutes) rather than trusted from the page.
   let summary: PreviewSummary | null = null;
-  if (parsed.target.kind !== "repo") {
-    const result = await previewScan(parsed.target.value, { visitor: `user:${user.id}` });
-    if (result.ok) summary = summarisePreview(result);
-  }
+  const result = await previewScan(parsed.target.value, { visitor: `user:${user.id}` });
+  if (result.ok) summary = summarisePreview(result);
   return addAndGo(access.organisationId, user.id, parsed.target, "", summary);
 }
 
 /**
- * A website or server gets the quick scan; a repo gets why it can't. Nothing is
- * added either way until Show it's yours. A site the scan couldn't reach can't
- * be added from here; one that only hit the scan limit still can.
+ * Every asset (a website, a server or a public repo) gets the quick scan first;
+ * nothing is saved until Show it's yours. A site the scan couldn't reach can't
+ * be added from here; a private repo (the scan can't see it) or a scan that
+ * only hit the limit still can.
  */
 async function scanOrGo(userId: string, target: ParsedTarget, reply: string): Promise<ChatAnswer> {
-  if (target.kind === "repo") return { kind: "scan", reply, target: target.value, summary: null, note: REPO_NOTE, canAdd: true };
   const result = await previewScan(target.value, { visitor: `user:${userId}` });
-  if (!result.ok) return { kind: "scan", reply, target: target.value, summary: null, note: result.reason, canAdd: result.retryAfterSeconds !== undefined };
+  if (!result.ok) return { kind: "scan", reply, target: target.value, summary: null, note: result.reason, canAdd: target.kind === "repo" || result.retryAfterSeconds !== undefined };
   return { kind: "scan", reply, target: target.value, summary: summarisePreview(result), note: null, canAdd: true };
 }
 

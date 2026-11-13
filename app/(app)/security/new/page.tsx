@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { SecurityChat } from "@/components/security-checks/security-chat";
 import { parseSecurityTarget } from "@/lib/security-checks/target";
+import { OWNERS_ONLY_MESSAGE } from "@/lib/security-checks";
 import { OrgPageHeader, ReadOnlyNote, orgCard } from "../../[org]/[project]/org/org-ui";
 
 export const metadata = { title: "Add asset" };
@@ -24,7 +25,9 @@ export default async function NewSecurityCheckPage(props: { searchParams?: Promi
       <OrgPageHeader heading="h1" title="Add asset">
         Paste a website, server address or GitHub repo. You&apos;ll show it&apos;s yours, then agents check it and report what they find.
       </OrgPageHeader>
-      {access.organisationId ? (
+      {access.organisationId && !access.admin ? (
+        <ReadOnlyNote>{OWNERS_ONLY_MESSAGE}</ReadOnlyNote>
+      ) : access.organisationId ? (
         <section className={orgCard} aria-label="What to check">
           <SecurityChat id="security-chat-page" focusOnOpen startWith={brought?.ok ? brought.target.value : undefined} />
         </section>
