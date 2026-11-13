@@ -94,9 +94,10 @@ function get(url: URL, address: string): Promise<RawResponse> {
 
 /** Read `path` on the project's site. */
 export async function readSitePage(siteUrl: string, path: string): Promise<SitePageResult> {
-  let url = sitePageUrl(siteUrl, path);
-  if (!url) return { ok: false, error: "That address isn't on the project's website. Give a path on the site, such as /pricing." };
+  const first = sitePageUrl(siteUrl, path);
+  if (!first) return { ok: false, error: "That address isn't on the project's website. Give a path on the site, such as /pricing." };
 
+  let url: URL = first;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const check = await checkSsrf(url.toString());
     const host = url.hostname.replace(/^\[|\]$/g, "");
@@ -110,7 +111,7 @@ export async function readSitePage(siteUrl: string, path: string): Promise<SiteP
       return { ok: false, error: error instanceof Error && error.message === "timeout" ? "The page took too long to load." : "The page couldn't be loaded." };
     }
     if (response.status >= 300 && response.status < 400) {
-      const next = response.location ? sitePageUrl(siteUrl, new URL(response.location, url).toString()) : null;
+      const next: URL | null = response.location ? sitePageUrl(siteUrl, new URL(response.location, url).toString()) : null;
       if (!next) return { ok: false, error: "The page redirects off the project's website." };
       url = next;
       continue;

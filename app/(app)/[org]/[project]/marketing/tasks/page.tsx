@@ -8,7 +8,7 @@ import { logLoadFailure } from "@/lib/load-error";
 import { loadOrganisationNextStep } from "@/lib/organisation-next-step-load";
 import { projectRef } from "@/lib/project-paths";
 import { requireProject } from "@/lib/project-route";
-import { readTasksBoard } from "./data";
+import { readTasksBoard } from "../data";
 
 export const metadata = { title: "Marketing" };
 

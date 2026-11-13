@@ -44,7 +44,6 @@ function SiteStep({ slug }: { slug: ProjectRef }) {
             inputMode="url"
             autoComplete="url"
             required
-            autoFocus
             placeholder="https://yourproduct.com"
             aria-invalid={result?.error ? true : undefined}
             aria-describedby={result?.error ? errorId : undefined}
@@ -221,7 +220,6 @@ function PromptStep({ slug, projectId, siteUrl, canChat }: { slug: ProjectRef; p
             }}
             rows={started ? 2 : 4}
             maxLength={MARKETING_ASSISTANT_MESSAGE_MAX}
-            autoFocus
             placeholder={started ? "Reply…" : "For example: look at our pricing page and tell me why few people sign up"}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? `${hintId} ${errorId}` : hintId}
