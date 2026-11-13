@@ -122,7 +122,7 @@ async function findOrCreateTarget(organisationId: string, userId: string, target
   }
 }
 
-/** Where the client goes next for a new check: show it's theirs, or, if already proven, back to Your sites where its free scan starts. */
+/** Where the client goes next for a new check: show it's theirs, or, if already proven, back to Sites where its free scan starts. */
 export function nextStepPath(check: { targetId: string; checkId: string; verified: boolean }): string {
   return check.verified ? `/security?check=${encodeURIComponent(check.checkId)}&added=1` : `/security/targets/${check.targetId}/verify`;
 }
@@ -142,7 +142,7 @@ export type WorkspaceCheckRow = {
   createdAt: Date;
 };
 
-/** Where a site is, for the Your sites sidebar: waiting for proof, being checked, or its report is ready to fix. */
+/** Where a site is, for the Sites sidebar: waiting for proof, being checked, or its report is ready to fix. */
 export type SiteStage = "prove" | "checking" | "fix" | "cancelled";
 export const SITE_FILTERS = ["all", "prove", "checking", "fix"] as const;
 export type SiteFilter = (typeof SITE_FILTERS)[number];

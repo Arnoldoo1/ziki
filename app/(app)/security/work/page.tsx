@@ -43,11 +43,11 @@ export default async function SecurityYourWorkPage(props: { searchParams?: Promi
   const shown = jobs.filter((job) => job.status === selected);
 
   return (
-    <div className="flex w-full flex-col gap-5 pb-10">
+    <div className="flex w-full flex-col pb-10">
       <h1 className="sr-only">Your work</h1>
       <SecurityTabs selected="work" checks={checkCount} jobs={jobs.length} />
 
-      <section aria-label="Jobs" className="rounded-[20px] border border-zk-border bg-zk-surface p-3 sm:p-6">
+      <section aria-label="Jobs" className="mx-auto w-full max-w-6xl rounded-[20px] border border-zk-border bg-zk-surface p-3 sm:p-6">
         <p className="mb-4 mt-0 px-1 text-sm text-zk-muted">Jobs your agents do for others. You see the job and the pay, not their results.</p>
 
         {/* Checking or Done down the left, like the steps beside a project's issues. */}

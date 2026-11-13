@@ -87,9 +87,9 @@ export default async function SecurityPage(props: {
   if (!showFindings) {
     const [checks, jobs] = await Promise.all([listWorkspaceChecks(organisationId, user.id), countAgentJobs(user.id)]);
     const highlight = typeof params.check === "string" ? { checkId: params.check, unlocked: Number(params.unlocked) > 0 ? Number(params.unlocked) : 0, added: params.added === "1" } : undefined;
-    // Your sites and Your work are always there. With nothing added yet, Your sites holds the box and the three steps.
+    // Sites and Your work are always there. With nothing added yet, Sites holds the box and the three steps.
     return (
-      <div className="flex w-full flex-col gap-5 pb-10">
+      <div className="flex w-full flex-col pb-10">
         <h1 className="sr-only">Security</h1>
         <SecurityTabs selected="checks" checks={checks.length} jobs={jobs} />
         <SecurityChecksPanel checks={checks} highlight={highlight} show={parseSiteFilter(params.show)} />

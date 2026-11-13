@@ -8,7 +8,8 @@ import { CheckSiteButton } from "./entry-dialog";
 import { FlashNote } from "./flash-note";
 import { StageSidebar, type SidebarStep } from "@/components/stage-sidebar";
 
-const card = "rounded-[24px] border border-zk-border bg-zk-surface";
+/** One panel for everything, as wide as the tabs above it, like a project's Ideas and Issues. */
+const PANEL = "mx-auto w-full max-w-6xl overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface";
 const PRIMARY_ROW_BUTTON =
   "inline-flex h-9 items-center rounded-full bg-electric-blue-strong px-4 text-sm font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2";
 const ROW_BUTTON =
@@ -38,7 +39,17 @@ export function SecurityChecksPanel({
   highlight?: { checkId: string; unlocked: number; added?: boolean };
   show?: SiteFilter;
 }) {
-  if (checks.length === 0) return <SecurityWelcome />;
+  // Nothing added yet: the welcome, inside the same panel, like a project's Ideas page with no ideas.
+  if (checks.length === 0) {
+    return (
+      <section aria-label="Sites" className={PANEL}>
+        <div className="flex items-center justify-end gap-3 border-b border-zk-divider px-4 py-3 sm:px-6">
+          <CheckSiteButton variant="inline" />
+        </div>
+        <SecurityWelcome />
+      </section>
+    );
+  }
 
   const count = (filter: SiteFilter) => (filter === "all" ? checks.length : checks.filter((check) => siteStage(check) === filter).length);
   const shown = show === "all" ? checks : checks.filter((check) => siteStage(check) === show);
@@ -50,13 +61,13 @@ export function SecurityChecksPanel({
   }));
 
   return (
-    <section aria-labelledby="security-checks-heading" className={`${card} overflow-hidden`}>
-      {/* Like a project's list: the add button on the left of the card's top bar. */}
+    <section aria-labelledby="security-checks-heading" className={PANEL}>
+      {/* Like a project's Ideas: what's shown on the left of the top bar, the add button on the right. */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zk-divider px-4 py-3 sm:px-6">
-        <CheckSiteButton variant="inline" />
         <h2 id="security-checks-heading" className="m-0 text-sm font-normal text-zk-muted">
-          {show === "all" ? "Your sites, newest first" : `${SITE_FILTER_TEXT[show].label}, newest first`}
+          {show === "all" ? "Sites, newest first" : `${SITE_FILTER_TEXT[show].label}, newest first`}
         </h2>
+        <CheckSiteButton variant="inline" />
       </div>
       {highlight?.added && !highlight.unlocked ? (
         <FlashNote>Saved. Show it&apos;s yours and your free scan starts.</FlashNote>
@@ -79,7 +90,7 @@ export function SecurityChecksPanel({
           ) : (
             <div className="bg-zk-bg px-6 py-12 text-center">
               <p className="m-0 font-semibold text-zk-text">{SITE_FILTER_TEXT[show].empty}</p>
-              <Link href="/security" className="mt-2 inline-flex text-sm font-semibold text-zk-accent hover:underline">Show all your sites</Link>
+              <Link href="/security" className="mt-2 inline-flex text-sm font-semibold text-zk-accent hover:underline">Show all sites</Link>
             </div>
           )}
         </div>

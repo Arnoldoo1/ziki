@@ -146,9 +146,7 @@ export function SecurityChat({ id = "security-chat", focusOnOpen = false }: { id
                 </span>
               ) : isPrivate ? (
                 <span className="text-zk-bad-fg">That&apos;s a private address</span>
-              ) : (
-                "A website, server address or GitHub repo"
-              )}
+              ) : null}
             </p>
             <button
               type="submit"

@@ -39,7 +39,7 @@ describe("SecurityChecksPanel (#security-checks part 1)", () => {
         ]}
       />,
     );
-    expect(html).toContain("Your sites");
+    expect(html).toContain("Sites, newest first");
     expect(html).not.toContain("Find the holes");
     expect(html).toContain('href="/security/targets/t1/verify"');
     expect(html).toContain(">Continue</a>");

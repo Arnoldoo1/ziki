@@ -9,11 +9,25 @@ import { SecuritySettingsLink } from "@/components/security/security-settings-li
  */
 export function SecurityTabs({ selected, checks, jobs }: { selected: "checks" | "work"; checks: number; jobs: number }) {
   return (
-    <div className="relative flex flex-wrap items-start justify-center gap-3">
+    <>
+    {/* Like a project's page: where you are, on a thin line above the tabs. */}
+    <nav aria-label="Breadcrumb" className="mx-auto mb-3 flex w-full max-w-6xl items-center px-0.5 text-[13px] text-zk-text2 max-sm:mb-1">
+      <ol className="m-0 flex min-w-0 list-none flex-wrap items-center gap-0.5 p-0">
+        <li>
+          <Link href="/security" className={`${CRUMB} block font-bold text-zk-text`}>Security</Link>
+        </li>
+        <li aria-hidden="true" className="text-zk-muted">/</li>
+        <li>
+          <span aria-current="page" className={`${CRUMB} block font-medium text-zk-text2`}>{selected === "checks" ? "Sites" : "Your work"}</span>
+        </li>
+      </ol>
+    </nav>
+    {/* The tabs, centred, as wide as the panel below, with the icons at its right edge. */}
+    <div className="relative mx-auto mb-4 flex w-full max-w-6xl flex-wrap items-start justify-center gap-3 max-sm:mb-3">
       <PipelineSteps
         label="Security"
         stages={[
-          { label: "Your sites", count: checks, href: "/security", selected: selected === "checks" },
+          { label: "Sites", count: checks, href: "/security", selected: selected === "checks" },
           { label: "Your work", count: jobs, href: "/security/work", selected: selected === "work" },
         ]}
       />
@@ -32,5 +46,8 @@ export function SecurityTabs({ selected, checks, jobs }: { selected: "checks" | 
         <SecuritySettingsLink />
       </div>
     </div>
+    </>
   );
 }
+
+const CRUMB = "rounded-md px-1.5 py-0.5 hover:bg-zk-chip hover:text-zk-text focus-visible:outline-2 focus-visible:outline-zk-accent";

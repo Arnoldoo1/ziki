@@ -69,7 +69,7 @@ async function addAndGo(
   const added = await addTargetAndCheck(organisationId, userId, target);
   if ("refused" in added) return { kind: "reply", reply: refusedMessage(added.refused, target.value) };
   revalidatePath("/security");
-  // Not proven yet: on to "Show it's yours". Proven already: back to Your sites, where the free scan starts.
+  // Not proven yet: on to "Show it's yours". Proven already: back to Sites, where the free scan starts.
   return { kind: "go", reply, href: nextStepPath(added) };
 }
 
