@@ -160,7 +160,7 @@ export function SecurityChat({
   }, [startWith]);
   const lastUser = [...turns].reverse().find((turn) => turn.role === "user")?.text ?? "";
   const lastTarget = lastUser ? parseSecurityTarget(lastUser) : null;
-  const scanning = pending && !adding && lastTarget?.ok === true && lastTarget.target.kind !== "repo";
+  const scanning = pending && !adding && lastTarget?.ok === true;
 
   return (
     <div className="flex flex-col gap-3">

@@ -82,7 +82,7 @@ export async function addSecurityAsset(link: string): Promise<ChatAnswer> {
   if (!parsed.ok) return { kind: "error", error: parsed.error };
   // The quick scan the client just saw, run again here (Dave's scan keeps it for ten minutes) rather than trusted from the page.
   let summary: PreviewSummary | null = null;
-  const result = await previewScan(parsed.target.value, { visitor: `user:${user.id}` });
+  const result = await previewScan(previewLink(parsed.target), { visitor: `user:${user.id}` });
   if (result.ok) summary = summarisePreview(result);
   return addAndGo(access.organisationId, user.id, parsed.target, "", summary);
 }
@@ -94,9 +94,14 @@ export async function addSecurityAsset(link: string): Promise<ChatAnswer> {
  * only hit the limit still can.
  */
 async function scanOrGo(userId: string, target: ParsedTarget, reply: string): Promise<ChatAnswer> {
-  const result = await previewScan(target.value, { visitor: `user:${userId}` });
+  const result = await previewScan(previewLink(target), { visitor: `user:${userId}` });
   if (!result.ok) return { kind: "scan", reply, target: target.value, summary: null, note: result.reason, canAdd: target.kind === "repo" || result.retryAfterSeconds !== undefined };
   return { kind: "scan", reply, target: target.value, summary: summarisePreview(result), note: null, canAdd: true };
+}
+
+/** What the scan is given for a target: a repo's value is just "owner/name", which the scan reads back as a link, so give it the GitHub address. */
+function previewLink(target: ParsedTarget): string {
+  return target.kind === "repo" ? `github.com/${target.value}` : target.value;
 }
 
 async function addAndGo(
