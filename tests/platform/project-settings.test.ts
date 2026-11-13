@@ -83,7 +83,7 @@ import {
   deleteMarketingIssueTypeAction,
   updateMarketingRevisionLimitAction,
 } from "@/app/(app)/[org]/[project]/marketing/settings/actions";
-import { saveMarketingSiteAction } from "@/app/(app)/[org]/[project]/marketing/actions";
+import { askMarketingAssistantAction, saveMarketingSiteAction } from "@/app/(app)/[org]/[project]/marketing/actions";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import {
   DEFAULT_PROJECT_WORKFLOW,
@@ -678,6 +678,16 @@ describe("saveMarketingSiteAction (#marketing-home)", () => {
       await expect(saveMarketingSiteAction(slug, undefined, site(address))).resolves.toMatchObject({ error: expect.any(String) });
     }
     expect(transaction).not.toHaveBeenCalled();
+  });
+
+  it("lets only organisation admins talk to the marketing assistant", async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    requireProject.mockResolvedValue({ user: { id: "member" }, organisationId: "organisation-1", project: { id: "project-1" }, isOrgAdmin: false });
+    await expect(askMarketingAssistantAction(slug, [{ role: "user", text: "Why don't people sign up?" }])).resolves.toMatchObject({ ok: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(projectFindUnique).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 
   it("sets the project's site and audits the change", async () => {

@@ -17,5 +17,5 @@ export default async function MarketingHomePage({ params }: Props) {
   const { org, project: projectSlug } = await params;
   const context = await requireProject(org, projectSlug);
   const project = await prisma.project.findUnique({ where: { id: context.project.id }, select: { siteUrl: true } });
-  return <MarketingHome slug={projectRef(org, projectSlug)} siteUrl={project?.siteUrl ?? null} isAdmin={context.isOrgAdmin} />;
+  return <MarketingHome slug={projectRef(org, projectSlug)} projectId={context.project.id} siteUrl={project?.siteUrl ?? null} isAdmin={context.isOrgAdmin} />;
 }

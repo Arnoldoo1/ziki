@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useId, useRef, useState, useTransition } from "react";
 import { askMarketingAssistantAction, saveMarketingSiteAction, type MarketingSiteResult } from "@/app/(app)/[org]/[project]/marketing/actions";
-import { MARKETING_ASSISTANT_MESSAGE_MAX, type MarketingTurn } from "@/lib/marketing/assistant-limits";
+import { createBugAction } from "@/app/actions/issues";
+import { MARKETING_ASSISTANT_MESSAGE_MAX, type MarketingAnswer, type MarketingDraft, type MarketingTurn } from "@/lib/marketing/assistant-shared";
 import type { ProjectRef } from "@/lib/project-paths";
 
 const focus = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue";
@@ -14,10 +16,10 @@ const primary = `inline-flex min-h-11 shrink-0 items-center justify-center round
  * for the one to improve the marketing for; after that it asks what marketing
  * problem to fix, and the assistant answers.
  */
-export function MarketingHome({ slug, siteUrl, isAdmin }: { slug: ProjectRef; siteUrl: string | null; isAdmin: boolean }) {
+export function MarketingHome({ slug, projectId, siteUrl, isAdmin }: { slug: ProjectRef; projectId: string; siteUrl: string | null; isAdmin: boolean }) {
   return (
     <section className="mx-auto flex w-full max-w-3xl flex-col items-center gap-6 px-1 pb-16 pt-10 text-center sm:pt-16">
-      {siteUrl ? <PromptStep slug={slug} siteUrl={siteUrl} canChat={isAdmin} /> : isAdmin ? <SiteStep slug={slug} /> : <SiteMissing />}
+      {siteUrl ? <PromptStep slug={slug} projectId={projectId} siteUrl={siteUrl} canChat={isAdmin} /> : isAdmin ? <SiteStep slug={slug} /> : <SiteMissing />}
     </section>
   );
 }
@@ -67,9 +69,18 @@ function SiteMissing() {
   );
 }
 
+/** A turn as the page shows it: an assistant reply also says what it looked at and what it drafted. */
+type ChatTurn = MarketingTurn & { activity?: string[]; drafts?: MarketingDraft[] };
+
+/** What the model reads back of a past reply: its text, and the tasks it drafted. */
+function historyText(turn: ChatTurn): string {
+  if (!turn.drafts?.length) return turn.text;
+  return `${turn.text}\n\n(Drafted tasks shown to the person: ${turn.drafts.map((draft) => `"${draft.title}"`).join(", ")}.)`;
+}
+
 /** Organisation owners and admins talk to the assistant; others see why they can't. */
-function PromptStep({ slug, siteUrl, canChat }: { slug: ProjectRef; siteUrl: string; canChat: boolean }) {
-  const [turns, setTurns] = useState<MarketingTurn[]>([]);
+function PromptStep({ slug, projectId, siteUrl, canChat }: { slug: ProjectRef; projectId: string; siteUrl: string; canChat: boolean }) {
+  const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [prompt, setPrompt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -88,19 +99,19 @@ function PromptStep({ slug, siteUrl, canChat }: { slug: ProjectRef; siteUrl: str
   function send() {
     const text = prompt.trim();
     if (!text || pending) return;
-    const history: MarketingTurn[] = [...turns, { role: "user", text }];
-    setTurns(history);
+    const shown: ChatTurn[] = [...turns, { role: "user", text }];
+    setTurns(shown);
     setPrompt("");
     setError(null);
     startTransition(async () => {
-      let answer: Awaited<ReturnType<typeof askMarketingAssistantAction>>;
+      let answer: MarketingAnswer;
       try {
-        answer = await askMarketingAssistantAction(slug, history);
+        answer = await askMarketingAssistantAction(slug, shown.map((turn) => ({ role: turn.role, text: historyText(turn) })));
       } catch {
         answer = { ok: false, error: "The message couldn't be sent. Check your connection and try again." };
       }
       if (answer.ok) {
-        setTurns([...history, { role: "assistant", text: answer.reply }]);
+        setTurns([...shown, { role: "assistant", text: answer.reply, activity: answer.activity, drafts: answer.drafts }]);
       } else {
         // Put the message back so it can be sent again.
         setTurns(turns);
@@ -118,15 +129,15 @@ function PromptStep({ slug, siteUrl, canChat }: { slug: ProjectRef; siteUrl: str
     inputRef.current?.focus();
   }
 
+  const siteLink = (
+    <a href={siteUrl} target="_blank" rel="noopener noreferrer" className={`rounded-sm font-semibold text-zk-accent hover:underline ${focus}`}>
+      {site}
+    </a>
+  );
   const header = (
     <header className="space-y-2">
       <h1 className="text-[28px] font-extrabold leading-tight tracking-[-0.02em] text-zk-text">What marketing problem should we fix?</h1>
-      <p className="text-zk-muted">
-        For{" "}
-        <a href={siteUrl} target="_blank" rel="noopener noreferrer" className={`rounded-sm font-semibold text-zk-accent hover:underline ${focus}`}>
-          {site}
-        </a>
-      </p>
+      <p className="text-zk-muted">For {siteLink}</p>
     </header>
   );
 
@@ -143,12 +154,7 @@ function PromptStep({ slug, siteUrl, canChat }: { slug: ProjectRef; siteUrl: str
     <>
       {started ? (
         <div className="flex w-full items-center justify-between gap-3 text-left">
-          <p className="text-sm text-zk-muted">
-            Marketing{" "}
-            <a href={siteUrl} target="_blank" rel="noopener noreferrer" className={`rounded-sm font-semibold text-zk-accent hover:underline ${focus}`}>
-              {site}
-            </a>
-          </p>
+          <p className="text-sm text-zk-muted">Marketing {siteLink}</p>
           <button type="button" onClick={startOver} disabled={pending} className={`rounded-full border border-zk-border bg-zk-surface px-4 py-2 text-sm font-bold text-zk-text transition hover:bg-zk-chip disabled:opacity-50 ${focus}`}>
             New conversation
           </button>
@@ -158,7 +164,14 @@ function PromptStep({ slug, siteUrl, canChat }: { slug: ProjectRef; siteUrl: str
       {started ? (
         <ol aria-label="Conversation" className="flex w-full flex-col gap-4 text-left">
           {turns.map((turn, index) => (
-            <li key={index} className={turn.role === "user" ? "flex justify-end" : "flex justify-start"}>
+            <li key={index} className={turn.role === "user" ? "flex justify-end" : "flex flex-col items-start gap-2"}>
+              {turn.role === "assistant" && turn.activity?.length ? (
+                <ul aria-label="What the assistant did" className="flex flex-wrap gap-1.5 px-1">
+                  {turn.activity.map((item, step) => (
+                    <li key={step} className="rounded-full bg-zk-chip px-2.5 py-0.5 text-xs font-semibold text-zk-muted">{item}</li>
+                  ))}
+                </ul>
+              ) : null}
               <div
                 className={turn.role === "user"
                   ? "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md bg-zk-tint px-4 py-3 text-zk-text"
@@ -167,11 +180,20 @@ function PromptStep({ slug, siteUrl, canChat }: { slug: ProjectRef; siteUrl: str
                 <span className="sr-only">{turn.role === "user" ? "You: " : "Assistant: "}</span>
                 {turn.text}
               </div>
+              {turn.drafts?.length ? (
+                <ul aria-label="Drafted tasks" className="flex w-full flex-col gap-3">
+                  {turn.drafts.map((draft, number) => (
+                    <li key={number}>
+                      <DraftCard draft={draft} projectId={projectId} />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
             </li>
           ))}
           {pending ? (
             <li className="flex justify-start">
-              <p role="status" className="px-1 text-zk-muted motion-safe:animate-pulse">Thinking…</p>
+              <p role="status" className="px-1 text-zk-muted motion-safe:animate-pulse">Working on it…</p>
             </li>
           ) : null}
         </ol>
@@ -200,7 +222,7 @@ function PromptStep({ slug, siteUrl, canChat }: { slug: ProjectRef; siteUrl: str
             rows={started ? 2 : 4}
             maxLength={MARKETING_ASSISTANT_MESSAGE_MAX}
             autoFocus
-            placeholder={started ? "Reply…" : "For example: people visit the pricing page but few sign up"}
+            placeholder={started ? "Reply…" : "For example: look at our pricing page and tell me why few people sign up"}
             aria-invalid={error ? true : undefined}
             aria-describedby={error ? `${hintId} ${errorId}` : hintId}
             className="block w-full resize-none bg-transparent px-3 py-2 text-base text-zk-text placeholder:text-zk-muted focus:outline-none"
@@ -216,5 +238,76 @@ function PromptStep({ slug, siteUrl, canChat }: { slug: ProjectRef; siteUrl: str
       </form>
       <div ref={endRef} />
     </>
+  );
+}
+
+type DraftState = { kind: "draft" } | { kind: "filing" } | { kind: "filed"; href: string } | { kind: "dismissed" } | { kind: "error"; message: string };
+
+/**
+ * A task the assistant drafted. Filing it goes through the same action as the
+ * Propose a task form, as the person, so it becomes a marketing idea with all
+ * the form's checks; dismissing it only hides it.
+ */
+function DraftCard({ draft, projectId }: { draft: MarketingDraft; projectId: string }) {
+  const [state, setState] = useState<DraftState>({ kind: "draft" });
+  const [open, setOpen] = useState(false);
+  const titleId = useId();
+
+  if (state.kind === "dismissed") {
+    return (
+      <p className="rounded-xl border border-dashed border-zk-border px-4 py-2 text-sm text-zk-muted">
+        Dismissed &ldquo;{draft.title}&rdquo;.{" "}
+        <button type="button" onClick={() => setState({ kind: "draft" })} className={`rounded-sm font-semibold text-zk-accent hover:underline ${focus}`}>Undo</button>
+      </p>
+    );
+  }
+
+  async function file() {
+    setState({ kind: "filing" });
+    const form = new FormData();
+    form.set("track", "marketing");
+    form.set("projectId", projectId);
+    form.set("title", draft.title);
+    form.set("typeId", draft.typeId);
+    form.set("description", draft.description);
+    form.set("rationale", draft.rationale);
+    form.set("stay", "true");
+    try {
+      const result = await createBugAction(form);
+      if (result.href) setState({ kind: "filed", href: result.href });
+      else setState({ kind: "error", message: result.error ?? Object.values(result.fieldErrors ?? {})[0] ?? "The task couldn't be filed." });
+    } catch {
+      setState({ kind: "error", message: "The task couldn't be filed. Check your connection and try again." });
+    }
+  }
+
+  return (
+    <article aria-labelledby={titleId} className="w-full rounded-2xl border border-zk-border bg-zk-surface p-4 text-left shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-wide text-zk-muted">Draft task · {draft.typeName}</p>
+      <h3 id={titleId} className="mt-1 text-base font-extrabold text-zk-text">{draft.title}</h3>
+      <p className="mt-1 text-sm text-zk-muted">{draft.rationale}</p>
+      <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className={`mt-2 rounded-sm text-sm font-semibold text-zk-accent hover:underline ${focus}`}>
+        {open ? "Hide details" : "Show details"}
+      </button>
+      {open ? <p className="mt-2 whitespace-pre-wrap break-words text-sm text-zk-text">{draft.description}</p> : null}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {state.kind === "filed" ? (
+          <p role="status" className="text-sm font-semibold text-zk-text">
+            Filed.{" "}
+            <Link href={state.href} className={`rounded-sm text-zk-accent hover:underline ${focus}`}>Open the idea</Link>
+          </p>
+        ) : (
+          <>
+            <button type="button" onClick={file} disabled={state.kind === "filing"} className={`${primary} min-h-9 px-4`}>
+              {state.kind === "filing" ? "Filing…" : "File it"}
+            </button>
+            <button type="button" onClick={() => setState({ kind: "dismissed" })} disabled={state.kind === "filing"} className={`min-h-9 rounded-full px-4 text-sm font-bold text-zk-muted transition hover:bg-zk-chip disabled:opacity-50 ${focus}`}>
+              Dismiss
+            </button>
+          </>
+        )}
+      </div>
+      {state.kind === "error" ? <p role="alert" className="mt-2 text-sm text-zk-bad-fg">{state.message}</p> : null}
+    </article>
   );
 }
