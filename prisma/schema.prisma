@@ -3309,6 +3309,11 @@ model SecurityTarget {
   ownershipMethod String?
   /// When ownership was proven; null until then. No agent may touch the target while null.
   verifiedAt      DateTime?
+  /// The quick scan's counts when the client added it (#security-checks): severities, risk and
+  /// areas only, never what was found. Null for a repo or when the scan couldn't run.
+  previewSummary  Json?
+  /// When that quick scan ran.
+  previewAt       DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   checks          SecurityCheck[]

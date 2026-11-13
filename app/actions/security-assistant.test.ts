@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   ask: vi.fn(),
   rate: vi.fn(),
   preview: vi.fn(),
+  saveQuickScan: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -15,6 +16,7 @@ vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.rate, RATE_LIMIT_MESS
 vi.mock("@/lib/security-checks/entry", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/security-checks/entry")>()),
   addTargetAndCheck: mocks.addTargetAndCheck,
+  saveQuickScan: mocks.saveQuickScan,
 }));
 vi.mock("@/lib/security-checks/assistant", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/security-checks/assistant")>()),
@@ -59,21 +61,27 @@ describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
     expect(JSON.stringify(answer)).not.toContain("SECRET");
   });
 
-  it("still offers Show it's yours when the scan can't run", async () => {
+  it("offers no Show it's yours for a site the scan couldn't reach, but does when only the limit was hit", async () => {
     mocks.preview.mockResolvedValue({ ok: false, reason: "We couldn't reach settle.ng just now." });
-    const answer = await talkToSecurityAssistant(say("settle.ng"));
-    expect(answer).toMatchObject({ kind: "scan", summary: null, note: "We couldn't reach settle.ng just now." });
+    expect(await talkToSecurityAssistant(say("settle.ng"))).toMatchObject({ kind: "scan", summary: null, note: "We couldn't reach settle.ng just now.", canAdd: false });
+
+    mocks.preview.mockResolvedValue({ ok: false, reason: "Too many scans.", retryAfterSeconds: 120 });
+    expect(await talkToSecurityAssistant(say("settle.ng"))).toMatchObject({ kind: "scan", summary: null, canAdd: true });
   });
 
-  it("sends a GitHub repo straight on, since it can't be quick-scanned", async () => {
+  it("explains why a GitHub repo gets no quick scan, and adds nothing until Show it's yours", async () => {
     const answer = await talkToSecurityAssistant(say("github.com/settle/app"));
     expect(mocks.preview).not.toHaveBeenCalled();
-    expect(answer).toMatchObject({ kind: "go", href: "/security/targets/t1/verify" });
+    expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
+    expect(answer).toMatchObject({ kind: "scan", target: "settle/app", summary: null, canAdd: true });
+    expect((answer as { note: string }).note).toMatch(/can't look inside a GitHub repo/);
   });
 
-  it("adds the asset only on Show it's yours, then goes on to prove it", async () => {
+  it("adds the asset only on Show it's yours, saves the quick scan's counts with it, then goes on to prove it", async () => {
     expect(await addSecurityAsset("settle.ng")).toMatchObject({ kind: "go", href: "/security/targets/t1/verify" });
     expect(mocks.addTargetAndCheck).toHaveBeenCalledWith("org1", "u1", expect.objectContaining({ kind: "website", value: "settle.ng" }));
+    expect(mocks.saveQuickScan).toHaveBeenCalledWith("t1", expect.objectContaining({ total: 2, risk: "high" }));
+    expect(JSON.stringify(mocks.saveQuickScan.mock.calls[0][1])).not.toContain("SECRET");
 
     mocks.addTargetAndCheck.mockResolvedValue({ targetId: "t1", checkId: "c9", verified: true, reused: false });
     expect(await addSecurityAsset("settle.ng")).toMatchObject({ kind: "go", href: "/security?check=c9&added=1" });

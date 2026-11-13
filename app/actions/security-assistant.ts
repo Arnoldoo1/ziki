@@ -5,9 +5,9 @@ import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { checkRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { parseSecurityTarget, PRIVATE_TARGET_ERROR } from "@/lib/security-checks/target";
-import { addTargetAndCheck, nextStepPath, refusedMessage } from "@/lib/security-checks/entry";
+import { addTargetAndCheck, nextStepPath, refusedMessage, saveQuickScan } from "@/lib/security-checks/entry";
 import { previewScan } from "@/lib/security-checks/preview";
-import { summarisePreview, type PreviewSummary } from "@/lib/security-checks/preview-summary";
+import { REPO_NOTE, summarisePreview, type PreviewSummary } from "@/lib/security-checks/preview-summary";
 import type { ParsedTarget } from "@/lib/security-checks/target";
 import {
   ASSISTANT_HISTORY_MAX,
@@ -31,7 +31,7 @@ export type ChatAnswer =
   | { kind: "reply"; reply: string }
   | { kind: "go"; reply: string; href: string }
   /** The quick scan of a site, before anything is saved: counts only. `summary` is null when the scan couldn't run. */
-  | { kind: "scan"; reply: string; target: string; summary: PreviewSummary | null; note: string | null }
+  | { kind: "scan"; reply: string; target: string; summary: PreviewSummary | null; note: string | null; canAdd: boolean }
   | { kind: "error"; error: string };
 
 /** Messages one person may send the assistant in an hour. */
@@ -51,7 +51,7 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
 
   // A plain link needs no AI.
   const direct = parseSecurityTarget(last.text);
-  if (direct.ok) return scanOrGo(access.organisationId, user.id, direct.target, `Got it. Here's a quick look at ${direct.target.value}.`);
+  if (direct.ok) return scanOrGo(user.id, direct.target, `Got it. Here's a quick look at ${direct.target.value}.`);
   if (direct.error === PRIVATE_TARGET_ERROR) return { kind: "reply", reply: PRIVATE_TARGET_ERROR };
 
   const limit = checkRateLimit(`security-assistant:${user.id}`, ASSISTANT_RATE_LIMIT);
@@ -61,7 +61,7 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
   if (!answer) return { kind: "reply", reply: ASK_FOR_ADDRESS };
   if (answer.target) {
     const picked = parseSecurityTarget(answer.target);
-    if (picked.ok) return scanOrGo(access.organisationId, user.id, picked.target, answer.reply);
+    if (picked.ok) return scanOrGo(user.id, picked.target, answer.reply);
     if (picked.error === PRIVATE_TARGET_ERROR) return { kind: "reply", reply: PRIVATE_TARGET_ERROR };
   }
   return { kind: "reply", reply: answer.reply };
@@ -77,15 +77,25 @@ export async function addSecurityAsset(link: string): Promise<ChatAnswer> {
   if (!access.organisationId) return { kind: "error", error: NO_WORKSPACE };
   const parsed = parseSecurityTarget(typeof link === "string" ? link : "");
   if (!parsed.ok) return { kind: "error", error: parsed.error };
-  return addAndGo(access.organisationId, user.id, parsed.target, "");
+  // The quick scan the client just saw, run again here (Dave's scan keeps it for ten minutes) rather than trusted from the page.
+  let summary: PreviewSummary | null = null;
+  if (parsed.target.kind !== "repo") {
+    const result = await previewScan(parsed.target.value, { visitor: `user:${user.id}` });
+    if (result.ok) summary = summarisePreview(result);
+  }
+  return addAndGo(access.organisationId, user.id, parsed.target, "", summary);
 }
 
-/** A website or server gets the quick scan first; a repo can't be quick-scanned, so it goes straight on. */
-async function scanOrGo(organisationId: string, userId: string, target: ParsedTarget, reply: string): Promise<ChatAnswer> {
-  if (target.kind === "repo") return addAndGo(organisationId, userId, target, reply || "Got it. Next, show it's yours and the scan starts.");
+/**
+ * A website or server gets the quick scan; a repo gets why it can't. Nothing is
+ * added either way until Show it's yours. A site the scan couldn't reach can't
+ * be added from here; one that only hit the scan limit still can.
+ */
+async function scanOrGo(userId: string, target: ParsedTarget, reply: string): Promise<ChatAnswer> {
+  if (target.kind === "repo") return { kind: "scan", reply, target: target.value, summary: null, note: REPO_NOTE, canAdd: true };
   const result = await previewScan(target.value, { visitor: `user:${userId}` });
-  if (!result.ok) return { kind: "scan", reply, target: target.value, summary: null, note: result.reason };
-  return { kind: "scan", reply, target: target.value, summary: summarisePreview(result), note: null };
+  if (!result.ok) return { kind: "scan", reply, target: target.value, summary: null, note: result.reason, canAdd: result.retryAfterSeconds !== undefined };
+  return { kind: "scan", reply, target: target.value, summary: summarisePreview(result), note: null, canAdd: true };
 }
 
 async function addAndGo(
@@ -93,9 +103,11 @@ async function addAndGo(
   userId: string,
   target: Parameters<typeof addTargetAndCheck>[2],
   reply: string,
+  summary: PreviewSummary | null = null,
 ): Promise<ChatAnswer> {
   const added = await addTargetAndCheck(organisationId, userId, target);
   if ("refused" in added) return { kind: "reply", reply: refusedMessage(added.refused, target.value) };
+  if (summary) await saveQuickScan(added.targetId, summary);
   revalidatePath("/security");
   // Not proven yet: on to "Show it's yours". Proven already: back to Assets, where the free scan starts.
   return { kind: "go", reply, href: nextStepPath(added) };
