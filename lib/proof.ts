@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Prisma, PrismaClient } from "@prisma/client";
+import { sameCommit } from "@/lib/github/commit-sha";
 
 /**
  * Deeper testing (#deeper-testing): what a judgement must prove.
@@ -161,7 +162,7 @@ export function judgementProof(
   deliveredSha: string | null,
 ): { state: JudgementProofState; missing: string[] } {
   const proof = storedProof(verdict.proof);
-  if (deliveredSha && verdict.headSha && verdict.headSha !== deliveredSha) return { state: "earlier_code", missing: [] };
+  if (deliveredSha && verdict.headSha && !sameCommit(verdict.headSha, deliveredSha)) return { state: "earlier_code", missing: [] };
   const fails = Object.values(proof.checks ?? {}).some(isProvenFail);
   if (!verdict.goodToMerge) return { state: fails ? "proved_fail" : "no_fail_proof", missing: [] };
   if (fails) return { state: "contradicts", missing: [] };

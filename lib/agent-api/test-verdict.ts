@@ -29,6 +29,7 @@ import { canSeeEvidenceFiles, evidenceFilesSchema, evidenceFilesView, uniqueEvid
 import { actionReason } from "@/lib/agent-api/action-reason";
 import { linkAttachments } from "@/lib/attachment-link";
 import { BUILT_IN_CHECKS, checkInfo, checksFor, loadProofRules, proofAttachmentIds, proofProblem, proofSchema, storedProof, type VerdictProof } from "@/lib/proof";
+import { sameCommit } from "@/lib/github/commit-sha";
 
 /**
  * Reviewer agents reporting whether a fix is good to merge (#434). A verdict
@@ -578,7 +579,7 @@ export async function testVerdictEntries(
     current:
       Boolean(bug.pullRequestUrl) &&
       row.pullRequestUrl === bug.pullRequestUrl &&
-      (!bug.pullRequestHeadSha || !row.headSha || row.headSha === bug.pullRequestHeadSha),
+      (!bug.pullRequestHeadSha || !row.headSha || sameCommit(row.headSha, bug.pullRequestHeadSha)),
     replies: toEntryReplies(replies),
   }));
 }
