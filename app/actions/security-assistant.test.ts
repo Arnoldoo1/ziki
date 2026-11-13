@@ -74,10 +74,23 @@ describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
     expect(answer).toMatchObject({ kind: "scan", summary: null, note: "We couldn't reach settle.ng just now." });
   });
 
-  it("sends a GitHub repo straight on, since it can't be quick-scanned", async () => {
+  it("quick-scans a GitHub repo like any other asset, and saves nothing until Show it's yours", async () => {
+    mocks.preview.mockResolvedValue({ ...SCAN, kind: "repo", target: "settle/app", checked: ["secrets", "policy"], counts: { critical: 0, high: 1, medium: 0, low: 1 }, findings: [
+      { id: "s", severity: "high", area: "secrets", title: "A file that usually holds secrets SECRET", detail: ".env SECRET" },
+      { id: "p", severity: "low", area: "policy", title: "No security policy SECRET", detail: "No SECURITY.md SECRET" },
+    ] });
     const answer = await talkToSecurityAssistant(say("github.com/settle/app"));
-    expect(mocks.preview).not.toHaveBeenCalled();
-    expect(answer).toMatchObject({ kind: "go", href: "/security/targets/t1/verify" });
+    expect(mocks.preview).toHaveBeenCalledWith("settle/app", { visitor: "user:u1" });
+    expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
+    expect(answer).toMatchObject({ kind: "scan", target: "settle/app", summary: { kind: "repo", total: 2, risk: "high" } });
+    expect(JSON.stringify(answer)).not.toContain("SECRET");
+  });
+
+  it("still offers Show it's yours for a repo it can't see, such as a private one", async () => {
+    mocks.preview.mockResolvedValue({ ok: false, reason: "We couldn't see that repo on GitHub." });
+    const answer = await talkToSecurityAssistant(say("github.com/settle/private-app"));
+    expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
+    expect(answer).toMatchObject({ kind: "scan", summary: null, note: "We couldn't see that repo on GitHub." });
   });
 
   it("adds the asset only on Show it's yours, then goes on to prove it", async () => {
