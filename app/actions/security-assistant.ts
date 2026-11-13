@@ -23,8 +23,8 @@ import {
  * out the site. Once a site is clear, Dave's quick scan looks at it and the
  * chat shows the counts (never what was found). Nothing is saved until the
  * client clicks "Show it's yours" (`addSecurityAsset`), which adds the asset
- * and goes on to prove it. A GitHub repo can't be quick-scanned, so it goes
- * straight on.
+ * and goes on to prove it. A public GitHub repo gets a quick look too (its file
+ * names only); a private one says so and still goes on.
  */
 
 export type ChatAnswer =
@@ -51,7 +51,7 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
 
   // A plain link needs no AI.
   const direct = parseSecurityTarget(last.text);
-  if (direct.ok) return scanOrGo(access.organisationId, user.id, direct.target, `Got it. Here's a quick look at ${direct.target.value}.`);
+  if (direct.ok) return scanOrGo(user.id, direct.target, `Got it. Here's a quick look at ${direct.target.value}.`);
   if (direct.error === PRIVATE_TARGET_ERROR) return { kind: "reply", reply: PRIVATE_TARGET_ERROR };
 
   const limit = checkRateLimit(`security-assistant:${user.id}`, ASSISTANT_RATE_LIMIT);
@@ -61,7 +61,7 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
   if (!answer) return { kind: "reply", reply: ASK_FOR_ADDRESS };
   if (answer.target) {
     const picked = parseSecurityTarget(answer.target);
-    if (picked.ok) return scanOrGo(access.organisationId, user.id, picked.target, answer.reply);
+    if (picked.ok) return scanOrGo(user.id, picked.target, answer.reply);
     if (picked.error === PRIVATE_TARGET_ERROR) return { kind: "reply", reply: PRIVATE_TARGET_ERROR };
   }
   return { kind: "reply", reply: answer.reply };
@@ -80,9 +80,8 @@ export async function addSecurityAsset(link: string): Promise<ChatAnswer> {
   return addAndGo(access.organisationId, user.id, parsed.target, "");
 }
 
-/** A website or server gets the quick scan first; a repo can't be quick-scanned, so it goes straight on. */
-async function scanOrGo(organisationId: string, userId: string, target: ParsedTarget, reply: string): Promise<ChatAnswer> {
-  if (target.kind === "repo") return addAndGo(organisationId, userId, target, reply || "Got it. Next, show it's yours and the scan starts.");
+/** Every asset (a website, a server or a public repo) gets the quick scan first; nothing is saved until "Show it's yours". */
+async function scanOrGo(userId: string, target: ParsedTarget, reply: string): Promise<ChatAnswer> {
   const result = await previewScan(target.value, { visitor: `user:${userId}` });
   if (!result.ok) return { kind: "scan", reply, target: target.value, summary: null, note: result.reason };
   return { kind: "scan", reply, target: target.value, summary: summarisePreview(result), note: null };
