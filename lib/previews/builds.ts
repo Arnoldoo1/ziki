@@ -60,6 +60,15 @@ export function previewBuilder(): Builder | null {
   return { repo: { owner: match[1], repo: match[2] }, pagesProject };
 }
 
+/** Whether the issue's project builds previews here: the builder set up on this server and previews on for the project. */
+export async function previewsOnForIssue(bugId: string): Promise<boolean> {
+  if (!previewBuilder()) return false;
+  const bug = await prisma.bug.findUnique({ where: { id: bugId }, select: { projectId: true } });
+  if (!bug) return false;
+  const row = await prisma.projectPreviewSettings.findUnique({ where: { projectId: bug.projectId }, select: { enabled: true } });
+  return Boolean(row?.enabled);
+}
+
 async function builderClient(builder: Builder): Promise<GitHubClient> {
   const installationId = await installationIdForRepo(builder.repo.owner, builder.repo.repo);
   if (!installationId) {
