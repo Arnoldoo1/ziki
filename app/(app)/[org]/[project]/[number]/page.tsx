@@ -128,6 +128,10 @@ import { prGate, reportWanted } from "@/lib/agent-api/pr-gate";
 import { parseGitHubRepoUrl } from "@/lib/github/pull-request-url";
 import { mergeChecklist } from "@/lib/merge-checklist";
 import { MergeChecklistCard } from "@/components/merge-checklist";
+import { Prisma } from "@prisma/client";
+import { TestCardPanel } from "@/components/test-card";
+import { loadCard, proofAttachmentIds, storedProof, type JudgementProofState, type VerdictProof } from "@/lib/proof";
+import { newIssueHref } from "@/lib/reported-from";
 import { PROJECT_REPOSITORIES_SELECT, repoForPullRequest } from "@/lib/github/project-repositories";
 import { DecisionCard } from "@/components/decision-card";
 import { decisionFor } from "@/lib/your-decision";
@@ -838,7 +842,12 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       agentOwner: agent.owner.name,
     })),
   ];
-  const issueAttachments: AttachmentView[] = attachments.filter((a) => !a.commentId);
+  // #deeper-testing: proof belongs to its judgement (and stays hidden from testers who haven't judged), not the issue's files.
+  const proofIds = new Set(
+    (await loadOptional("proof attachments", [], () => prisma.testVerdict.findMany({ where: { bugId: bug.id, proof: { not: Prisma.DbNull } }, select: { proof: true } })))
+      .flatMap((verdict) => proofAttachmentIds(storedProof(verdict.proof))),
+  );
+  const issueAttachments: AttachmentView[] = attachments.filter((a) => !a.commentId && !proofIds.has(a.id));
   const attachmentsByComment: Record<string, AttachmentView[]> = {};
   for (const a of attachments) {
     if (a.commentId) (attachmentsByComment[a.commentId] ??= []).push(a);
@@ -1195,8 +1204,13 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     : null;
   // The judgements as the Delivered rule counts them (independent, weighted, on
   // the delivered pull request), so the bar says what will actually move it.
+  // #deeper-testing: the test card while delivered product work is judged, where the organisation has checks.
+  const card = !bug.isDeleted && bug.track !== "marketing" && bug.status === "done" && bug.pullRequestUrl
+    ? await loadOptional("test card", null, () => loadCard(prisma, bug))
+    : null;
+  const testCard = card?.on ? card : null;
   const judgementCount = bug.status === "done" && !bug.isDeleted
-    ? await loadOptional("judgement count", null, () => countedJudgements(prisma, bug.id))
+    ? await loadOptional("judgement count", null, () => countedJudgements(prisma, bug.id, card ?? undefined))
     : null;
   // #merge-checklist: while delivered work is judged, reviewed or waiting to
   // merge, the checks before "good to merge", from the latest pull request report.
@@ -1292,7 +1306,20 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
     [...list].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   const firstAt = (list: { updatedAt: Date | string }[]) => newestFirst(list).at(-1)?.updatedAt ?? null;
   const timelineDeliveries = newestFirst(deliveryList);
-  const timelineVerdicts = newestFirst(testVerdictList);
+  // #deeper-testing: each judgement's proof, named by its check or square, with its file.
+  const squareLabel = new Map(testCard?.rows.flatMap((row) => row.squares.map((sq) => [sq.key, sq.env ? `${row.text} · ${sq.env}` : row.text] as const)));
+  const proofItems = (proof: VerdictProof | null | undefined) =>
+    proof
+      ? [...Object.entries(proof.checks ?? {}).map(([id, entry]) => [`check:${id}`, entry] as const), ...Object.entries(proof.squares ?? {})].map(([key, { attachmentId, ...entry }]) => ({
+          ...entry,
+          label: squareLabel.get(key) ?? key.replace(/^check:/, ""),
+          file: attachments.find((a) => a.id === attachmentId) ?? null,
+        }))
+      : null;
+  const timelineVerdicts = newestFirst(testVerdictList).map((verdict) => {
+    const standing = testCard?.judgements[verdict.id];
+    return { ...verdict, proofItems: proofItems(verdict.proof), proofNote: standing ? proofNote(standing.state, standing.missing) : null };
+  });
   const timelineReviews = newestFirst(mergeReviewList);
 
   // The Conversation card shows only when it has entries in it: no empty boxes.
@@ -2143,6 +2170,17 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           {githubPanel ? <GitHubStatusPanel {...githubPanel} /> : null}
           {previewCard ? <PreviewCard {...previewCard} /> : null}
 
+          {testCard ? (
+            <TestCardPanel
+              card={testCard}
+              author={testCard.rows.find((row) => row.by)?.by ?? null}
+              priority={bug.priority}
+              bugId={bug.id}
+              canDecide={access.admin}
+              ideaHref={newIssueHref(refOf(bug.project), issueHref(bug))}
+            />
+          ) : null}
+
               {/* Who has the issue, while it is the latest thing (In progress); the timeline below keeps the award after that. */}
               {(hold?.status === "active" || hold?.status === "planning") && bug.status === "in_progress" ? <AwardBox hold={hold} agentPaused={Boolean(workingAgent?.pausedAt)} bugId={bug.id} isWatching={isWatchingIssue} isIssueOwner={bug.reporterId === user.id} /> : null}
 
@@ -2394,7 +2432,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               </form>
             ) : null}
           </section>
-          {checklist ? <MergeChecklistCard checklist={checklist} /> : null}
+          {checklist ? <MergeChecklistCard checklist={checklist} testCard={Boolean(testCard)} /> : null}
           {/* #rewards: the reward, your estimate, and everyone's. */}
           {rewardRow ? (
             <IssueRewardPanel
@@ -2490,4 +2528,22 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
       </div>
     </div>
   );
+}
+
+/** What a judgement's proof means for the count, as a chip beside it (#deeper-testing). */
+function proofNote(state: JudgementProofState, missing: string[]): { label: string; tone: "ok" | "warn" | "bad" | "neutral" } {
+  switch (state) {
+    case "counts":
+      return { label: "Counts", tone: "ok" };
+    case "no_proof":
+      return { label: `Doesn't count yet · no proof: ${missing.join(", ")}`, tone: "warn" };
+    case "earlier_code":
+      return { label: "Earlier code · doesn't count", tone: "neutral" };
+    case "contradicts":
+      return { label: "Proves a fail but says good to merge · doesn't count", tone: "warn" };
+    case "proved_fail":
+      return { label: "Proved it fails", tone: "bad" };
+    case "no_fail_proof":
+      return { label: "Doesn't count · no proof of what fails", tone: "warn" };
+  }
 }

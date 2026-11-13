@@ -27,6 +27,9 @@ import { storedReceipt, type DeliveryReceipt } from "@/lib/delivery-receipt";
 import { issueIdFor, parseIssueRef } from "@/lib/issue-ref";
 import { canSeeEvidenceFiles, evidenceFilesSchema, evidenceFilesView, uniqueEvidenceFiles, type EvidenceFilesView } from "@/lib/agent-api/evidence-files";
 import { actionReason } from "@/lib/agent-api/action-reason";
+import { linkAttachments } from "@/lib/attachment-link";
+import { BUILT_IN_CHECKS, checkInfo, checksFor, loadProofRules, proofAttachmentIds, proofProblem, proofSchema, storedProof, type VerdictProof } from "@/lib/proof";
+import { suggestRowAfterRating } from "@/lib/agent-api/test-card";
 
 /**
  * Reviewer agents reporting whether a fix is good to merge (#434). A verdict
@@ -84,9 +87,21 @@ export const testVerdictBodySchema = z.object({
     .trim()
     .regex(/^[0-9a-f]{7,64}$/i, "headSha must be a hexadecimal commit SHA.")
     .optional(),
+  /**
+   * What you proved (#deeper-testing): `checks` by check id and `squares` by
+   * test-card square key, each { result: pass | fail | na, attachmentId?, shows?, test?, reason? },
+   * and `rating` (thorough or too_easy) when you're the card's second tester.
+   * Where the organisation has checks, a good-to-merge counts only with proof
+   * for every required check (GET /api/v1/issues/{id}/test-card lists them).
+   */
+  proof: proofSchema.optional(),
 });
 
 export type TestVerdictBody = z.infer<typeof testVerdictBodySchema>;
+
+/** A judgement whose proof isn't the agent's own, or doesn't suit what it proves. */
+class ProofError extends Error {}
+const NOT_YOURS = "proof: every attachmentId must be your own upload (POST /api/v1/attachments), not someone else's.";
 
 /** What the independence rule and the claim-holder check need about an issue. */
 const reviewedBugSelect = {
@@ -319,8 +334,32 @@ export async function submitTestVerdict(
     updatedAt: true,
   } as const;
 
+  // #deeper-testing: proof is an upload of the agent's owner, claimed for this issue.
+  const proofIds = [...new Set(body.proof ? proofAttachmentIds(body.proof) : [])];
+  const proof = body.proof ?? Prisma.DbNull;
+  // The card's author doesn't rate its own card; a second tester does.
+  if (body.proof?.rating) {
+    const author = await prisma.testCardRow.findFirst({ where: { bugId: bug.id, agentId: { not: null } }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { agentId: true } });
+    if (author?.agentId === agent.agentId) {
+      return { status: 400, error: "invalid_request", message: "proof.rating: the card's author doesn't rate its own card; leave rating out.", field: "proof" };
+    }
+  }
+
   try {
     const result = await prisma.$transaction(async (tx) => {
+      if (proofIds.length) {
+        await linkAttachments(tx, { ids: proofIds, uploaderId: agent.ownerId, bugId: bug.id });
+        const linked = await tx.attachment.findMany({ where: { id: { in: proofIds }, bugId: bug.id, uploaderId: agent.ownerId }, select: { id: true, contentType: true, size: true } });
+        if (linked.length !== proofIds.length) throw new ProofError(NOT_YOURS);
+        // Each file must suit what it proves, and a test must be one of the files it lists.
+        const rows = await tx.testCardRow.findMany({ where: { bugId: bug.id }, select: { id: true, proof: true } });
+        const problem = proofProblem(body.proof!, {
+          file: (id) => linked.find((a) => a.id === id),
+          rowProof: (id) => rows.find((r) => r.id === id)?.proof,
+          changed: (body.files ?? []).map((f) => f.path),
+        });
+        if (problem) throw new ProofError(problem);
+      }
       const existing = await tx.testVerdict.findFirst({
         where: { bugId: bug.id, agentId: agent.agentId },
         orderBy: { createdAt: "asc" },
@@ -340,6 +379,7 @@ export async function submitTestVerdict(
             pullRequestUrl,
             headSha,
             files: body.files ? uniqueEvidenceFiles(body.files) : [],
+            proof,
             changedAt: new Date(),
           },
           select: verdictSelect,
@@ -389,6 +429,7 @@ export async function submitTestVerdict(
           pullRequestUrl,
           headSha,
           files: body.files ? uniqueEvidenceFiles(body.files) : [],
+          proof,
         },
         select: verdictSelect,
       });
@@ -411,6 +452,8 @@ export async function submitTestVerdict(
       await handleTestVerdictSubmitted(tx, { bugId: bug.id, agentId: agent.agentId, organisationId: bug.organisationId, pullRequestUrl }).catch(() => null);
       return { status: 201 as const, verdict };
     });
+    // #deeper-testing: a card rated too easy gets a row of a kind it doesn't have yet.
+    if (body.proof?.rating === "too_easy") await suggestRowAfterRating(prisma, bug.id);
     // #delivered-step: enough independent judgements move it to Done, or back to Open.
     await refreshJudgedStatus(prisma, bug.id, agent.ownerId);
     // #force-merge: enough judgements move force-merged work On dev, or mark it Live · Broken.
@@ -419,6 +462,14 @@ export async function submitTestVerdict(
     await refreshIssueRatings(prisma, bug.id).catch((error: unknown) => console.error("[agent-rating] refresh failed", error));
     return result;
   } catch (error) {
+    if (error instanceof ProofError) {
+      return {
+        status: 400,
+        error: "invalid_request",
+        message: error.message,
+        field: "proof",
+      };
+    }
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
@@ -487,6 +538,8 @@ export type TestVerdictEntry = {
   headSha: string | null;
   /** On the pull request linked now (and its head commit, when both are known). Only these count. */
   current: boolean;
+  /** What it proved (#deeper-testing); null while hidden from this viewer, as its files are. */
+  proof: VerdictProof | null;
   createdAt: Date;
   updatedAt: Date;
   replies: EntryReply[];
@@ -518,6 +571,7 @@ export async function testVerdictEntries(
       pullRequestUrl: true,
       headSha: true,
       files: true,
+      proof: true,
       createdAt: true,
       updatedAt: true,
       agent: { select: { name: true } },
@@ -527,9 +581,11 @@ export async function testVerdictEntries(
   });
   const judged = Boolean(viewer) && rows.some((row) => row.onBehalfOfUserId === viewer?.userId);
   const evidenceViewer = viewer ? { ...viewer, hasOwnEntry: judged } : null;
-  return rows.map(({ agent, onBehalfOf, replies, files, ...row }) => ({
+  return rows.map(({ agent, onBehalfOf, replies, files, proof, ...row }) => ({
     ...row,
     ...evidenceFilesView(files, canSeeEvidenceFiles(evidenceViewer, row.onBehalfOfUserId)),
+    // #deeper-testing: proof, like the changed files, stays hidden until you've judged too.
+    proof: canSeeEvidenceFiles(evidenceViewer, row.onBehalfOfUserId) ? storedProof(proof) : null,
     agentName: agent.name,
     by: onBehalfOf.name ?? "A member",
     current:
@@ -558,7 +614,7 @@ export async function listTestVerdicts(scope: { organisationId: string; projectI
   const ref = parseIssueRef(issueRef);
   const bug = await prisma.bug.findFirst({
     where: { ...scope, isDeleted: false, ...(ref.kind === "number" ? { number: ref.number } : { id: ref.id }) },
-    select: { id: true, number: true, pullRequestUrl: true, pullRequestHeadSha: true },
+    select: { id: true, number: true, pullRequestUrl: true, pullRequestHeadSha: true, organisationId: true, projectId: true, typeId: true, areaId: true, track: true },
   });
   if (!bug) throw new IssueApiError(404, "Issue not found.", { error: "not_found", message: "Issue not found." });
   return {
@@ -570,6 +626,15 @@ export async function listTestVerdicts(scope: { organisationId: string; projectI
     plan: await approvedPlanSummary(bug.id),
     // #delivery-receipt: what the deliverer verified and left for testers; judge against it.
     receipt: await currentDeliveryReceipt(bug),
+    // #deeper-testing: what a judgement must prove here and what to attach for each; none where the organisation has no checks.
+    checks: await checksToProve(bug),
     verdicts: await testVerdictEntries(bug, viewer),
   };
+}
+
+async function checksToProve(bug: { organisationId: string; projectId: string; typeId: string | null; areaId: string | null; track: string }) {
+  if (bug.track === "marketing") return [];
+  const rules = await loadProofRules(prisma, bug.organisationId);
+  const { required, guidance } = checksFor(rules, bug);
+  return [...required, ...guidance].map((id) => ({ id, ...checkInfo(id, rules)!, kind: BUILT_IN_CHECKS[id] ? (BUILT_IN_CHECKS[id].kind ?? "screen") : "any" }));
 }
