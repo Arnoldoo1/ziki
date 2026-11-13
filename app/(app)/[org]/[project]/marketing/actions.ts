@@ -3,9 +3,11 @@
 import type { Prisma } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { projectLinksSchema } from "@/app/(app)/projects/validation";
+import { askMarketingAssistant, cleanMarketingHistory, type MarketingAnswer } from "@/lib/marketing/assistant";
 import { prisma } from "@/lib/prisma";
 import { marketingPath, type ProjectRef } from "@/lib/project-paths";
 import { requireProject } from "@/lib/project-route";
+import { checkRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 
 export type MarketingSiteResult = { error?: string; ok?: boolean };
 
@@ -48,4 +50,29 @@ export async function saveMarketingSiteAction(
   }
   revalidatePath(marketingPath(slug));
   return { ok: true };
+}
+
+/** Messages one person may send the Marketing assistant in an hour. */
+const ASSISTANT_RATE_LIMIT = { max: 60, windowMs: 60 * 60 * 1000 };
+
+/**
+ * Send the conversation to the Marketing assistant (#marketing-assistant) and
+ * get its reply. Organisation owners and admins only, once the project has its
+ * website. Nothing is saved: the page keeps the conversation.
+ */
+export async function askMarketingAssistantAction(slug: ProjectRef, history: unknown): Promise<MarketingAnswer> {
+  const [org, projectSlug] = slug.split("/");
+  const context = await requireProject(org, projectSlug);
+  if (!context.isOrgAdmin) return { ok: false, error: "Only organisation owners and admins can use the marketing assistant." };
+
+  const turns = cleanMarketingHistory(history);
+  if (turns.at(-1)?.role !== "user") return { ok: false, error: "Describe the marketing problem first." };
+
+  const project = await prisma.project.findUnique({ where: { id: context.project.id }, select: { name: true, siteUrl: true } });
+  if (!project?.siteUrl) return { ok: false, error: "Add the project's website first." };
+
+  const limit = checkRateLimit(`marketing-assistant:${context.user.id}`, ASSISTANT_RATE_LIMIT);
+  if (!limit.allowed) return { ok: false, error: RATE_LIMIT_MESSAGE };
+
+  return askMarketingAssistant(turns, { name: project.name, siteUrl: project.siteUrl });
 }

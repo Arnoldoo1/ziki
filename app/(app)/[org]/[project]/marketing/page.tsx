@@ -9,12 +9,13 @@ type Props = { params: Promise<{ org: string; project: string }> };
 
 /**
  * `/<slug>/marketing`: where the section opens (#marketing-home). It asks for
- * the project's website the first time, then what marketing problem to fix.
+ * the project's website the first time, then what marketing problem to fix,
+ * and the assistant answers (owners and admins).
  * Anyone in the project can open it; the tasks board is at `/marketing/tasks`.
  */
 export default async function MarketingHomePage({ params }: Props) {
   const { org, project: projectSlug } = await params;
   const context = await requireProject(org, projectSlug);
   const project = await prisma.project.findUnique({ where: { id: context.project.id }, select: { siteUrl: true } });
-  return <MarketingHome slug={projectRef(org, projectSlug)} siteUrl={project?.siteUrl ?? null} canSetSite={context.isOrgAdmin} />;
+  return <MarketingHome slug={projectRef(org, projectSlug)} siteUrl={project?.siteUrl ?? null} isAdmin={context.isOrgAdmin} />;
 }
