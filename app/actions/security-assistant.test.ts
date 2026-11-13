@@ -43,10 +43,19 @@ const SCAN = {
 describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.access.mockResolvedValue({ organisationId: "org1", admin: false });
+    mocks.access.mockResolvedValue({ organisationId: "org1", admin: true });
     mocks.rate.mockReturnValue({ allowed: true });
     mocks.addTargetAndCheck.mockResolvedValue({ targetId: "t1", checkId: "c1", verified: false, reused: false });
     mocks.preview.mockResolvedValue(SCAN);
+  });
+
+  it("refuses anyone who is not an owner or admin, before scanning, asking the AI or saving anything", async () => {
+    mocks.access.mockResolvedValue({ organisationId: "org1", admin: false });
+    await expect(talkToSecurityAssistant(say("https://www.settle.ng"))).resolves.toMatchObject({ kind: "error", error: expect.stringContaining("owners and admins") });
+    await expect(addSecurityAsset("settle.ng")).resolves.toMatchObject({ kind: "error", error: expect.stringContaining("owners and admins") });
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.ask).not.toHaveBeenCalled();
+    expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
   });
 
   it("scans a plain link without the AI, shows only counts, and saves nothing yet", async () => {
