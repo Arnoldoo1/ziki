@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { LocalTime } from "@/components/local-time";
 import { RichText } from "@/components/rich-text";
+import { SecurityVerificationForm } from "@/components/security-verification-form";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
@@ -17,7 +18,7 @@ export const metadata = { title: "Security finding" };
 
 export default async function FindingPage({ params, searchParams }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ severity?: string; stage?: string }>;
+  searchParams: Promise<{ severity?: string; stage?: string; q?: string; project?: string; assignee?: string; reporter?: string }>;
 }) {
   const [{ id }, filters, user] = await Promise.all([params, searchParams, requireUser()]);
   const access = await currentOrganisationAccess(user.id, user.role);
@@ -37,24 +38,25 @@ export default async function FindingPage({ params, searchParams }: {
       idea: { select: { number: true, status: true, isDeleted: true, createdByAgent: { select: { name: true } } } },
       bug: {
         select: {
-          number: true, substatus: true, pullRequestUrl: true,
+          number: true, status: true, substatus: true, pullRequestUrl: true,
           assignee: { select: { name: true } },
           deliveries: { orderBy: { updatedAt: "desc" }, select: { id: true, summary: true, updatedAt: true, agent: { select: { name: true } } } },
           testVerdicts: { orderBy: { updatedAt: "desc" }, select: { id: true, summary: true, goodToMerge: true, updatedAt: true, agent: { select: { name: true } } } },
         },
       },
       attachments: { select: { id: true, filename: true } },
+      verifications: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { id: true, passed: true, notes: true, reopened: true, createdAt: true, reviewer: { select: { name: true } }, evidence: { select: { id: true, filename: true } } } },
     },
   });
   if (!finding || !canViewFinding(finding, {
     kind: "person", userId: user.id, organisationId: access.organisationId, organisationAdmin: access.admin,
   })) notFound();
 
-  const query = new URLSearchParams();
-  for (const key of ["severity", "stage"] as const) {
+  const query = new URLSearchParams({ view: "findings" });
+  for (const key of ["severity", "stage", "q", "project", "assignee", "reporter"] as const) {
     if (typeof filters[key] === "string") query.set(key, filters[key]);
   }
-  const back = query.size ? "/security?" + query.toString() : "/security";
+  const back = "/security?" + query.toString();
   const project = refOf(finding.project);
   const bug = finding.bug;
   const idea = finding.idea?.isDeleted ? null : finding.idea;
@@ -111,6 +113,22 @@ export default async function FindingPage({ params, searchParams }: {
             ))}
           </ul>
         ) : <p className="text-sm text-zk-text2">No fixes delivered yet.</p>}
+      </section>
+      <section className={orgCard} aria-labelledby="independent-verification-heading">
+        <h2 id="independent-verification-heading" className="text-base font-semibold text-zk-text">Independent verification</h2>
+        {finding.verifications.length ? (
+          <ul className="divide-y divide-zk-border text-sm text-zk-text2">
+            {finding.verifications.map((entry) => (
+              <li key={entry.id} className="space-y-1 py-2">
+                <p className="font-semibold">{entry.passed ? "Fix verified" : entry.reopened ? "Verification failed and issue reopened" : "Verification failed"}</p>
+                <p>{entry.reviewer?.name ?? "Former member"} · <LocalTime date={entry.createdAt} /></p>
+                <p className="whitespace-pre-wrap break-words">{entry.notes}</p>
+                {entry.evidence ? <a href={"/api/attachments/" + entry.evidence.id} className={linkClass}>{entry.evidence.filename}</a> : null}
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mt-2 text-sm text-zk-text2">No independent verification recorded yet.</p>}
+        {access.admin && bug?.status === "resolved" ? <SecurityVerificationForm findingId={id} /> : null}
       </section>
       <section className={orgCard} aria-labelledby="verification-heading">
         <h2 id="verification-heading" className="text-base font-semibold text-zk-text">Fix review</h2>

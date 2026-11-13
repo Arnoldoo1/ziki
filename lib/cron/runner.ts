@@ -11,10 +11,10 @@ import { pruneAgentRows, type AgentRetentionCounts } from "@/lib/agent-retention
 import { sweepOrphanedAttachments } from "@/lib/attachment-retention";
 import { sweepOrphanedIssues } from "@/lib/orphaned-issues";
 import { sweepUndraftedIdeas } from "@/lib/cron/draft-structuring";
-import { discloseLiveFindings } from "@/lib/security-findings";
 import { processSearchOutbox, pruneProcessedSearchOutbox } from "@/lib/search-index";
 import { refreshMergeQueue } from "@/lib/github/sync";
 import { followPreviewBuilds } from "@/lib/previews/builds";
+import { sweepSecurityChecks } from "@/lib/security-checks/engine";
 
 export const FAILURE_ALERT_THRESHOLD = 3;
 const consecutiveFailures = new Map<string, number>();
@@ -55,6 +55,16 @@ export type PlatformSweepsResult = {
     jobReviewOffers: { status: "ok" | "error"; expired?: number; offered?: number; error?: string };
     reviewOffers: { status: "ok" | "error"; expired?: number; error?: string };
     claims: { status: "ok" | "error"; released?: number; error?: string };
+    securityChecks: {
+      status: "ok" | "error";
+      started?: number;
+      reclaimed?: number;
+      skipped?: number;
+      assigned?: number;
+      posted?: number;
+      paid?: number;
+      error?: string;
+    };
     orphanedIssues: { status: "ok" | "error"; reopened?: number; error?: string };
     draftStructuring: {
       status: "ok" | "error";
@@ -67,7 +77,6 @@ export type PlatformSweepsResult = {
     githubStatus: { status: "ok" | "error"; checked?: number; moved?: number; failed?: number; error?: string };
     previews: { status: "ok" | "error"; checked?: number; failed?: number; error?: string };
     deliveries: { status: "ok" | "error"; processed?: number; error?: string };
-    securityDisclosures: { status: "ok" | "error"; disclosed?: number; error?: string };
     retention: {
       status: "ok" | "error";
       pruned?: RetentionPruneCounts;
@@ -107,12 +116,12 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
         jobReviewOffers: { status: "ok" },
         reviewOffers: { status: "ok" },
         claims: { status: "ok" },
+        securityChecks: { status: "ok" },
         orphanedIssues: { status: "ok" },
         draftStructuring: { status: "ok" },
         githubStatus: { status: "ok" },
         previews: { status: "ok" },
         deliveries: { status: "ok" },
-        securityDisclosures: { status: "ok" },
         retention: { status: "ok" },
         searchIndex: { status: "ok" },
       },
@@ -184,6 +193,18 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
       result.sweeps.claims = { status: "error", error: err instanceof Error ? err.message : String(err) };
     }
 
+    // 2a. Security checks (#security-checks): start proven checks (Ziki AI splits them),
+    // take back stale parts, give waiting parts to cleared agents, post finished
+    // reports (Ziki AI summary) and pay the finders of unlocked findings.
+    try {
+      const res = await sweepSecurityChecks(prisma);
+      recordSweepSuccess("securityChecks");
+      result.sweeps.securityChecks = { status: "ok", ...res };
+    } catch (err) {
+      recordSweepFailure("securityChecks", err);
+      result.sweeps.securityChecks = { status: "error", error: err instanceof Error ? err.message : String(err) };
+    }
+
     // 2b. Issues that have no claim for the stale-claim sweep to find (#623).
     try {
       const res = await sweepOrphanedIssues();
@@ -241,16 +262,6 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
     } catch (err) {
       recordSweepFailure("deliveries", err);
       result.sweeps.deliveries = { status: "error", error: err instanceof Error ? err.message : String(err) };
-    }
-
-    // 4b. Security findings (#security-findings): disclose those whose fix is live.
-    try {
-      const disclosed = await discloseLiveFindings();
-      recordSweepSuccess("securityDisclosures");
-      result.sweeps.securityDisclosures = { status: "ok", disclosed };
-    } catch (err) {
-      recordSweepFailure("securityDisclosures", err);
-      result.sweeps.securityDisclosures = { status: "error", error: err instanceof Error ? err.message : String(err) };
     }
 
     // 5. Retention Prunes

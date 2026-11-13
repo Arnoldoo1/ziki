@@ -7,6 +7,7 @@ import { LocalTime } from "@/components/local-time";
 import { POSSIBLY_DELIVERED_STATUS, POSSIBLY_DELIVERED_WHERE, deliverySignals, type DeliverySignals } from "@/lib/possibly-delivered";
 import Link from "next/link";
 import { EarnPanel } from "@/components/earn-panel";
+import { earnBannerLine, newestOpenProjectFor, type EarnBannerProject } from "@/lib/earn-banner";
 import { newIssueHref } from "@/lib/reported-from";
 import "./issues.css";
 import { Avatar } from "@/components/avatar";
@@ -1145,13 +1146,14 @@ export async function IssuesList({
     </>
   );
 
-  // Earnings (#earnings): once someone has joined a project from Discover, they've found the way in; the notice goes.
-  let hasJoinedProject = false;
+  // Earnings (#earnings): the notice names the newest project open in Discover that this person isn't in yet, and
+  // comes back for each new one; with nothing new to join it isn't shown.
+  let earnProject: EarnBannerProject | null = null;
   if (isIdeasView && userId) {
     try {
-      hasJoinedProject = Boolean(await prisma.projectMembership.findFirst({ where: { userId }, select: { id: true } }));
+      earnProject = await newestOpenProjectFor(prisma, userId);
     } catch {
-      // Unknown: show the notice; Dismiss still hides it.
+      // Unknown: no notice this time; Discover in the menu is always there.
     }
   }
 
@@ -1163,7 +1165,7 @@ export async function IssuesList({
         <div id={PROJECT_LINKS_SLOT_ID} className="empty:hidden" />
 
         {/* Earnings (#earnings): the way to earn, on the page everyone lands on, closed with × like the panel above. */}
-        {isIdeasView && !isDeletedView && !hasJoinedProject ? <EarnPanel /> : null}
+        {isIdeasView && !isDeletedView && earnProject ? <EarnPanel project={earnProject} line={earnBannerLine(earnProject)} /> : null}
 
         <AgentSetupNotice agents={unconfiguredAgents} />
         {nextStep && organisationId ? <OrganisationNextStepCard step={nextStep} organisationId={organisationId} /> : null}
@@ -1531,9 +1533,13 @@ export async function IssuesList({
             askOnLoad={isIdeasView && unconfiguredAgents.length === 0}
           />
         ) : null}
-        {/* Project notes and settings, as icons, beside the tabs. */}
+        {/* Goals, project notes and settings, as icons, beside the tabs. */}
         {!isDeletedView ? (
-          <ProjectIconLinks notesHref={canContribute ? projectPath(ref, "/notes") : undefined} settingsHref={isOrgAdmin ? `/projects/${encodeURIComponent(slug)}/settings` : undefined} />
+          <ProjectIconLinks
+            goalsHref={canContribute ? projectPath(ref, "/goals") : undefined}
+            notesHref={canContribute ? projectPath(ref, "/notes") : undefined}
+            settingsHref={isOrgAdmin ? `/projects/${encodeURIComponent(slug)}/settings` : undefined}
+          />
         ) : null}
       </div>
     </div>

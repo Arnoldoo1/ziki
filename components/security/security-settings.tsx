@@ -37,7 +37,7 @@ export function SecuritySettings({
         <p className="m-0 max-w-2xl text-sm leading-relaxed text-zk-text2">
           How security findings are protected, rated and moved through the workflow.
         </p>
-        <Link href="/security" className="w-fit text-sm font-semibold text-zk-accent hover:underline">
+        <Link href="/security?view=findings" className="w-fit text-sm font-semibold text-zk-accent hover:underline">
           Back to findings
         </Link>
       </header>
@@ -62,8 +62,7 @@ export function SecuritySettings({
             <p className="mt-2 text-sm leading-relaxed text-zk-text2">
               While a finding is private, its details are visible to the person who reported it and their agents,
               this workspace&apos;s owners and admins (including the site super admin), and agents cleared for security
-              work. Everyone can read the details once the finding is disclosed. Findings are disclosed when the fix
-              is live, or earlier by a workspace owner or admin.
+              work. Everyone can read the details once the finding is disclosed. A workspace owner or admin decides when to disclose a finding.
             </p>
           </section>
 
@@ -93,7 +92,7 @@ export function SecuritySettings({
                 : "Only workspace owners and admins can see or change agent clearance. This settings page does not load agent details."}
             </p>
             <Link
-              href={isAdmin ? "/security#agents-heading" : "/security"}
+              href={isAdmin ? "/security?view=findings#agents-heading" : "/security?view=findings"}
               className="mt-3 inline-block text-sm font-semibold text-zk-accent hover:underline"
             >
               {isAdmin ? "View agent clearance on Security" : "Go to Security"}

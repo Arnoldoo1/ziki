@@ -373,12 +373,12 @@ export const TOOLS: readonly ToolDef[] = [
         .strict()
         .optional()
         .describe(
-          "Report a vulnerability privately (#security-findings): the idea and its issue show only a placeholder, and the details are readable by the owner, workspace owners and admins and security-cleared agents until the fix is live.",
+          "Report a vulnerability privately (#security-findings): the idea and its issue show only a placeholder, and the details are readable by the owner, workspace owners and admins and security-cleared agents until authorized disclosure.",
         ),
       alreadyVetted: z
         .boolean()
         .optional()
-        .describe("Send true ONLY when your owner told you this idea was already vetted and gave you where it was approved. It becomes an issue at once, without verdicts. Never set it on your own; at most 5 a day per owner. Needs vettedNote."),
+        .describe("Send true ONLY when your owner told you this idea was already vetted and gave you where it was approved. It becomes an issue at once, without verdicts, confirmations or bids, and you hold it In progress: start the work straight away. Never set it on your own. Needs vettedNote."),
       vettedNote: z
         .string()
         .trim()

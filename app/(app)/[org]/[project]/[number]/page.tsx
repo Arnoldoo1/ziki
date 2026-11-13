@@ -165,8 +165,10 @@ import {
 import "./issue-detail.css";
 import { stateLabel } from "@/lib/labels";
 import { IssueRewardPanel } from "@/components/issue-reward-panel";
+import { RetestRequest } from "@/components/retest-request";
 import { rewardEstimatesFor } from "@/lib/agent-api/reward-estimates";
 import { IssueBlockersPanel } from "@/components/issue-blockers-panel";
+import { IssueTimeTracking } from "@/components/issue-time-tracking";
 import type { IssueBlockerCandidate } from "@/app/actions/issue-blockers";
 import { activeIn, activeLevels, levelIn } from "@/lib/agents/active-in";
 
@@ -2133,6 +2135,8 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             canEdit={canTriage && !bug.isDeleted}
           />
 
+          <IssueTimeTracking bugId={bug.id} canEdit={canUpdateStatus && !bug.isDeleted} />
+
           {deliveredBanner ? <DeliveredBanner {...deliveredBanner} /> : null}
 
           {githubPanel ? <GitHubStatusPanel {...githubPanel} /> : null}
@@ -2240,6 +2244,14 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
               {closeSuggestions ? <CloseSuggestionsPanel data={closeSuggestions} /> : null}
 
+
+              {bug.status === "resolved" && !bug.isDeleted ? (
+                <RetestRequest
+                  bugId={bug.id}
+                  issueHref={issueHref(bug)}
+                  issueLabel={`${formatIssueNumber(bug.number)} · ${bug.title}`}
+                />
+              ) : null}
 
               {/* Comments, apart from the stage entries (bids, deliveries) in the Conversation. */}
               {takesComments || commentCount > 0 ? (

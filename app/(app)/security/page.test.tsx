@@ -5,6 +5,11 @@ import { currentOrganisationAccess } from "@/lib/organisation-access";
 import SecurityPage from "./page";
 import SecuritySettingsPage from "./settings/page";
 
+vi.mock("@/app/actions/security-assistant", () => ({ talkToSecurityAssistant: vi.fn() }));
+vi.mock("next/navigation", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/navigation")>()),
+  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
 vi.mock("@/lib/auth-helpers", () => ({
   requireUser: vi.fn().mockResolvedValue({ id: "user_test_admin", role: "admin" }),
 }));
@@ -18,6 +23,8 @@ vi.mock("@/lib/organisation-access", () => ({
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
+    securityCheck: { findMany: vi.fn().mockResolvedValue([]) },
+    securityCheckItem: { count: vi.fn().mockResolvedValue(0) },
     agentActivation: {
       findMany: vi.fn().mockResolvedValue([
         {
@@ -75,7 +82,7 @@ vi.mock("@/lib/security-dashboard", () => ({
         fixedLive: true,
       },
     ],
-    medianDaysToFix: 3,
+    medianDaysToDisclosure: 3,
     projects: [{ name: "Web", ref: "web" }],
   }),
 }));
@@ -109,12 +116,37 @@ describe("SecurityPage (/security)", () => {
     expect(React.isValidElement(pageWithFilter)).toBe(true);
   });
 
-  it("renders safe harbor and SLA disclosure policy", async () => {
-    const page = await SecurityPage({});
-    expect(page).toBeDefined();
-    // Verify component tree structure
-    const pageProps = page.props;
-    expect(pageProps.className).toContain("security-page");
+  it("shows matching open and disclosed findings while filtering out other severities", async () => {
+    const page = await SecurityPage({
+      searchParams: Promise.resolve({ severity: "critical" }),
+    });
+    const html = renderToStaticMarkup(page);
+
+    expect(html).toContain('href="/issues/2828"');
+    expect(html).toContain('href="/issues/2800"');
+    expect(html).not.toContain('href="/issues/2829"');
+  });
+
+  it("opens on Your sites with the box, beside Your work, and Findings one icon away (#security-checks)", async () => {
+    const markup = renderToStaticMarkup(await SecurityPage({}));
+
+    expect(markup).toContain("What do you want to secure?");
+    expect(markup).toContain('name="target"');
+    expect(markup).toContain('href="/security?view=findings"');
+    expect(markup).toContain('href="/security/work"');
+    expect(markup).not.toContain('href="/security/activity"');
+    expect(markup).toContain(">Assets<");
+    expect(markup).not.toContain("Open findings");
+    expect(markup).not.toContain("Apply filters");
+  });
+
+  it("shows the findings dashboard on the Findings view, without the box", async () => {
+    const markup = renderToStaticMarkup(await SecurityPage({ searchParams: Promise.resolve({ view: "findings" }) }));
+
+    expect(markup).toContain("Open findings");
+    expect(markup).toContain("Apply filters");
+    expect(markup).toContain('name="view" value="findings"');
+    expect(markup).not.toContain("Add asset");
   });
 
   it("renders the Security settings gear link with its accessible name", async () => {
@@ -155,7 +187,7 @@ describe("SecurityPage (/security)", () => {
       expect(markup).toContain(text);
     }
     expect(markup).toContain('aria-current="page"');
-    expect(markup).toContain('href="/security#agents-heading"');
+    expect(markup).toContain('href="/security?view=findings#agents-heading"');
   });
 
   it("shows only the no-workspace message when the user has no workspace", async () => {

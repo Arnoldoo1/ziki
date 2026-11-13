@@ -215,6 +215,8 @@ enum PointRole {
   plan
   /// 1 pt for a person's first importance mark, and first bid vote, on an issue (#vote-points).
   vote
+  /// Paid to an agent's owner for a security-check job, once the client has paid (#security-checks).
+  security_check
 }
 
 enum DisputeStatus {
@@ -269,7 +271,11 @@ model User {
   featurePlans              FeaturePlan[]
   savedIssueViews           SavedIssueView[]
   id                        String                  @id @default(cuid())
+  securityVerifications SecurityVerification[]
   securityFindingsReported  SecurityFinding[]       @relation("SecurityFindingReporter")
+  securityTargetsAdded      SecurityTarget[]        @relation("SecurityTargetAddedBy")
+  onCallInvitesSent         OnCallInvite[]          @relation("OnCallInviteSender")
+  securityChecksRequested   SecurityCheck[]         @relation("SecurityCheckRequester")
   name                      String
   email                     String                  @unique
   /// Null for Google-only accounts; required for credentials login/signup.
@@ -359,6 +365,8 @@ model User {
   reviewedSkillSubmissions  SkillSubmission[]       @relation("SkillSubmissionReviewedBy")
   userSessions              UserSession[]
   loginHistory              LoginHistory[]
+  /// #time-tracking: time this person logged against issues.
+  timeEntries               TimeEntry[]
 }
 
 /// Single-use password reset tokens (~30 min TTL). Store only the SHA-256 hash.
@@ -415,6 +423,9 @@ model Bug {
   /// How hard it is (#plan-review): set at conversion, editable until the first
   /// bid. Only a complex issue's award goes through plan review.
   difficulty                Difficulty              @default(medium)
+  /// When it came from an already-vetted idea (#vetted-start-now): it counts as
+  /// confirmed (lib/issue-stage.ts) and the agent that filed it holds it at once.
+  vettedAt                  DateTime?
   /// Issue priority (#issue-priority): low, medium, high or urgent. Drives
   /// ordering on the board and the colour of the badge. Defaults to medium.
   priority                  String                  @default("medium")
@@ -528,6 +539,8 @@ model Bug {
   goalAllocations           GoalAllocation[]
   mistakes                  AgentMistake[]
   supportThreads            SupportThread[]
+  /// #time-tracking: time logged against this issue.
+  timeEntries               TimeEntry[]
 
   /// #517: issue numbers are per organisation, so two organisations can both have a #1.
   @@unique([organisationId, number])
@@ -550,6 +563,26 @@ model Bug {
   // so the list can be read in index order instead of sorting every row.
   @@index([isDeleted, isBoosted(sort: Desc), boostedAt(sort: Desc), voteCount(sort: Desc), updatedAt(sort: Desc), createdAt(sort: Desc)], map: "Bug_list_top_votes_idx")
   @@index([isDeleted, isBoosted(sort: Desc), boostedAt(sort: Desc), createdAt(sort: Desc), id(sort: Desc)], map: "Bug_list_newest_idx")
+}
+
+/// Time a person logged against an issue (#time-tracking). Minutes are whole
+/// minutes; the total is summed from the entries so the record stays auditable.
+model TimeEntry {
+  id        String   @id @default(cuid())
+  bugId     String
+  bug       Bug      @relation(fields: [bugId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Whole minutes spent, 1..1440 per entry.
+  minutes   Int
+  /// What the time was spent on.
+  note      String?
+  /// The day the work happened (defaults to when the entry was logged).
+  spentOn   DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([bugId, spentOn])
+  @@index([userId, spentOn])
 }
 
 /// A dependency that explains why an issue cannot proceed until another issue is resolved.
@@ -721,6 +754,7 @@ model Attachment {
   @@index([securityFindingId])
   @@index([redesignProposalId])
   @@index([uploaderId, createdAt])
+  securityVerifications SecurityVerification[]
 }
 
 /// One person marking an issue important (#importance; once "upvotes").
@@ -807,6 +841,9 @@ model Organisation {
   id                 String              @id @default(cuid())
   /// Private security findings reported in this organisation (#security-findings).
   securityFindings   SecurityFinding[]
+  /// Sites, servers and repos added for a security check, and the checks run on them (#security-checks).
+  securityTargets    SecurityTarget[]
+  securityChecks     SecurityCheck[]
   slug               String              @unique
   name               String
   description        String?             @db.VarChar(500)
@@ -854,6 +891,7 @@ model Project {
   savedIssueViews        SavedIssueView[]
   agentNotes            AgentNote[]
   securityFindings      SecurityFinding[]
+  securityChecks        SecurityCheck[]
   id                    String                @id @default(cuid())
   organisationId              String
   slug                  String
@@ -880,6 +918,9 @@ model Project {
   visibility            ProjectVisibility     @default(private)
   /// Whether the project is open for external contributors to apply to join.
   isOpenForContributors Boolean               @default(false)
+  /// When it was last opened to contributors (#earnings): the Earn banner names the newest open project and comes
+  /// back for each one opened after you dismissed it.
+  openedForContributorsAt DateTime?
   /// Whether signed-out visitors may file public ideas and receive a private tracking link.
   /// This is independent of contributor access: guests never join, vote, bid or claim.
   acceptsGuestIdeas     Boolean               @default(false)
@@ -1258,6 +1299,17 @@ model ProjectJoinRequest {
 /// A named agent working for its owner inside an organisation (#427). It always acts
 /// as itself and for a named person.
 model Agent {
+  /// Parts of security checks this agent holds or did (#security-checks).
+  securityCheckItems   SecurityCheckItem[]
+  /// An on-call agent (#on-call): a normal working agent from a very active owner,
+  /// invited by a super admin and accepted by its owner. On-call agents get
+  /// priority work, such as security-check parts and new workspaces. Null when not on call.
+  onCallAt             DateTime?
+  /// Site-wide security clearance (#security-checks): set by a super admin, usually
+  /// with an on-call invite. Only cleared agents get security-check jobs or read results.
+  securityClearedAt    DateTime?
+  /// Invitations to go on call, newest last (#on-call).
+  onCallInvites        OnCallInvite[]
   requests             AgentRequest[]
   agentNotes           AgentNote[]
   id                   String                @id @default(cuid())
@@ -1360,6 +1412,12 @@ model AgentActivation {
   burst          Boolean      @default(false)
   /// An organisation owner or admin cleared it to read this organisation's private security findings (#security-findings).
   securityCleared Boolean     @default(false)
+  /// An on-call guest (#on-call): added automatically to a new workspace to give
+  /// quick wins. The agent works here, but its owner isn't a member and can't
+  /// browse the workspace. It leaves after delivering its first task here.
+  guestUntilFirstDelivery Boolean @default(false)
+  /// When the guest stay ended (first delivery, or removed by the workspace owner).
+  guestEndedAt   DateTime?
   /// When the higher budget stops (#596). Null on an enabled grant means it has no expiry.
   burstUntil     DateTime?
   activatedAt    DateTime     @default(now())
@@ -3043,8 +3101,207 @@ model SecurityFinding {
   updatedAt     DateTime         @updatedAt
   attachments   Attachment[]
 
+  verifications SecurityVerification[]
+  /// The security check result it was sent from, when it came from a check (#security-checks).
+  checkResult   SecurityCheckResult?
+
   @@index([organisationId, disclosedAt])
   @@index([projectId])
+}
+
+model SecurityVerification {
+  id           String @id @default(cuid())
+  findingId    String
+  reviewerId   String?
+  evidenceId   String?
+  passed       Boolean
+  notes        String
+  reopened     Boolean @default(false)
+  createdAt    DateTime @default(now())
+  finding      SecurityFinding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  reviewer     User? @relation(fields: [reviewerId], references: [id], onDelete: SetNull)
+  evidence     Attachment? @relation(fields: [evidenceId], references: [id], onDelete: SetNull)
+
+  @@index([findingId, createdAt])
+  @@index([reviewerId])
+  @@index([evidenceId])
+}
+
+/// What a security check looks at (#security-checks). Ziki works this out from
+/// the one box the client types into, so nobody picks from a list.
+enum SecurityTargetKind {
+  website
+  server
+  repo
+}
+
+/// Where a security check is (#security-checks). Ownership comes first: no
+/// agent touches a target until it is proven to belong to the workspace.
+enum SecurityCheckStatus {
+  /// Waiting for the owner to prove the target is theirs.
+  awaiting_ownership
+  /// Ownership proven; the first job (split it into parts) waits for an agent.
+  queued
+  /// An agent is splitting the target into the parts to check.
+  splitting
+  /// Agents are checking the parts.
+  checking
+  /// Every part is reported.
+  done
+  /// Stopped by the owner before it finished.
+  cancelled
+}
+
+/// The two kinds of job in a security check (#security-checks). The first job
+/// of every check is `split`: an agent looks at the target and adds the parts.
+enum SecurityCheckItemKind {
+  split
+  check
+  /// Once every part is in: an always-on agent writes the one report the client sees.
+  collate
+}
+
+/// Where one job is (#security-checks).
+enum SecurityCheckItemStatus {
+  /// Not given to an agent yet.
+  waiting
+  /// An agent holds it.
+  checking
+  /// The agent reported back.
+  done
+  /// Dropped: the check was cancelled, or the part does not apply.
+  skipped
+}
+
+/// A website, server or repo a workspace wants checked (#security-checks).
+/// Ownership is proven once per target, not once per check.
+model SecurityTarget {
+  id              String             @id @default(cuid())
+  organisationId  String
+  organisation    Organisation       @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  kind            SecurityTargetKind
+  /// The target in one canonical form: the host for a website, the host or IP
+  /// for a server, `owner/name` for a repo.
+  value           String
+  /// What the client typed, shown back to them.
+  input           String
+  addedById       String
+  addedBy         User               @relation("SecurityTargetAddedBy", fields: [addedById], references: [id], onDelete: Cascade)
+  /// The secret the owner puts in a DNS TXT record or homepage tag to prove the target is theirs.
+  ownershipToken  String             @unique
+  /// How ownership was proven, e.g. `dns_txt`, `html_tag`, `github`. A string,
+  /// not an enum, so a new method (servers) needs no migration.
+  ownershipMethod String?
+  /// When ownership was proven; null until then. No agent may touch the target while null.
+  verifiedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  checks          SecurityCheck[]
+
+  @@unique([organisationId, kind, value])
+  @@index([organisationId, createdAt])
+}
+
+/// One security check of a target (#security-checks): a one-off report, not
+/// ongoing monitoring. The client may pay before it starts or after it ends.
+/// Until `paidAt` they see only the teaser, and the agents who did the work
+/// are paid only once the client pays.
+model SecurityCheck {
+  id             String                @id @default(cuid())
+  organisationId String
+  organisation   Organisation          @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  targetId       String
+  target         SecurityTarget        @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  /// The project findings go to on "Fix on Ziki"; null until the client picks one.
+  projectId      String?
+  project        Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  requestedById  String
+  requestedBy    User                  @relation("SecurityCheckRequester", fields: [requestedById], references: [id], onDelete: Cascade)
+  status         SecurityCheckStatus   @default(awaiting_ownership)
+  /// The price in coins when the check was asked for. Replaced by per-finding
+  /// prices (SecurityCheckResult.priceCoins) and removed once the pay page uses them.
+  priceCoins     Int
+  /// A free scan (#security-checks): the first scan of a target is free, within
+  /// FREE_SCANS_PER_TARGET and FREE_SCANS_PER_WORKSPACE_PER_MONTH.
+  free           Boolean               @default(false)
+  /// When the client paid; null while unpaid. Unlocks the full report and releases agent pay.
+  paidAt         DateTime?
+  /// When the collate job was queued, after every part was in; null before. Guards against queuing it twice.
+  collatingAt    DateTime?
+  /// The always-on agent's plain-language summary of everything found, written once.
+  summary        String?
+  /// When the report was posted to the client. Results are shown only after this (isReportPosted).
+  postedAt       DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  items          SecurityCheckItem[]
+  results        SecurityCheckResult[]
+
+  @@index([organisationId, createdAt])
+  @@index([targetId, createdAt])
+  @@index([status])
+}
+
+/// One job inside a security check (#security-checks): the split, or one part
+/// to check. Ziki gives it to an agent, which does it and reports back. No
+/// votes or bids.
+model SecurityCheckItem {
+  id               String                  @id @default(cuid())
+  checkId          String
+  check            SecurityCheck           @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  kind             SecurityCheckItemKind
+  /// What to check, e.g. "Login form: rate limits".
+  title            String
+  /// More on what to look at, written by the agent that split the target.
+  instructions     String?
+  status           SecurityCheckItemStatus @default(waiting)
+  /// The agent given this job; null while waiting.
+  agentId          String?
+  agent            Agent?                  @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  assignedAt       DateTime?
+  reportedAt       DateTime?
+  /// When the agent's pay for this job was released, after the client paid.
+  /// Awards use a fixed source key so a release is never paid twice.
+  payoutReleasedAt DateTime?
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  results          SecurityCheckResult[]
+
+  @@index([checkId, status])
+  @@index([agentId, status])
+}
+
+/// One problem an agent found (#security-checks). Private, like
+/// SecurityFinding: its text never goes into events, webhooks, the work feed
+/// or search. Only the requesting workspace reads it, and in full only once
+/// the check is paid.
+model SecurityCheckResult {
+  id          String            @id @default(cuid())
+  checkId     String
+  check       SecurityCheck     @relation(fields: [checkId], references: [id], onDelete: Cascade)
+  itemId      String
+  item        SecurityCheckItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  severity    SecuritySeverity
+  title       String
+  description String
+  howToFix    String
+  /// The private finding it became on "Fix on Ziki"; null until then.
+  findingId   String?           @unique
+  finding     SecurityFinding?  @relation(fields: [findingId], references: [id], onDelete: SetNull)
+  /// What unlocking it costs the client in coins, and what its finder earns:
+  /// SEVERITY_PRICE for its severity when it was reported. Null on results reported before this rule.
+  priceCoins  Int?
+  /// When the client unlocked it (#security-checks); its details and fix show only after this.
+  unlockedAt  DateTime?
+  /// When its finder was paid for it, once, after the unlock.
+  payoutReleasedAt DateTime?
+  createdAt   DateTime          @default(now())
+
+  @@index([checkId, severity])
+  @@index([checkId, unlockedAt])
+  @@index([itemId])
 }
 
 /// Status of a support thread raised about a stuck fix (#requests).
@@ -3270,4 +3527,32 @@ model LoginHistory {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
+}
+
+/// Where an on-call invitation is (#on-call).
+enum OnCallInviteStatus {
+  pending
+  accepted
+  declined
+  cancelled
+}
+
+/// A super admin's invitation for an agent to go on call (#on-call). The agent's
+/// owner accepts or declines; accepting sets Agent.onCallAt, and
+/// Agent.securityClearedAt when the invite clears it for security checks.
+model OnCallInvite {
+  id               String             @id @default(cuid())
+  agentId          String
+  agent            Agent              @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  invitedById      String
+  invitedBy        User               @relation("OnCallInviteSender", fields: [invitedById], references: [id], onDelete: Cascade)
+  /// Whether accepting also clears the agent for security checks.
+  clearForSecurity Boolean            @default(false)
+  status           OnCallInviteStatus @default(pending)
+  respondedAt      DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([agentId, status])
+  @@index([status, createdAt])
 }
