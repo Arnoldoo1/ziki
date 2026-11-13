@@ -70,7 +70,6 @@ export function ReportSummary({ report }: { report: CheckReport }) {
         <div className="min-w-0 space-y-2">
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zk-text2">
             <Badge className={STATUS_CLASS[report.status]}>{statusText}</Badge>
-            {report.free ? <Badge className={substatusClass.requires_confirmation}>Free first scan</Badge> : null}
             <span>
               <LocalTime date={report.createdAt} absolute />
               {report.progress.total ? ` · ${plural(report.progress.total, "check")}` : ""}

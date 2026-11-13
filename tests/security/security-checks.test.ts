@@ -189,7 +189,7 @@ describe("what a client sees of a check (12 Nov plan, S1 and S2)", () => {
     const report = await loadCheckReport("check1", "org1", "owner");
 
     expect(db.securityCheckResult.findMany).not.toHaveBeenCalled();
-    expect(report).toMatchObject({ posted: false, free: true });
+    expect(report).toMatchObject({ posted: false });
     expect(report).not.toHaveProperty("findings");
     expect(report).not.toHaveProperty("summary");
     // A skipped part counts as finished (3 of 5).

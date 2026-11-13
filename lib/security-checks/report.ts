@@ -139,8 +139,6 @@ const FINDING_OF_RESULT = {
 type ReportBase = {
   checkId: string;
   status: SecurityCheckStatus;
-  /** The client's free first scan. */
-  free: boolean;
   createdAt: Date;
   startedAt: Date | null;
   finishedAt: Date | null;
@@ -220,7 +218,6 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
     select: {
       id: true,
       status: true,
-      free: true,
       postedAt: true,
       summary: true,
       createdAt: true,
@@ -240,7 +237,6 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
   const base: ReportBase = {
     checkId: check.id,
     status: check.status,
-    free: check.free,
     createdAt: check.createdAt,
     startedAt: check.startedAt,
     finishedAt: check.finishedAt,
