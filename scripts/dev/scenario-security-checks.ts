@@ -7,8 +7,8 @@
  *
  * - a website still waiting for its owner to prove it is theirs
  * - a website mid-check and unpaid: some parts done, problems found so far
- * - a repo finished and paid: the full report, with two problems already sent
- *   to Ziki as findings (one Live and checked again, one In progress)
+ * - a repo finished and paid: the full report, with two problems already moved
+ *   to the client's app (one Live and checked again, one In progress)
  * - a server finished and unpaid with no critical problem: the teaser shows
  *   the worst one found instead
  *
@@ -21,6 +21,7 @@
  */
 import { PrismaClient, type SecurityCheckItemStatus, type SecurityCheckStatus, type SecuritySeverity, type SecurityTargetKind } from "@prisma/client";
 import { SEVERITY_PRICE } from "../../lib/security-checks";
+import type { PreviewSummary } from "../../lib/security-checks/preview-summary";
 
 const ORGANISATION_SLUG = "demo";
 const OWNER_EMAIL = "demo@fixtures.local";
@@ -52,8 +53,32 @@ type Scenario = {
   summary?: string;
   /** How many of its first parts' problems the client has unlocked (12 Nov plan: per-finding unlocks). */
   unlockParts?: number;
+  /** The quick scan saved when the asset was added (14 Nov plan): shown on the report until it is posted. */
+  quickScan?: PreviewSummary;
   parts: Part[];
 };
+
+/** A website's quick scan: two short titles, as any browser could see them. */
+function websiteQuickScan(target: string): PreviewSummary {
+  return {
+    kind: "website",
+    target,
+    checkedAt: "2026-11-14T09:00:00.000Z",
+    total: 2,
+    counts: { critical: 0, high: 0, medium: 1, low: 1 },
+    risk: "medium",
+    areas: [
+      { area: "https", label: "HTTPS", problems: 0 },
+      { area: "certificate", label: "Certificate", problems: 0 },
+      { area: "headers", label: "Security headers", problems: 1 },
+      { area: "cookies", label: "Cookies", problems: 1 },
+    ],
+    rows: [
+      { severity: "medium", area: "cookies", price: SEVERITY_PRICE.medium, label: "Cookies", title: "Session cookie can be read by scripts" },
+      { severity: "low", area: "headers", price: SEVERITY_PRICE.low, label: "Security headers", title: "No Strict-Transport-Security header" },
+    ],
+  };
+}
 
 const LOGIN_RATE_LIMIT: Problem = {
   severity: "critical",
@@ -84,6 +109,7 @@ const SCENARIOS: Scenario[] = [
     verified: false,
     status: "awaiting_ownership",
     paid: false,
+    quickScan: websiteQuickScan("shop.example.test"),
     parts: [],
   },
   {
@@ -95,6 +121,7 @@ const SCENARIOS: Scenario[] = [
     verified: true,
     status: "checking",
     paid: false,
+    quickScan: websiteQuickScan("blog.example.test"),
     parts: [
       { title: "Login form: rate limits", status: "done", problems: [LOGIN_RATE_LIMIT] },
       { title: "Security headers", status: "done", problems: [MISSING_HSTS] },
@@ -225,6 +252,7 @@ async function main() {
           ownershipToken: `${P}-token-${scenario.key}`,
           ownershipMethod: scenario.verified ? "dns_txt" : null,
           verifiedAt: scenario.verified ? new Date(now - 3 * HOUR) : null,
+          previewSummary: scenario.quickScan ?? undefined,
         },
       });
       await db.securityCheck.create({

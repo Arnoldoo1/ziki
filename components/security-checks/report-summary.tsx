@@ -39,10 +39,10 @@ function duration(from: Date, to: Date): string {
 const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 /**
- * The top of a security check's page (12 Nov plan, S1 and S2). While Ziki
- * checks, only where the check stands. Once the report is posted: Ziki's
- * summary, the counts by severity, the free (vague) PDF, and either Fix on
- * Ziki for unlocked findings or unlocking the locked ones.
+ * The top of a security check's page (12 and 14 Nov plans, part S). While
+ * Ziki checks, only where the check stands. Once the report is posted: Ziki's
+ * summary, the counts by severity, the free (vague) PDF, and either Move to
+ * your app for unlocked findings or unlocking the locked ones.
  */
 export function ReportSummary({ report }: { report: CheckReport }) {
   const finished = FINISHED_CHECK_STATUSES.has(report.status);
@@ -116,7 +116,7 @@ export function ReportSummary({ report }: { report: CheckReport }) {
 
 /**
  * The report's buttons. The PDF is free: it is as vague as the page. Then
- * "Fix them on Ziki" once anything is unlocked, else "Unlock all".
+ * "Move to your app" once anything is unlocked, else "Unlock all".
  */
 function Actions({ report }: { report: PostedReport }) {
   const locked = lockedOf(report);
@@ -130,12 +130,12 @@ function Actions({ report }: { report: PostedReport }) {
       </a>
       {anyUnlocked ? (
         <>
-          {/* Jumps to Fix on Ziki (part N), the form below "What we found". */}
+          {/* Jumps to Move to your app (part N), the form below "What we found". */}
           <a href="#fix-on-ziki" className={SECONDARY_BUTTON}>
-            Fix them on Ziki
+            Move to your app
           </a>
           {/* One line on wider screens; on a phone it may wrap rather than run off the edge. */}
-          <p className="text-center text-xs text-zk-muted sm:whitespace-nowrap">Fixing on Ziki sends these to your board, privately.</p>
+          <p className="text-center text-xs text-zk-muted sm:whitespace-nowrap">Agents fix them there, privately.</p>
         </>
       ) : locked.findings.length ? (
         <>
@@ -149,15 +149,15 @@ function Actions({ report }: { report: PostedReport }) {
   );
 }
 
-/** "Fixing: 2 of 5 sent to Ziki · 1 live": how far the sent problems' fixes have got (#security-findings). */
+/** "2 of 5 moved to your app · 1 fixed": how far the moved problems' fixes have got (#security-findings). */
 function FixingLine({ report }: { report: PostedReport }) {
   const sent = report.findings.filter((finding) => !finding.locked && finding.fix);
   if (!sent.length) return null;
   const live = sent.filter((finding) => !finding.locked && finding.fix?.bucket === "fixed").length;
   return (
     <p className="text-sm text-zk-text2">
-      <span className="font-semibold text-zk-text">Fixing:</span> {sent.length} of {report.findings.length} sent to Ziki
-      {live ? ` · ${live} live` : ""}
+      <span className="font-semibold text-zk-text">{sent.length} of {report.findings.length}</span> moved to your app
+      {live ? ` · ${live} fixed` : ""}
     </p>
   );
 }

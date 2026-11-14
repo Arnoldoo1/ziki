@@ -1,23 +1,22 @@
 import Link from "next/link";
 import type { SecuritySeverity } from "@prisma/client";
 import { AgentAvatar } from "@/components/agent-avatar";
-import { PipelineSteps } from "@/components/pipeline-steps";
 import { RichText } from "@/components/rich-text";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { ReportProgress } from "@/components/security-checks/report-progress";
 import { UnlockActions, UnlockCheckbox, UnlockChoiceProvider } from "@/components/security-checks/report-unlock";
-import { Badge } from "@/components/ui/badge";
-import { stateLabel, statusClass, substatusClass } from "@/lib/labels";
-import { lockedOf, type LockedFinding, type PostedReport, type ReportAgent, type ReportFinding, type ResultFix } from "@/lib/security-checks/report";
+import { lockedOf, type LockedFinding, type PostedReport, type ReportAgent, type ResultFix } from "@/lib/security-checks/report";
 
 /**
  * "What we found" on a posted security report (12 Nov plan, S2): every
  * finding, worst first. An unlocked one shows in full with how to fix it. A
  * locked one shows only its severity, the part that found it and its price,
  * behind an obvious lock, with a tick box to unlock it. Its text was never
- * read (see `loadCheckReport`), so the blurred lines are placeholders.
+ * read (see `loadCheckReport`), so the blurred lines are placeholders. A
+ * finding moved to the client's app keeps its place, with a small "Moved to
+ * your app" mark linking to its issue (14 Nov plan: reports never go away).
  */
-export function ReportResults({ report, show = "all" }: { report: PostedReport; show?: FixFilter }) {
+export function ReportResults({ report }: { report: PostedReport }) {
   const locked = lockedOf(report);
 
   return (
@@ -37,7 +36,7 @@ export function ReportResults({ report, show = "all" }: { report: PostedReport; 
         <p className="px-4 py-4 text-sm text-zk-text2 sm:px-6">The agents found no problems.</p>
       ) : (
         <UnlockChoiceProvider>
-          <Findings report={report} show={show} />
+          <Findings report={report} />
           {locked.findings.length ? (
             <div className="border-t border-zk-border px-4 py-4 sm:px-6">
               <div className="rounded-[14px] border border-zk-warn-bd bg-zk-warn-bg p-4">
@@ -61,72 +60,24 @@ export function ReportResults({ report, show = "all" }: { report: PostedReport; 
   );
 }
 
-/** The "What we found" tabs, by where each problem's fix is (#security-findings). */
-export type FixFilter = "all" | "not-sent" | "fixing" | "fixed" | "closed";
-const FIX_FILTERS: { value: FixFilter; label: string }[] = [
-  { value: "all", label: "All" },
-  { value: "not-sent", label: "Not sent" },
-  { value: "fixing", label: "Fixing" },
-  { value: "fixed", label: "Fixed" },
-  { value: "closed", label: "Closed" },
-];
-
-export function parseFixFilter(value: string | string[] | undefined): FixFilter {
-  return FIX_FILTERS.find((filter) => filter.value === value)?.value ?? "all";
-}
-
-/** A locked finding can't have been sent, so it counts as "Not sent". */
-function fixFilterOf(finding: ReportFinding): Exclude<FixFilter, "all"> {
-  return !finding.locked && finding.fix ? finding.fix.bucket : "not-sent";
-}
-
-/**
- * The findings. Once any was sent with Fix on Ziki, tabs split them by where
- * their fix is, as the Findings page does.
- */
-function Findings({ report, show }: { report: PostedReport; show: FixFilter }) {
-  const anySent = report.findings.some((finding) => !finding.locked && finding.fix);
-  const filter = anySent ? show : "all";
-  const shown = filter === "all" ? report.findings : report.findings.filter((finding) => fixFilterOf(finding) === filter);
-  const count = (value: FixFilter) =>
-    value === "all" ? report.findings.length : report.findings.filter((finding) => fixFilterOf(finding) === value).length;
-  const tabs = FIX_FILTERS.filter((tab) => tab.value !== "closed" || count("closed") > 0).map((tab) => ({
-    label: tab.label,
-    count: count(tab.value),
-    href: tab.value === "all" ? `/security/checks/${report.checkId}` : `/security/checks/${report.checkId}?show=${tab.value}`,
-    selected: filter === tab.value,
-  }));
-
+/** Every finding, worst first. */
+function Findings({ report }: { report: PostedReport }) {
   return (
-    <>
-      {anySent ? (
-        <div className="mt-3 px-4 sm:px-6">
-          <PipelineSteps stages={tabs} label="Filter problems by where their fix is" />
-        </div>
-      ) : null}
-      {shown.length ? (
-        <ol className="mt-3 divide-y divide-zk-border border-t border-zk-border">
-          {shown.map((finding) => (
-            <li key={finding.id}>
-              {finding.locked ? (
-                <LockedRow finding={finding} />
-              ) : (
-                <ProblemRow severity={finding.severity} title={finding.title} description={finding.description} agent={finding.agent} fix={finding.fix}>
-                  <HowToFix>
-                    <RichText content={finding.howToFix} className="min-w-0 text-sm" />
-                  </HowToFix>
-                </ProblemRow>
-              )}
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="mt-3 border-t border-zk-border px-4 py-4 text-sm text-zk-text2 sm:px-6">
-          No problems here.{" "}
-          <Link href={`/security/checks/${report.checkId}`} className="font-semibold text-zk-accent hover:underline">Show all</Link>
-        </p>
-      )}
-    </>
+    <ol className="mt-3 divide-y divide-zk-border border-t border-zk-border">
+      {report.findings.map((finding) => (
+        <li key={finding.id}>
+          {finding.locked ? (
+            <LockedRow finding={finding} />
+          ) : (
+            <ProblemRow severity={finding.severity} title={finding.title} description={finding.description} agent={finding.agent} fix={finding.fix}>
+              <HowToFix>
+                <RichText content={finding.howToFix} className="min-w-0 text-sm" />
+              </HowToFix>
+            </ProblemRow>
+          )}
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -192,9 +143,9 @@ function ProblemRow({
       <div className="min-w-0">
         {/* A step above the description and fix (text-sm) so each problem's name stands out. */}
         <h3 className="wrap-break-word text-base font-bold text-zk-text">{title}</h3>
+        {fix ? <MovedMark fix={fix} /> : null}
         <RichText content={description} className="mt-1 text-sm text-zk-text2" />
         <div className="mt-2 text-sm">{children}</div>
-        {fix ? <FixLine fix={fix} /> : null}
       </div>
       {agent || fix?.recheck ? (
         <div className="flex flex-col gap-1.5 sm:items-end">
@@ -206,24 +157,27 @@ function ProblemRow({
   );
 }
 
-/** Where a sent problem's fix is: its stage in Ziki's colours, then its issue, pull request and finding. */
-function FixLine({ fix }: { fix: ResultFix }) {
-  const badge = fix.substatus
-    ? { label: stateLabel(fix.substatus), className: substatusClass[fix.substatus] }
-    : {
-        label: fix.stageLabel ?? "Reported",
-        className: fix.bucket === "closed" ? statusClass.closed : substatusClass.requires_confirmation,
-      };
-  const link = "font-semibold text-zk-accent hover:underline";
+const FIX_STATE: Record<ResultFix["bucket"], string> = { fixing: "Being fixed", fixed: "Fixed", closed: "Closed" };
+
+/**
+ * "↗ Moved to your app · Issue #150 · Fixed": one small mark under a moved
+ * finding's title, linking to its issue (or its private finding while there
+ * is no issue yet).
+ */
+function MovedMark({ fix }: { fix: ResultFix }) {
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-t border-zk-border pt-3 text-sm">
-      <Badge className={badge.className}>{badge.label}</Badge>
-      {fix.issue ? <Link href={fix.issue.href} className={link}>Issue #{fix.issue.number}</Link> : null}
-      {fix.pullRequestHref ? (
-        <a href={fix.pullRequestHref} className={link} target="_blank" rel="noreferrer">Pull request</a>
-      ) : null}
-      <Link href={fix.findingHref} className={link}>View finding →</Link>
-    </div>
+    <Link
+      href={fix.issue?.href ?? fix.findingHref}
+      className="mt-1 inline-flex flex-wrap items-center gap-1 rounded-full bg-zk-chip px-2.5 py-0.5 text-xs font-semibold text-zk-text2 hover:underline focus-visible:outline-2 focus-visible:outline-zk-accent"
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M7 17 17 7M9 7h8v8" />
+      </svg>
+      Moved to your app
+      <span className="text-zk-muted">
+        {fix.issue ? ` · Issue #${fix.issue.number}` : ""} · {FIX_STATE[fix.bucket]}
+      </span>
+    </Link>
   );
 }
 

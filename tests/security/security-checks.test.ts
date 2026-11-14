@@ -145,9 +145,19 @@ describe("security check words (#security-checks)", () => {
   });
 });
 
-describe("what a client sees of a check (12 Nov plan, S1 and S2)", () => {
+describe("what a client sees of a check (12 and 14 Nov plans, part S)", () => {
   const at = (minutes: number) => new Date(Date.UTC(2026, 10, 12, 9, minutes));
-  function check(postedAt: Date | null = at(9)) {
+  const QUICK_SCAN = {
+    kind: "website",
+    target: "shop.example.test",
+    checkedAt: "2026-11-14T09:00:00.000Z",
+    total: 1,
+    counts: { critical: 0, high: 0, medium: 0, low: 1 },
+    risk: "low",
+    areas: [{ area: "headers", label: "Security headers", problems: 1 }],
+    rows: [{ severity: "low", area: "headers", price: 1, label: "Security headers", title: "No HSTS header" }],
+  };
+  function check(postedAt: Date | null = at(9), target: { verifiedAt?: Date | null; previewSummary?: unknown } = {}) {
     return {
       id: "check1",
       status: postedAt ? "done" : "checking",
@@ -157,7 +167,7 @@ describe("what a client sees of a check (12 Nov plan, S1 and S2)", () => {
       createdAt: at(0),
       finishedAt: postedAt,
       startedAt: at(0),
-      target: { id: "t1", kind: "website", value: "shop.example.test", input: "https://shop.example.test", verifiedAt: at(0) },
+      target: { id: "t1", kind: "website", value: "shop.example.test", input: "https://shop.example.test", verifiedAt: at(0), previewSummary: null, ...target },
       items: [
         { id: "i1", title: "Login", status: "done", agentId: "a1" },
         { id: "i2", title: "TLS", status: "skipped", agentId: "a1" },
@@ -182,11 +192,11 @@ describe("what a client sees of a check (12 Nov plan, S1 and S2)", () => {
     };
   };
   /** An unlocked result's text, as the second query returns it. */
-  const text = (id: string) => ({ id, title: `${id} title`, description: `${id} description`, howToFix: `${id} fix`, finding: null });
-  /** The results table: the first query gets every row, the text query only what it asks for. */
-  function results(rows: ReturnType<typeof row>[]) {
+  const text = (id: string, finding: object | null = null) => ({ id, title: `${id} title`, description: `${id} description`, howToFix: `${id} fix`, finding });
+  /** The results table: the first query gets every row, the text query only what it asks for. `moved` maps a result to its private finding. */
+  function results(rows: ReturnType<typeof row>[], moved: Record<string, object> = {}) {
     db.securityCheckResult.findMany.mockImplementation(async ({ where }: { where: { unlockedAt?: unknown } }) =>
-      where.unlockedAt ? rows.filter((r) => r.unlockedAt).map((r) => text(r.id)) : rows,
+      where.unlockedAt ? rows.filter((r) => r.unlockedAt).map((r) => text(r.id, moved[r.id] ?? null)) : rows,
     );
   }
 
@@ -207,13 +217,14 @@ describe("what a client sees of a check (12 Nov plan, S1 and S2)", () => {
     expect(db.securityCheckResult.findMany).not.toHaveBeenCalled();
   });
 
-  it("before the report is posted: progress only, no result read at all; the PDF goes back to the check", async () => {
-    db.securityCheck.findFirst.mockResolvedValue(check(null));
+  it("before the report is posted: progress and the quick scan, no result read at all; the PDF goes back to the check", async () => {
+    db.securityCheck.findFirst.mockResolvedValue(check(null, { previewSummary: QUICK_SCAN }));
 
     const report = await loadCheckReport("check1", "org1", "owner");
 
     expect(db.securityCheckResult.findMany).not.toHaveBeenCalled();
-    expect(report).toMatchObject({ posted: false });
+    // The quick scan shows its short titles, but as the quick scan: never as findings to unlock or pay for.
+    expect(report).toMatchObject({ posted: false, quickScan: QUICK_SCAN });
     expect(report).not.toHaveProperty("findings");
     expect(report).not.toHaveProperty("summary");
     // A skipped part counts as finished (3 of 5).
@@ -257,6 +268,44 @@ describe("what a client sees of a check (12 Nov plan, S1 and S2)", () => {
     expect(report.counts).toEqual({ critical: 1, high: 1, medium: 0, low: 1 });
     expect(report.clearParts).toEqual(["Cookies"]);
     expect(report.agentCount).toBe(2);
+  });
+
+  it("a check still marked as waiting for proof shows as waiting to start while proof is off, and keeps the proof step once it is on", async () => {
+    const waiting = { ...check(null, { verifiedAt: null }), status: "awaiting_ownership" };
+    db.securityCheck.findFirst.mockResolvedValue(waiting);
+    expect(await loadCheckReport("check1", "org1", "owner")).toMatchObject({ status: "queued" });
+
+    vi.stubEnv("SECURITY_OWNERSHIP_PROOF_REQUIRED", "true");
+    try {
+      expect(await loadCheckReport("check1", "org1", "owner")).toMatchObject({ status: "awaiting_ownership" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("never goes away: once a finding is moved to the client's app, the report still shows it, in full, linked to its issue", async () => {
+    db.securityCheck.findFirst.mockResolvedValue(check());
+    const moved = {
+      id: "f1",
+      project: { slug: "web", organisation: { slug: "acme" } },
+      bug: { number: 150, status: "in_progress", isDeleted: false },
+      idea: null,
+      verifications: [],
+    };
+    results([row("crit", "critical", 1, { unlocked: true }), row("low", "low", 2, { itemId: "i4" })], { crit: moved });
+
+    const report = await loadCheckReport("check1", "org1", "owner");
+
+    if (!report?.posted) throw new Error("expected a posted report");
+    expect(report.findings.map((f) => f.id)).toEqual(["crit", "low"]);
+    expect(report.findings[0]).toMatchObject({
+      locked: false,
+      title: "crit title",
+      howToFix: "crit fix",
+      fix: { bucket: "fixing", issue: { number: 150, href: "/acme/web/150" } },
+    });
+    // Moving one finding unlocks nothing else.
+    expect(report.findings[1]).toMatchObject({ locked: true });
   });
 
   it("posted with nothing unlocked: the text is never even asked for", async () => {
@@ -334,24 +383,20 @@ describe("what a client sees of a check (12 Nov plan, S1 and S2)", () => {
     for (const char of ["₦", "Ọ", "ọ", "à", "́", "̀"]) expect(printed, char).toContain(char);
   });
 
-  it("a sent problem's fix follows its finding: Live is fixed, a deleted issue doesn't count, a rejected idea is closed", () => {
+  it("a moved problem's fix follows its finding: Live is fixed, a deleted issue doesn't count, a rejected idea is closed", () => {
     const project = { slug: "web", organisation: { slug: "ziki" } };
     const finding = (bug: object | null, idea: object | null = null, verifications: object[] = []) =>
       fixOf({ id: "f1", project, bug, idea, verifications } as never);
-    const bug = (status: string, substatus: string, isDeleted = false) => ({ number: 912, status, substatus, pullRequestUrl: null, isDeleted });
+    const bug = (status: string, isDeleted = false) => ({ number: 912, status, isDeleted });
 
     expect(fixOf(null)).toBeNull();
-    expect(finding(bug("in_progress", "in_progress"))).toMatchObject({
-      bucket: "fixing", substatus: "in_progress", issue: { number: 912 }, findingHref: "/security/findings/f1",
-    });
-    expect(finding(bug("resolved", "on_prod"), null, [{ passed: true, reviewer: { name: "Hana" } }])).toMatchObject({
+    expect(finding(bug("in_progress"))).toMatchObject({ bucket: "fixing", issue: { number: 912 }, findingHref: "/security/findings/f1" });
+    expect(finding(bug("resolved"), null, [{ passed: true, reviewer: { name: "Hana" } }])).toMatchObject({
       bucket: "fixed", recheck: { passed: true, by: "Hana" },
     });
-    // A deleted issue falls back to its idea's stage.
-    expect(finding(bug("resolved", "on_prod", true), { status: "open", isDeleted: false })).toMatchObject({
-      bucket: "fixing", issue: null, stageLabel: "Waiting for verdicts",
-    });
-    expect(finding(null, { status: "rejected", isDeleted: false })).toMatchObject({ bucket: "closed", stageLabel: "Rejected" });
+    // A deleted issue doesn't count: the mark then links to the private finding.
+    expect(finding(bug("resolved", true), { status: "open", isDeleted: false })).toMatchObject({ bucket: "fixing", issue: null });
+    expect(finding(null, { status: "rejected", isDeleted: false })).toMatchObject({ bucket: "closed" });
   });
 });
 
