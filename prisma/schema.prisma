@@ -3491,6 +3491,7 @@ model SecurityTarget {
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   checks          SecurityCheck[]
+  chatMessages    SecurityChatMessage[]
 
   @@unique([organisationId, kind, value])
   @@index([organisationId, createdAt])
@@ -3849,5 +3850,24 @@ model OnCallInvite {
 
   @@index([email, status])
   @@index([status, createdAt])
+}
+
+/// A message in the chat under one site's scan on Security (#security-checks, 14 Nov call):
+/// one saved chat per site per person, so it carries on after a refresh or on another
+/// device. The server reads the history from here, never from the browser. Never holds
+/// a finding's locked detail.
+model SecurityChatMessage {
+  id             String         @id @default(cuid())
+  organisationId String
+  targetId       String
+  target         SecurityTarget @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  /// The person whose chat this is; each person only sees their own.
+  userId         String
+  /// "user" or "assistant".
+  role           String
+  text           String
+  createdAt      DateTime       @default(now())
+
+  @@index([targetId, userId, createdAt])
 }
 
