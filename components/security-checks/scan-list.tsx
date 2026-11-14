@@ -11,6 +11,7 @@ import { ToolbarFilterMenu } from "@/components/toolbar-filter-menu";
 import { PaginationControls } from "@/components/pagination-controls";
 import { KindIcon } from "./entry-box";
 import { PreviewResult } from "./preview-result";
+import { SecurityChat } from "./security-chat";
 
 const PRIMARY_BUTTON =
   "inline-flex h-9 items-center rounded-full bg-electric-blue-strong px-4 text-sm font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2";
@@ -54,7 +55,7 @@ function stageOf(check: Pick<WorkspaceCheckRow, "status" | "posted" | "moved">):
  * counts), a search by site, and ten cards a page with the app's numbered
  * pages, so a long list stays easy to use. Cards, not the issue table, and no sidebar (Mark's rules).
  */
-export function ScanList({ checks, highlightId, show = "all", page = 1 }: { checks: WorkspaceCheckRow[]; highlightId?: string; show?: string; page?: number }) {
+export function ScanList({ checks, highlightId, show = "all", page = 1, onAdd, adding, hideId }: { checks: WorkspaceCheckRow[]; highlightId?: string; show?: string; page?: number; onAdd?: () => void; adding?: React.ReactNode; hideId?: string | null }) {
   const filter: Filter = FILTERS.some(({ id }) => id === show) ? (show as Filter) : "all";
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -64,7 +65,8 @@ export function ScanList({ checks, highlightId, show = "all", page = 1 }: { chec
     if (searching) searchBox.current?.focus();
   }, [searching]);
   // Removed scans (cancelled) leave the list.
-  const live = useMemo(() => checks.filter((check) => check.status !== "cancelled"), [checks]);
+  // Removed scans leave the list, and so, for now, does the one whose result is showing in the chat.
+  const live = useMemo(() => checks.filter((check) => check.status !== "cancelled" && check.id !== hideId), [checks, hideId]);
   const count = (id: Filter) => (id === "all" ? live.length : live.filter((check) => stageOf(check) === id).length);
   const words = query.trim().toLowerCase();
   const matching = live.filter((check) => (filter === "all" || stageOf(check) === filter) && (!words || check.value.toLowerCase().includes(words)));
@@ -76,10 +78,26 @@ export function ScanList({ checks, highlightId, show = "all", page = 1 }: { chec
   return (
     <div className="flex flex-col gap-4">
       {/* A toolbar like the app's issue lists: what this is on the left, Filter and search on the right. */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="security-scans-heading" className="m-0 text-base font-bold text-zk-text">
-          Your scans <span className="font-normal tabular-nums text-zk-muted">{live.length}</span>
-        </h2>
+      <div className={`flex flex-wrap justify-between gap-2 ${adding ? "items-start" : "items-center"}`}>
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Like "+ Add Idea": opens the chat above to scan a new site. */}
+          {onAdd ? (
+            <button
+              type="button"
+              onClick={onAdd}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zk-border bg-zk-surface px-3 text-sm font-semibold text-zk-text hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              Add asset
+            </button>
+          ) : null}
+          {/* No visible title: the Assets tab above already says what this is. Kept for screen readers. */}
+          <h2 id="security-scans-heading" className="sr-only">
+            Your scans
+          </h2>
+        </div>
+        {/* Like the app's "+ Add Idea": the box opens in this row, between the button and Filter. */}
+        {adding ? <div className="order-last w-full min-w-0 lg:order-none lg:w-auto lg:flex-1">{adding}</div> : null}
         <div className="flex items-center gap-2">
           {searching ? (
             <input
@@ -272,6 +290,68 @@ function RemoveConfirm({ checkId, site, onKeep }: { checkId: string; site: strin
       <button type="button" onClick={onKeep} className="inline-flex h-8 items-center rounded-full border border-zk-border bg-zk-surface px-3 text-[13px] font-semibold text-zk-text">
         Keep
       </button>
+    </div>
+  );
+}
+
+/**
+ * The Security page once there are scans (#security-checks, 14 Nov call): the
+ * list is the page, and "+ Add asset" opens the chat above it to scan a new
+ * site. When that scan is in, "See progress" closes the chat and highlights
+ * the new card, so a result never shows twice on the page. Arriving with a site
+ * from the public page opens the chat with it.
+ */
+export function ScansArea({
+  checks,
+  highlightId,
+  show,
+  page,
+  startWith,
+}: {
+  checks: WorkspaceCheckRow[];
+  highlightId?: string;
+  show?: string;
+  page?: number;
+  startWith?: string;
+}) {
+  const router = useRouter();
+  const [adding, setAdding] = useState(Boolean(startWith));
+  const [justAdded, setJustAdded] = useState<string | null>(null);
+  // The scan whose result is in the chat: its card waits until "See progress", so it isn't shown twice.
+  const [inChat, setInChat] = useState<string | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+
+  const chat = adding ? (
+    <SecurityChat
+      id="security-chat"
+      focusOnOpen
+      startWith={startWith}
+      onScanned={setInChat}
+      onSeeProgress={(checkId) => {
+        setAdding(false);
+        setInChat(null);
+        setJustAdded(checkId);
+        router.refresh();
+        setTimeout(() => list.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+      }}
+    />
+  ) : null;
+
+  return (
+    <div ref={list} className="scroll-mt-24 p-3 sm:p-6">
+      <ScanList
+        checks={checks}
+        highlightId={justAdded ?? highlightId}
+        show={show}
+        page={page}
+        // Like "+ Add Idea": a second click closes the box.
+        onAdd={() => {
+          setAdding((open) => !open);
+          setInChat(null);
+        }}
+        adding={chat}
+        hideId={adding ? inChat : null}
+      />
     </div>
   );
 }
