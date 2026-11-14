@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   rate: vi.fn(),
   preview: vi.fn(),
   saveQuickScan: vi.fn(),
+  findScannedCheck: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -17,6 +18,7 @@ vi.mock("@/lib/security-checks/entry", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/security-checks/entry")>()),
   addTargetAndCheck: mocks.addTargetAndCheck,
   saveQuickScan: mocks.saveQuickScan,
+  findScannedCheck: mocks.findScannedCheck,
 }));
 vi.mock("@/lib/security-checks/assistant", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/security-checks/assistant")>()),
@@ -49,6 +51,17 @@ describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
     mocks.rate.mockReturnValue({ allowed: true });
     mocks.addTargetAndCheck.mockResolvedValue({ targetId: "t1", checkId: "c1", verified: false, reused: false });
     mocks.preview.mockResolvedValue(SCAN);
+    mocks.findScannedCheck.mockResolvedValue(null);
+  });
+
+  it("doesn't scan a site again that this person already scanned; it says so and shows its saved result", async () => {
+    mocks.findScannedCheck.mockResolvedValue({ checkId: "c-old", summary: null });
+    const answer = await talkToSecurityAssistant(say("https://www.settle.ng"));
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
+    expect(answer).toMatchObject({ kind: "scan", already: true, checkId: "c-old", summary: null, note: expect.stringContaining("settle.ng has already been scanned") });
+    // From the public page, signed in: straight to that scan's card.
+    expect(await addSecurityAsset("settle.ng")).toMatchObject({ kind: "go", href: "/security?check=c-old" });
   });
 
   it("refuses anyone who is not an owner or admin, before scanning, asking the AI or saving anything", async () => {

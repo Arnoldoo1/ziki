@@ -79,9 +79,8 @@ export function SecurityChecksPanel({
           <p className="m-0 text-xs text-zk-muted">Newest first</p>
         </div>
         <ul className="m-0 flex list-none flex-col gap-3 p-0">
-          {/* The newest scan shows its whole result, so a reload after scanning still shows it. */}
-          {checks.map((check, index) => (
-            <ScanCard key={check.id} check={check} highlighted={highlight?.checkId === check.id} open={index === 0} />
+          {checks.map((check) => (
+            <ScanCard key={check.id} check={check} highlighted={highlight?.checkId === check.id} />
           ))}
         </ul>
       </div>
@@ -100,7 +99,7 @@ const SEVERITY_DOT: Record<"critical" | "high" | "medium" | "low", string> = {
 };
 
 /** One scan: what it is, where it is, what was found, and the one next click. */
-function ScanCard({ check, highlighted, open }: { check: WorkspaceCheckRow; highlighted: boolean; open: boolean }) {
+function ScanCard({ check, highlighted }: { check: WorkspaceCheckRow; highlighted: boolean }) {
   const stage = scanStage(check);
   const reportHref = `/security/checks/${check.id}`;
   const payHref = `/security/checks/${check.id}/pay`;
@@ -136,7 +135,7 @@ function ScanCard({ check, highlighted, open }: { check: WorkspaceCheckRow; high
 
       {/* The quick scan from when it was added: its counts at a glance, and the whole result one click away. */}
       {quick ? (
-        <details open={open} className="group mx-4 rounded-xl bg-zk-bg">
+        <details className="group mx-4 rounded-xl bg-zk-bg">
           <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-[13px] text-zk-text2 [&::-webkit-details-marker]:hidden">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-zk-muted">Quick scan</span>
             {quick.total ? (

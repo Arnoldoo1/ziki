@@ -87,12 +87,13 @@ describe("SecurityChecksPanel (#security-checks, 14 Nov plan)", () => {
     expect(html).not.toContain("/pay");
   });
 
-  it("opens the newest scan's quick result, with what the browser saw as titles and no prices", () => {
+  it("keeps each scan's quick result one click away, with what the browser saw as titles and no prices", () => {
     const html = renderToStaticMarkup(
       <SecurityChecksPanel checks={[row({ preview: quick }), row({ id: "c2", targetId: "t2", value: "shop.ng", preview: quick })]} />,
     );
     expect(html).toContain("No Content Security Policy");
-    expect(html.match(/<details open=""/g)).toHaveLength(1);
+    // Closed until clicked.
+    expect(html).not.toContain("<details open");
     expect(html).toContain("See result");
     expect(html).not.toContain("coin");
   });

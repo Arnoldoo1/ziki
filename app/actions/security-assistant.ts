@@ -6,7 +6,7 @@ import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { checkRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { OWNERS_ONLY_MESSAGE } from "@/lib/security-checks";
 import { parseSecurityTarget, PRIVATE_TARGET_ERROR, targetAddress } from "@/lib/security-checks/target";
-import { addTargetAndCheck, refusedMessage, saveQuickScan } from "@/lib/security-checks/entry";
+import { addTargetAndCheck, findScannedCheck, refusedMessage, saveQuickScan } from "@/lib/security-checks/entry";
 import { previewScan } from "@/lib/security-checks/preview";
 import { summarisePreview, type PreviewSummary } from "@/lib/security-checks/preview-summary";
 import type { ParsedTarget } from "@/lib/security-checks/target";
@@ -32,7 +32,7 @@ export type ChatAnswer =
   | { kind: "reply"; reply: string }
   | { kind: "go"; reply: string; href: string }
   /** The quick scan of a site, already added to the person's scans (`checkId`) unless it couldn't be reached. `summary` is null when the scan couldn't run. */
-  | { kind: "scan"; reply: string; target: string; summary: PreviewSummary | null; note: string | null; checkId: string | null }
+  | { kind: "scan"; reply: string; target: string; summary: PreviewSummary | null; note: string | null; checkId: string | null; already?: boolean }
   | { kind: "error"; error: string };
 
 /** Messages one person may send the assistant in an hour. */
@@ -90,6 +90,19 @@ export async function addSecurityAsset(link: string): Promise<ChatAnswer> {
  */
 async function scanAndAdd(organisationId: string, userId: string, target: ParsedTarget, reply: string): Promise<ChatAnswer> {
   const address = targetAddress(target);
+  // Scanned before: don't scan it again, just point to its card.
+  const scanned = await findScannedCheck(organisationId, userId, target);
+  if (scanned) {
+    return {
+      kind: "scan",
+      reply: "",
+      target: address,
+      summary: scanned.summary,
+      note: `${target.value} has already been scanned, so it isn't scanned again. This is its saved result; it's also on its card in your scans.`,
+      checkId: scanned.checkId,
+      already: true,
+    };
+  }
   const result = await previewScan(address, { visitor: `user:${userId}` });
   const summary = result.ok ? summarisePreview(result) : null;
   const addable = result.ok || target.kind === "repo" || result.retryAfterSeconds !== undefined;

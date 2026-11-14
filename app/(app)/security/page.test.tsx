@@ -167,6 +167,32 @@ describe("SecurityPage (/security)", () => {
     });
   });
 
+  it("sends a plain member with no scanned site to Your work, as before", async () => {
+    vi.mocked(currentOrganisationAccess).mockResolvedValueOnce({
+      organisationId: "org_123",
+      organisationName: "Workspace",
+      organisationSlug: "workspace",
+      membershipRole: "member",
+      admin: false,
+    });
+
+    await expect(SecurityPage({})).rejects.toMatchObject({ digest: expect.stringContaining("/security/work") });
+  });
+
+  it("keeps a scanned repo's full GitHub address through the redirect, so its scan starts after", async () => {
+    vi.mocked(currentOrganisationAccess).mockResolvedValueOnce({
+      organisationId: "org_123",
+      organisationName: "Workspace",
+      organisationSlug: "workspace",
+      membershipRole: "member",
+      admin: false,
+    });
+
+    await expect(SecurityPage({ searchParams: Promise.resolve({ target: "github.com/settle/app" }) })).rejects.toMatchObject({
+      digest: expect.stringContaining(`/organisations?next=${encodeURIComponent(`/security?target=${encodeURIComponent("github.com/settle/app")}`)}`),
+    });
+  });
+
   it("opens the workspace a member owns elsewhere, keeping the scanned site", async () => {
     vi.mocked(currentOrganisationAccess).mockResolvedValueOnce({
       organisationId: "org_123",
