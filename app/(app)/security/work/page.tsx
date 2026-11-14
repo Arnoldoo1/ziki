@@ -25,7 +25,8 @@ export default async function SecurityYourWorkPage() {
     listAgentJobs(user.id),
     access.organisationId && access.admin ? listWorkspaceChecks(access.organisationId, user.id) : Promise.resolve([]),
   ]);
-  const checkCount = checks.length;
+  // Removed (cancelled) scans don't count.
+  const checkCount = checks.filter((check) => check.status !== "cancelled").length;
   // One list, no sidebar: everything your agents worked on, each with its own status.
   const shown = jobs;
 

@@ -12,6 +12,7 @@ import { PaginationControls } from "@/components/pagination-controls";
 import { KindIcon } from "./entry-box";
 import { PreviewResult } from "./preview-result";
 import { SecurityChat } from "./security-chat";
+import { SiteChatBox } from "./site-chat-box";
 
 const PRIMARY_BUTTON =
   "inline-flex h-9 items-center rounded-full bg-electric-blue-strong px-4 text-sm font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2";
@@ -173,6 +174,8 @@ function ScanCard({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
   const stage = stageOf(check);
   // Removing asks first, on the card itself, under its header.
   const [removing, setRemoving] = useState(false);
+  // The result (and its chat) only loads once it's opened.
+  const [resultOpen, setResultOpen] = useState(false);
   const reportHref = `/security/checks/${check.id}`;
   const payHref = `/security/checks/${check.id}/pay`;
   const canUnlock = check.posted && check.unlocked < check.findings;
@@ -218,7 +221,7 @@ function ScanCard({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
 
       {/* The quick scan from when it was added: its counts at a glance, and the whole result one click away. */}
       {quick ? (
-        <details className="group mx-4 rounded-xl bg-zk-bg">
+        <details className="group mx-4 rounded-xl bg-zk-bg" onToggle={(event) => setResultOpen(event.currentTarget.open)}>
           <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-[13px] text-zk-text2 [&::-webkit-details-marker]:hidden">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-zk-muted">Quick scan</span>
             {quick.total ? (
@@ -239,6 +242,8 @@ function ScanCard({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
           </summary>
           <div className="px-2 pb-2 sm:px-3 sm:pb-3">
             <PreviewResult summary={quick} />
+            {/* The saved chat about this site, under its result (14 Nov call). */}
+            {resultOpen ? <SiteChatBox checkId={check.id} site={check.value} /> : null}
           </div>
         </details>
       ) : null}

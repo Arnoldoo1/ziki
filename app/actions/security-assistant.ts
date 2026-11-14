@@ -13,9 +13,11 @@ import type { ParsedTarget } from "@/lib/security-checks/target";
 import {
   ASSISTANT_HISTORY_MAX,
   ASSISTANT_MESSAGE_MAX,
+  askAboutSite,
   askSecurityAssistant,
   type AssistantTurn,
 } from "@/lib/security-checks/assistant";
+import { loadSiteChat, saveSiteMessage, SITE_CHAT_MESSAGE_MAX, siteChatScan, siteContextNote } from "@/lib/security-checks/site-chat";
 
 /**
  * Ziki's security chat, signed in (#security-checks, plan part C3). A plain
@@ -54,6 +56,48 @@ export async function replaceScan(checkId: string): Promise<{ ok: true; summary:
   await saveQuickScan(scan.targetId, summary);
   revalidatePath("/security");
   return { ok: true, summary };
+}
+
+/** A site's saved chat, as the card shows it. */
+export type SiteChatAnswer = { ok: true; messages: { id: string; role: "user" | "assistant"; text: string }[] } | { ok: false; error: string };
+
+/** The saved chat under one of your scans (#security-checks): loaded when its result opens. */
+export async function siteChat(checkId: string): Promise<SiteChatAnswer> {
+  const user = await requireUser();
+  const access = await currentOrganisationAccess(user.id, user.role);
+  if (!access.organisationId) return { ok: false, error: NO_WORKSPACE };
+  if (!access.admin) return { ok: false, error: OWNERS_ONLY_MESSAGE };
+  const scan = typeof checkId === "string" ? await siteChatScan(access.organisationId, user.id, checkId) : null;
+  if (!scan) return { ok: false, error: "That scan isn't in your scans." };
+  const messages = await loadSiteChat(access.organisationId, user.id, scan.targetId);
+  return { ok: true, messages: messages.map(({ id, role, text }) => ({ id, role, text })) };
+}
+
+/**
+ * Ask about one of your scans (#security-checks): the question is saved, Claude
+ * gets the last messages from the database (not the browser) and what's known
+ * about the site (counts and public titles only), and the answer is saved too.
+ */
+export async function askSite(checkId: string, question: string): Promise<SiteChatAnswer> {
+  const user = await requireUser();
+  const access = await currentOrganisationAccess(user.id, user.role);
+  if (!access.organisationId) return { ok: false, error: NO_WORKSPACE };
+  if (!access.admin) return { ok: false, error: OWNERS_ONLY_MESSAGE };
+  const text = typeof question === "string" ? question.trim().slice(0, SITE_CHAT_MESSAGE_MAX) : "";
+  if (!text) return { ok: false, error: "Type a question about this site." };
+  const scan = typeof checkId === "string" ? await siteChatScan(access.organisationId, user.id, checkId) : null;
+  if (!scan) return { ok: false, error: "That scan isn't in your scans." };
+  if (!checkRateLimit(`security-assistant:${user.id}`, ASSISTANT_RATE_LIMIT).allowed) return { ok: false, error: RATE_LIMIT_MESSAGE };
+
+  const { organisationId } = access;
+  await saveSiteMessage(organisationId, user.id, scan.targetId, "user", text);
+  const history = await loadSiteChat(organisationId, user.id, scan.targetId);
+  const reply =
+    (await askAboutSite(history.map(({ role, text: said }) => ({ role, text: said })), siteContextNote(scan.site, scan.quick, scan.report))) ??
+    "I can't answer just now. Try again in a moment, or open the report for the agents' findings.";
+  await saveSiteMessage(organisationId, user.id, scan.targetId, "assistant", reply);
+  const messages = await loadSiteChat(organisationId, user.id, scan.targetId);
+  return { ok: true, messages: messages.map(({ id, role, text: said }) => ({ id, role, text: said })) };
 }
 
 /** Remove a scan from the person's list, only while its report isn't posted. */

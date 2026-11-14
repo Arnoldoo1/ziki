@@ -169,7 +169,8 @@ export default async function SecurityPage(props: {
     return (
       <div className="flex w-full flex-col pb-10">
         <h1 className="sr-only">Security</h1>
-        <SecurityTabs selected="checks" checks={checks.length} jobs={jobs} />
+        {/* Removed (cancelled) scans don't count. */}
+        <SecurityTabs selected="checks" checks={checks.filter((check) => check.status !== "cancelled").length} jobs={jobs} />
         {picker}
         {/* While the pop-up asks where it goes, nothing is scanned yet. */}
         <SecurityChecksPanel checks={checks} highlight={highlight} startWith={picker ? undefined : (brought ?? undefined)} show={typeof params.show === "string" ? params.show : undefined} page={Number(params.page) > 0 ? Math.floor(Number(params.page)) : 1} />
