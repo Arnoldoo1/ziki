@@ -33,3 +33,7 @@
 - Added the standalone picker with server-priced simulated payment and the existing transactional issue link. The report integration remains a separate change.
 
 - Refreshed the move picker using the Security payment page's severity badges, rounded cards, and blue action button. Grouped project selection and total in the same card.
+
+- Merged upstream main with Seyi's #723, wired its report button to the standalone route, and raised the version to 0.1.176.
+
+- Browser verification on the migrated local demo: opened Seyi's report, followed Move to your app, moved a sample result, and verified the reopened report links to the same Issue #245.

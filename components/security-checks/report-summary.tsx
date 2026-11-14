@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { SecuritySeverity } from "@prisma/client";
 import "@/components/security-finding.css";
 import { Badge } from "@/components/ui/badge";
@@ -120,6 +121,11 @@ function Actions({ report }: { report: PostedReport }) {
         <DownloadIcon />
         Download report
       </a>
+      {report.findings.length > 0 ? (
+        <Link href={`/security/checks/${encodeURIComponent(report.checkId)}/fix`} className={PRIMARY_BUTTON}>
+          Move to your app
+        </Link>
+      ) : null}
     </div>
   );
 }
