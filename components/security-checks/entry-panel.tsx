@@ -1,8 +1,7 @@
 import type { WorkspaceCheckRow } from "@/lib/security-checks/entry";
 import { SecurityWelcome } from "./security-welcome";
-import { SecurityChat } from "./security-chat";
 import { FlashNote } from "./flash-note";
-import { ScanList } from "./scan-list";
+import { ScansArea } from "./scan-list";
 
 /** One panel for everything, as wide as the tabs above it, like a project's Ideas and Issues. */
 const PANEL = "mx-auto w-full max-w-6xl overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface";
@@ -16,10 +15,10 @@ function PrivacyNote() {
 }
 
 /**
- * The Security page (#security-checks, 14 Nov plan): one page, no wizard and
- * no proof step. With nothing scanned yet it's the one big box; after that
- * the box stays on top and the person's scans sit under it as cards, each
- * one click from its report.
+ * The Security page (#security-checks, 14 Nov plan and call): one page, no
+ * wizard and no proof step. With nothing scanned yet it's the one big box;
+ * after that the person's scans are the page, with "+ Add asset" opening the
+ * chat to scan a new site.
  */
 export function SecurityChecksPanel({
   checks,
@@ -47,23 +46,12 @@ export function SecurityChecksPanel({
 
   return (
     <section aria-labelledby="security-scans-heading" className={PANEL}>
-      <div className="border-b border-zk-divider bg-gradient-to-b from-zk-tint/60 to-zk-surface px-4 py-8 sm:px-6 sm:py-10">
-        <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-1 text-center">
-          <p className="m-0 text-xl font-extrabold tracking-tight text-zk-text sm:text-2xl">What do you want to secure?</p>
-          <p className="m-0 text-sm text-zk-muted">Paste a website, server address or GitHub repo. Its scan shows here.</p>
-          <div className="mt-4 w-full text-left">
-            <SecurityChat id="security-chat" startWith={startWith} />
-          </div>
-        </div>
-      </div>
       {highlight?.unlocked ? (
         <FlashNote>
           {highlight.unlocked === 1 ? "1 fix unlocked." : `${highlight.unlocked} fixes unlocked.`} Open the report to read each one in full, with how to fix it.
         </FlashNote>
       ) : null}
-      <div className="p-3 sm:p-6">
-        <ScanList checks={checks} highlightId={highlight?.checkId} show={show} page={page} />
-      </div>
+      <ScansArea checks={checks} highlightId={highlight?.checkId} show={show} page={page} startWith={startWith} />
       <div className="border-t border-zk-border bg-zk-bg px-4 py-3 sm:px-6">
         <PrivacyNote />
       </div>

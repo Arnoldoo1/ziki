@@ -57,8 +57,9 @@ describe("SecurityChecksPanel (#security-checks, 14 Nov plan)", () => {
         ]}
       />,
     );
-    expect(html).toContain("What do you want to secure?");
-    expect(html).toContain("Your scans");
+    // Once there are scans, the chat waits behind "+ Add asset", like "+ Add Idea".
+    expect(html).toContain("Add asset");
+    expect(html).not.toContain("What do you want to secure?");
     expect(html).toContain("Scanning");
     expect(html).toContain("Report ready");
     expect(html).toContain("In your app");

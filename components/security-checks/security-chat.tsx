@@ -44,11 +44,20 @@ export function SecurityChat({
   id = "security-chat",
   focusOnOpen = false,
   startWith,
+  onSeeProgress,
+  onScanned,
 }: {
   id?: string;
   focusOnOpen?: boolean;
   /** An address brought from the public page after sign-up: sent once, so its quick scan starts on arrival. */
   startWith?: string;
+  /**
+   * Once a scan is in, the send button becomes "See progress" (while nothing new is typed):
+   * this closes the chat and shows that scan in the list. Without it, the chat just carries on.
+   */
+  onSeeProgress?: (checkId: string) => void;
+  /** A scan just came in and is in the person's scans; its card can wait until "See progress". */
+  onScanned?: (checkId: string) => void;
 }) {
   const router = useRouter();
   const [turns, setTurns] = useState<ChatItem[]>(() => kept.turns);
@@ -120,6 +129,7 @@ export function SecurityChat({
         if (answer.kind === "scan") {
           setTurns([...next, { role: "assistant", text: answer.reply, scan: { target: answer.target, summary: answer.summary, note: answer.note, checkId: answer.checkId, already: answer.already } }]);
           // Added to the person's scans: the list below picks it up.
+          if (answer.checkId) onScanned?.(answer.checkId);
           if (answer.checkId && !answer.already) router.refresh();
           return;
         }
@@ -146,6 +156,8 @@ export function SecurityChat({
   }, [startWith]);
   const lastUser = [...turns].reverse().find((turn) => turn.role === "user")?.text ?? "";
   const lastTarget = lastUser ? parseSecurityTarget(lastUser) : null;
+  // The scan the latest answer is about, once it's in the person's scans: "See progress" shows it in the list.
+  const finishedCheckId = turns.at(-1)?.role === "assistant" ? (turns.at(-1)?.scan?.checkId ?? null) : null;
   // Only while the answer is still coming: not while the list below refreshes after it.
   const waiting = pending && turns.at(-1)?.role === "user";
   const scanning = waiting && !thinking && lastTarget?.ok === true;
@@ -228,6 +240,20 @@ export function SecurityChat({
                 <span className="text-zk-bad-fg">That&apos;s a private address</span>
               ) : null}
             </p>
+            {onSeeProgress && finishedCheckId && !value && !pending ? (
+              <button
+                type="button"
+                onClick={() => {
+                  kept.turns = [];
+                  kept.text = "";
+                  onSeeProgress(finishedCheckId);
+                }}
+                className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-electric-blue-strong px-4 text-sm font-bold text-white transition hover:brightness-105"
+              >
+                See progress
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+              </button>
+            ) : (
             <button
               type="submit"
               disabled={pending || !value}
@@ -241,6 +267,7 @@ export function SecurityChat({
                 <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7" /></svg>
               )}
             </button>
+            )}
           </div>
         </div>
         {error ? <p id={errorId} role="alert" className="m-0 mt-2 px-2 text-sm text-zk-bad-fg">{error}</p> : null}
@@ -255,7 +282,7 @@ function ScanCard({ scan }: { scan: NonNullable<ChatItem["scan"]> }) {
   if (scan.already && scan.checkId) return <AlreadyScanned scan={scan} checkId={scan.checkId} />;
   const added = scan.checkId && !scan.already ? (
     <p className="m-0 border-t border-zk-divider pt-3 text-[13px] leading-snug text-zk-muted">
-      It&apos;s in your scans below. Agents are checking it properly now; its report will be on its card.
+      Saved to your scans. Agents are checking it now.
     </p>
   ) : null;
   if (scan.summary) return <PreviewResult summary={scan.summary}>{added}</PreviewResult>;
