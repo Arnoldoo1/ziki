@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 
 const STEPS = ["HTTPS", "Certificate", "Headers", "Cookies", "Email"];
 
+/** How long each area shows on the Scanning bar, on Security and the public page alike: steady, not slow. */
+export const SCAN_STEP_MS = 700;
+/** How long the whole bar takes for a website; the result waits for it. */
+export const SCAN_BAR_MS = STEPS.length * SCAN_STEP_MS;
+
 /**
  * "Scanning…" while the quick scan runs (#security-checks): a bar and the
  * areas ticking off, the same on the Security page's chat and the public page.
@@ -11,7 +16,7 @@ const STEPS = ["HTTPS", "Certificate", "Headers", "Cookies", "Email"];
 export function ScanProgress({ site }: { site: string }) {
   const [step, setStep] = useState(0);
   useEffect(() => {
-    const timer = setInterval(() => setStep((current) => Math.min(current + 1, STEPS.length - 1)), 900);
+    const timer = setInterval(() => setStep((current) => Math.min(current + 1, STEPS.length - 1)), SCAN_STEP_MS);
     return () => clearInterval(timer);
   }, []);
   return (

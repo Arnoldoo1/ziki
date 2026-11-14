@@ -6,7 +6,7 @@ import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { checkRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { OWNERS_ONLY_MESSAGE } from "@/lib/security-checks";
 import { parseSecurityTarget, PRIVATE_TARGET_ERROR, targetAddress } from "@/lib/security-checks/target";
-import { addTargetAndCheck, findScannedCheck, refusedMessage, saveQuickScan } from "@/lib/security-checks/entry";
+import { addTargetAndCheck, findOwnScan, findScannedCheck, refusedMessage, removeOwnScan, saveQuickScan } from "@/lib/security-checks/entry";
 import { previewScan } from "@/lib/security-checks/preview";
 import { summarisePreview, type PreviewSummary } from "@/lib/security-checks/preview-summary";
 import type { ParsedTarget } from "@/lib/security-checks/target";
@@ -34,6 +34,39 @@ export type ChatAnswer =
   /** The quick scan of a site, already added to the person's scans (`checkId`) unless it couldn't be reached. `summary` is null when the scan couldn't run. */
   | { kind: "scan"; reply: string; target: string; summary: PreviewSummary | null; note: string | null; checkId: string | null; already?: boolean }
   | { kind: "error"; error: string };
+
+/**
+ * Replace (#security-checks): a site already in the person's scans, scanned
+ * again because they chose to replace its result, like "this file already
+ * exists, replace it?". The new quick scan is saved over the old one on the
+ * same card; nothing else changes.
+ */
+export async function replaceScan(checkId: string): Promise<{ ok: true; summary: PreviewSummary } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const access = await currentOrganisationAccess(user.id, user.role);
+  if (!access.organisationId) return { ok: false, error: NO_WORKSPACE };
+  if (!access.admin) return { ok: false, error: OWNERS_ONLY_MESSAGE };
+  const scan = typeof checkId === "string" ? await findOwnScan(access.organisationId, user.id, checkId) : null;
+  if (!scan) return { ok: false, error: "That scan isn't in your scans." };
+  const result = await previewScan(targetAddress(scan.target), { visitor: `user:${user.id}` });
+  if (!result.ok) return { ok: false, error: result.reason };
+  const summary = summarisePreview(result);
+  await saveQuickScan(scan.targetId, summary);
+  revalidatePath("/security");
+  return { ok: true, summary };
+}
+
+/** Remove a scan from the person's list, only while its report isn't posted. */
+export async function removeScan(checkId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireUser();
+  const access = await currentOrganisationAccess(user.id, user.role);
+  if (!access.organisationId) return { ok: false, error: NO_WORKSPACE };
+  if (!access.admin) return { ok: false, error: OWNERS_ONLY_MESSAGE };
+  const removed = typeof checkId === "string" && (await removeOwnScan(access.organisationId, user.id, checkId));
+  if (!removed) return { ok: false, error: "This one can't be removed: its report is ready, and reports stay." };
+  revalidatePath("/security");
+  return { ok: true };
+}
 
 /** Messages one person may send the assistant in an hour. */
 const ASSISTANT_RATE_LIMIT = { max: 30, windowMs: 60 * 60 * 1000 };
@@ -98,7 +131,7 @@ async function scanAndAdd(organisationId: string, userId: string, target: Parsed
       reply: "",
       target: address,
       summary: scanned.summary,
-      note: `${target.value} has already been scanned, so it isn't scanned again. This is its saved result; it's also on its card in your scans.`,
+      note: `${target.value} is already in your scans. This is its saved result. Replace it with a new scan?`,
       checkId: scanned.checkId,
       already: true,
     };

@@ -98,6 +98,19 @@ export function refusedMessage(refused: RefusedCheck["refused"], site: string, n
 }
 
 /**
+ * Remove one of this person's scans (#security-checks): only while its report
+ * isn't posted, since reports never go away (14 Nov plan). It's cancelled, so
+ * agents stop and it leaves the list. False when it can't be removed.
+ */
+export async function removeOwnScan(organisationId: string, userId: string, checkId: string): Promise<boolean> {
+  const removed = await prisma.securityCheck.updateMany({
+    where: { id: checkId, organisationId, requestedById: userId, postedAt: null, status: { not: "cancelled" } },
+    data: { status: "cancelled" },
+  });
+  return removed.count > 0;
+}
+
+/**
  * A site this person has already scanned in this workspace (#security-checks):
  * its latest check that wasn't cancelled, so the same site isn't scanned again.
  */
@@ -114,6 +127,15 @@ export async function findScannedCheck(organisationId: string, userId: string, t
   });
   // Its saved quick scan, so the person sees that result again instead of a new scan.
   return check ? { checkId: check.id, summary: readQuickScan(check.target.previewSummary) } : null;
+}
+
+/** One of this person's scans in this workspace, with its site, for replacing its quick scan. */
+export async function findOwnScan(organisationId: string, userId: string, checkId: string) {
+  const check = await prisma.securityCheck.findFirst({
+    where: { id: checkId, organisationId, requestedById: userId },
+    select: { id: true, target: { select: { id: true, kind: true, value: true } } },
+  });
+  return check ? { checkId: check.id, targetId: check.target.id, target: { kind: check.target.kind, value: check.target.value } } : null;
 }
 
 async function findOrCreateTarget(organisationId: string, userId: string, target: ParsedTarget) {

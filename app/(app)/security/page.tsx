@@ -54,6 +54,7 @@ type SearchParams = Promise<{
   view?: string | string[];
   show?: string | string[];
   target?: string | string[];
+  page?: string | string[];
 }>;
 
 const FINDINGS_PATH = "/security?view=findings";
@@ -134,7 +135,7 @@ export default async function SecurityPage(props: {
       <div className="flex w-full flex-col pb-10">
         <h1 className="sr-only">Security</h1>
         <SecurityTabs selected="checks" checks={checks.length} jobs={jobs} />
-        <SecurityChecksPanel checks={checks} highlight={highlight} startWith={brought ?? undefined} />
+        <SecurityChecksPanel checks={checks} highlight={highlight} startWith={brought ?? undefined} show={typeof params.show === "string" ? params.show : undefined} page={Number(params.page) > 0 ? Math.floor(Number(params.page)) : 1} />
       </div>
     );
   }
