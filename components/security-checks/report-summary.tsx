@@ -1,13 +1,10 @@
-import Link from "next/link";
 import type { SecuritySeverity } from "@prisma/client";
 import "@/components/security-finding.css";
 import { Badge } from "@/components/ui/badge";
 import { LocalTime } from "@/components/local-time";
-import { RichText } from "@/components/rich-text";
 import { statusClass, substatusClass } from "@/lib/labels";
 import { CHECK_STATUS_LABEL, FINISHED_CHECK_STATUSES } from "@/lib/security-checks";
-import { lockedOf, type CheckReport, type PostedReport } from "@/lib/security-checks/report";
-import { unlockHref } from "@/lib/security-checks/report-links";
+import type { CheckReport, PostedReport } from "@/lib/security-checks/report";
 import { SECURITY_SEVERITIES, SEVERITY_LABEL } from "@/lib/security-severity";
 
 /** Ziki's issue status colours, by meaning: waiting on someone like Requires confirmation, working like In progress, finished like Live. */
@@ -22,9 +19,6 @@ const STATUS_CLASS: Record<CheckReport["status"], string> = {
 
 const PRIMARY_BUTTON =
   "inline-flex h-10 items-center justify-center gap-2 rounded-full bg-electric-blue-strong px-5 text-sm font-bold text-white hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2";
-
-const SECONDARY_BUTTON =
-  "inline-flex h-10 items-center justify-center gap-2 rounded-full border border-zk-border bg-zk-surface px-5 text-sm font-bold text-zk-text hover:bg-zk-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue focus-visible:ring-offset-2";
 
 /** "52 min", "2 h 5 min", "3 days": how long the check took. */
 function duration(from: Date, to: Date): string {
@@ -41,8 +35,8 @@ const plural = (count: number, one: string, many = `${one}s`) => `${count} ${cou
 /**
  * The top of a security check's page (12 and 14 Nov plans, part S). While
  * Ziki checks, only where the check stands. Once the report is posted: Ziki's
- * summary, the counts by severity, the free (vague) PDF, and either Move to
- * your app for unlocked findings or unlocking the locked ones.
+ * one-line summary, the counts by severity and the full PDF. The report is
+ * free; clients pay only to have findings fixed.
  */
 export function ReportSummary({ report }: { report: CheckReport }) {
   const finished = FINISHED_CHECK_STATUSES.has(report.status);
@@ -62,7 +56,6 @@ export function ReportSummary({ report }: { report: CheckReport }) {
       ? `No problems found on ${site}`
       : `We found ${plural(report.total, "thing")} to fix on ${site}`;
 
-  const worst = report.posted ? report.findings[0] : undefined;
 
   return (
     <section aria-labelledby="check-headline" className="rounded-[20px] border border-zk-border bg-zk-surface p-4 sm:p-6">
@@ -73,17 +66,17 @@ export function ReportSummary({ report }: { report: CheckReport }) {
             <span>
               <LocalTime date={report.createdAt} absolute />
               {report.progress.total ? ` · ${plural(report.progress.total, "check")}` : ""}
-              {report.agentCount ? ` · ${plural(report.agentCount, "agent")}` : ""}
             </span>
           </p>
           {/* Ziki's big headline style (as on Coming soon): bigger and heavier than a page title. */}
           <h1 id="check-headline" className="wrap-break-word text-2xl font-extrabold tracking-[-0.02em] text-zk-text sm:text-[28px]">
             {headline}
           </h1>
-          {report.posted && report.summary ? <RichText content={report.summary} className="text-sm text-zk-text" /> : null}
-          {worst ? (
+          {/* One clear line (14 Nov call); the coloured counts below say the rest, and the PDF has Ziki's summary. */}
+          {report.posted ? (
             <p className="text-sm text-zk-text2">
-              Start with the {SEVERITY_LABEL[worst.severity].toLowerCase()} one: {worst.locked ? worst.area : worst.title}.
+              We checked {plural(report.progress.total, "part")} of {site} and found{" "}
+              {report.total ? plural(report.total, "problem") : "no problems"}.
             </p>
           ) : !report.posted && !finished ? (
             <p className="text-sm text-zk-text2">Your report shows here once every part is checked.</p>
@@ -115,12 +108,11 @@ export function ReportSummary({ report }: { report: CheckReport }) {
 }
 
 /**
- * The report's buttons. The PDF is free: it is as vague as the page. Then
- * "Move to your app" once anything is unlocked, else "Unlock all".
+ * The report's button: the full PDF. "Move to your app", where clients choose
+ * what to fix and pay, is Sanmi's page (14 Nov call); its button goes here
+ * once that page exists.
  */
 function Actions({ report }: { report: PostedReport }) {
-  const locked = lockedOf(report);
-  const anyUnlocked = report.findings.some((finding) => !finding.locked);
   return (
     <div className="flex shrink-0 flex-col gap-2 sm:min-w-56">
       {/* A plain link: a full download, not a client-side navigation. */}
@@ -128,32 +120,15 @@ function Actions({ report }: { report: PostedReport }) {
         <DownloadIcon />
         Download report
       </a>
-      {anyUnlocked ? (
-        <>
-          {/* Jumps to Move to your app (part N), the form below "What we found". */}
-          <a href="#fix-on-ziki" className={SECONDARY_BUTTON}>
-            Move to your app
-          </a>
-          {/* One line on wider screens; on a phone it may wrap rather than run off the edge. */}
-          <p className="text-center text-xs text-zk-muted sm:whitespace-nowrap">Agents fix them there, privately.</p>
-        </>
-      ) : locked.findings.length ? (
-        <>
-          <Link href={unlockHref(report.checkId, locked.findings.map((finding) => finding.id))} className={SECONDARY_BUTTON}>
-            Unlock all · {plural(locked.totalCoins, "coin")}
-          </Link>
-          <p className="text-center text-xs text-zk-muted sm:whitespace-nowrap">Or tick the ones you want below.</p>
-        </>
-      ) : null}
     </div>
   );
 }
 
 /** "2 of 5 moved to your app · 1 fixed": how far the moved problems' fixes have got (#security-findings). */
 function FixingLine({ report }: { report: PostedReport }) {
-  const sent = report.findings.filter((finding) => !finding.locked && finding.fix);
+  const sent = report.findings.filter((finding) => finding.fix);
   if (!sent.length) return null;
-  const live = sent.filter((finding) => !finding.locked && finding.fix?.bucket === "fixed").length;
+  const live = sent.filter((finding) => finding.fix?.bucket === "fixed").length;
   return (
     <p className="text-sm text-zk-text2">
       <span className="font-semibold text-zk-text">{sent.length} of {report.findings.length}</span> moved to your app

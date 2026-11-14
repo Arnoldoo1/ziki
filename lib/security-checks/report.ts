@@ -11,7 +11,7 @@ import type {
 import { issuePath } from "@/lib/issue-ref";
 import { prisma } from "@/lib/prisma";
 import { refOf } from "@/lib/project-paths";
-import { SEVERITY_PRICE, isReportPosted, isTargetProven } from "@/lib/security-checks";
+import { isReportPosted, isTargetProven } from "@/lib/security-checks";
 import { readQuickScan } from "@/lib/security-checks/entry";
 import type { PreviewSummary } from "@/lib/security-checks/preview-summary";
 import { SECURITY_SEVERITIES } from "@/lib/security-severity";
@@ -24,11 +24,12 @@ import { SECURITY_SEVERITIES } from "@/lib/security-severity";
  *
  * - Until Ziki has posted the report (`isReportPosted`), no result is read at
  *   all: the client sees progress, and the quick scan's short titles (which
- *   are never findings: nothing in it can be unlocked or paid for).
- * - Once posted, every finding shows its severity, the part that found it (its
- *   vague title) and its price. Only an unlocked finding (`unlockedAt`) has its
- *   title, description and how to fix read from the database, so a locked
- *   finding's text never reaches the page, the HTML or the PDF.
+ *   are never findings: nothing in it can be paid for).
+ * - Once posted, the report is free (14 Nov call): every finding shows in
+ *   full. Clients pay only to have a finding fixed, by moving it to their app.
+ * - "How to fix" is only for a finding the client paid to have fixed (Hamzat,
+ *   14 Nov): for any other finding it is never read, so it can't reach the
+ *   page, the HTML or the PDF.
  */
 
 export type SeverityCounts = Record<SecuritySeverity, number>;
@@ -36,36 +37,20 @@ export type SeverityCounts = Record<SecuritySeverity, number>;
 /** One part of the check, as the client sees it on the progress screen. */
 export type ReportPart = { id: string; title: string; status: SecurityCheckItemStatus };
 
-/** Who found a problem, enough to draw its Ziki avatar. */
-export type ReportAgent = { id: string; name: string; avatar: string | null };
-
-type FindingCommon = {
+/** One finding, as the client sees it. */
+export type ReportFinding = {
   id: string;
   severity: SecuritySeverity;
-  /** The vague title: the part of the check that found it ("Login form"). */
+  /** The part of the check that found it ("Login form"). */
   area: string;
-  /** What unlocking it costs, in coins. */
-  priceCoins: number;
-  /** The agent that found it; null if it has since been removed. */
-  agent: ReportAgent | null;
-};
-
-/** A finding not unlocked yet: no title, description or fix, by construction. */
-export type LockedFinding = FindingCommon & { locked: true };
-
-/** An unlocked finding, in full. */
-export type UnlockedFinding = FindingCommon & {
-  locked: false;
   title: string;
   description: string;
-  howToFix: string;
+  /** Only for a finding the client paid to have fixed (moved to their app); null otherwise. */
+  howToFix: string | null;
   /** Where its fix is, once it was moved to the client's app and became a private finding; null until then. */
   fix: ResultFix | null;
 };
 
-export type ReportFinding = LockedFinding | UnlockedFinding;
-
-/** Where a sent problem's fix stands. "fixing" until its issue is Live ("fixed"), or closed or rejected ("closed"). */
 export type FixBucket = "fixing" | "fixed" | "closed";
 
 /** A moved problem's fix, read from its private finding (#security-findings). */
@@ -132,8 +117,6 @@ type ReportBase = {
   target: { id: string; kind: SecurityTargetKind; value: string; input: string; verified: boolean };
   parts: ReportPart[];
   progress: { done: number; total: number; percent: number };
-  /** How many different agents worked on the parts. */
-  agentCount: number;
 };
 
 /**
@@ -143,10 +126,10 @@ type ReportBase = {
  */
 export type UnpostedReport = ReportBase & { posted: false; quickScan: PreviewSummary | null };
 
-/** The posted report: Ziki's summary, then every finding worst first, locked or unlocked. */
+/** The posted report: Ziki's summary, then every finding worst first. */
 export type PostedReport = ReportBase & {
   posted: true;
-  /** Ziki AI's plain summary, kept general so it gives away no locked finding. */
+  /** Ziki AI's plain summary. */
   summary: string | null;
   findings: ReportFinding[];
   counts: SeverityCounts;
@@ -191,12 +174,6 @@ export function clearPartTitles(parts: readonly ReportPart[], results: readonly 
   return parts.filter((part) => part.status === "done" && !withResults.has(part.id)).map((part) => part.title);
 }
 
-/** The locked findings of a report, and what unlocking all of them costs. */
-export function lockedOf(report: PostedReport): { findings: LockedFinding[]; totalCoins: number } {
-  const findings = report.findings.filter((finding): finding is LockedFinding => finding.locked);
-  return { findings, totalCoins: findings.reduce((sum, finding) => sum + finding.priceCoins, 0) };
-}
-
 /**
  * The report for one check, or null when the check doesn't exist, belongs to
  * another workspace, or was asked for by someone else: each check is its
@@ -217,7 +194,7 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
       items: {
         where: { kind: "check" },
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-        select: { id: true, title: true, status: true, agentId: true },
+        select: { id: true, title: true, status: true },
       },
     },
   });
@@ -240,33 +217,34 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
     },
     parts,
     progress: partsProgress(parts),
-    agentCount: new Set(check.items.map((item) => item.agentId).filter(Boolean)).size,
   };
 
   // Not posted yet: progress and the quick scan only, so no result is read, not even a count.
   if (!isReportPosted(check)) return { ...base, posted: false, quickScan: readQuickScan(check.target.previewSummary) };
 
-  // Every finding: only what a locked one may show. No text at all.
+  // Every finding, in full: the report is free.
   const rows = await prisma.securityCheckResult.findMany({
     where: { checkId: check.id },
     select: {
       id: true,
       itemId: true,
       severity: true,
-      priceCoins: true,
-      unlockedAt: true,
       createdAt: true,
-      item: { select: { title: true, agent: { select: { id: true, name: true, avatar: true } } } },
+      title: true,
+      description: true,
+      ...FINDING_OF_RESULT,
+      item: { select: { title: true } },
     },
   });
-  // The text, read only for findings the client has unlocked.
-  const unlocked = rows.some((row) => row.unlockedAt !== null)
-    ? await prisma.securityCheckResult.findMany({
-        where: { checkId: check.id, unlockedAt: { not: null } },
-        select: { id: true, title: true, description: true, howToFix: true, ...FINDING_OF_RESULT },
-      })
-    : [];
-  const textById = new Map(unlocked.map((row) => [row.id, row]));
+  // "How to fix" only for the findings the client paid to have fixed.
+  const paid = rows.filter((row) => fixOf(row.finding)).map((row) => row.id);
+  const howToFix = paid.length
+    ? new Map(
+        (
+          await prisma.securityCheckResult.findMany({ where: { id: { in: paid } }, select: { id: true, howToFix: true } })
+        ).map((row) => [row.id, row.howToFix]),
+      )
+    : new Map<string, string>();
 
   return {
     ...base,
@@ -275,18 +253,16 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
     counts: countBySeverity(rows),
     total: rows.length,
     clearParts: clearPartTitles(parts, rows),
-    findings: worstFirst(rows).map((row): ReportFinding => {
-      const common = {
+    findings: worstFirst(rows).map(
+      (row): ReportFinding => ({
         id: row.id,
         severity: row.severity,
         area: row.item.title,
-        priceCoins: row.priceCoins ?? SEVERITY_PRICE[row.severity],
-        agent: row.item.agent ?? null,
-      };
-      const text = textById.get(row.id);
-      return text
-        ? { ...common, locked: false, title: text.title, description: text.description, howToFix: text.howToFix, fix: fixOf(text.finding) }
-        : { ...common, locked: true };
-    }),
+        title: row.title,
+        description: row.description,
+        howToFix: howToFix.get(row.id) ?? null,
+        fix: fixOf(row.finding),
+      }),
+    ),
   };
 }

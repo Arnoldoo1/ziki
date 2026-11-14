@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { FixOnZiki } from "@/components/security-checks/fix-on-ziki";
 import { ReportLive } from "@/components/security-checks/report-live";
 import { ReportProgress } from "@/components/security-checks/report-progress";
 import { PreviewResult } from "@/components/security-checks/preview-result";
@@ -25,7 +24,8 @@ const WAITING_NOTE: Partial<Record<keyof typeof CHECK_STATUS_LABEL, string>> = {
 /**
  * One security check (12 and 14 Nov plans, part S): live progress and the
  * quick scan while Ziki checks, then, once the report is posted, Ziki's
- * summary and every finding worst first, locked until the client unlocks it.
+ * one-line summary and every finding worst first. The report is free; clients
+ * pay only to have findings fixed (14 Nov call).
  * The report never goes away; moved findings are marked. Only the person who
  * asked for the check sees it.
  */
@@ -105,17 +105,6 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
 
           {report.posted ? <ReportResults report={report} /> : null}
 
-          {/* Move to your app (part N): unlocked findings only. "Move to your app" above jumps here. */}
-          {report.posted && report.findings.some((finding) => !finding.locked) ? (
-            <div id="fix-on-ziki" className="scroll-mt-20 rounded-lg bg-zk-surface">
-              <FixOnZiki
-                checkId={report.checkId}
-                results={report.findings.flatMap((finding) =>
-                  finding.locked ? [] : [{ id: finding.id, severity: finding.severity, title: finding.title }],
-                )}
-              />
-            </div>
-          ) : null}
         </>
       )}
     </div>
