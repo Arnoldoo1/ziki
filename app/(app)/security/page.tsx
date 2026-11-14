@@ -24,6 +24,7 @@ import {
 import { LocalTime } from "@/components/local-time";
 import { SecurityChecksPanel } from "@/components/security-checks/entry-panel";
 import { SecurityTabs } from "@/components/security-checks/security-tabs";
+import { WorkspacePickerModal } from "@/components/security-checks/workspace-picker";
 import { listWorkspaceChecks } from "@/lib/security-checks/entry";
 import { parseSecurityTarget, targetAddress } from "@/lib/security-checks/target";
 import { countAgentJobs } from "@/lib/security-checks/your-work";
@@ -54,6 +55,8 @@ type SearchParams = Promise<{
   view?: string | string[];
   show?: string | string[];
   target?: string | string[];
+  picked?: string | string[];
+  page?: string | string[];
 }>;
 
 const FINDINGS_PATH = "/security?view=findings";
@@ -85,6 +88,39 @@ export default async function SecurityPage(props: {
   // The scanned site as an address the parser reads back: a repo goes as github.com/owner/name.
   const brought = parsed?.ok ? targetAddress(parsed.target) : null;
   const back = brought ? `/security?target=${encodeURIComponent(brought)}` : "/security";
+  // Arriving with a scanned site (from the public page) and more than one workspace you own or run:
+  // ask which one it goes in, or to create a new one (14 Nov call). Once picked, `picked=1` comes back.
+  let picker: React.ReactNode = null;
+  if (brought && params.picked !== "1" && !showFindings) {
+    const owned = await prisma.membership.findMany({
+      where: { userId: user.id, role: { in: ["owner", "admin"] }, organisation: { archivedAt: null } },
+      orderBy: { createdAt: "asc" },
+      select: { organisation: { select: { id: true, name: true } } },
+    });
+    if (owned.length > 1) {
+      const pickedBack = `/security?target=${encodeURIComponent(brought)}&picked=1`;
+      picker = (
+        <WorkspacePickerModal
+          site={brought}
+          workspaces={owned.map(({ organisation }) => ({
+            name: organisation.name,
+            current: organisation.id === access.organisationId,
+            href: `/organisations/open?organisation=${encodeURIComponent(organisation.id)}&next=${encodeURIComponent(pickedBack)}`,
+          }))}
+          createHref={`/organisations?next=${encodeURIComponent(pickedBack)}`}
+        />
+      );
+    }
+  }
+  // The pop-up shows over the Security page; when this workspace isn't one you run, over an empty one.
+  if (picker && !(access.admin && access.organisationId)) {
+    return (
+      <div className="flex w-full flex-col pb-10">
+        <h1 className="sr-only">Security</h1>
+        {picker}
+      </div>
+    );
+  }
   if (!showFindings && !access.admin) {
     // Scans live in a workspace the person owns or runs. If the current one isn't theirs,
     // open one that is, keeping the scanned site.
@@ -133,8 +169,11 @@ export default async function SecurityPage(props: {
     return (
       <div className="flex w-full flex-col pb-10">
         <h1 className="sr-only">Security</h1>
-        <SecurityTabs selected="checks" checks={checks.length} jobs={jobs} />
-        <SecurityChecksPanel checks={checks} highlight={highlight} startWith={brought ?? undefined} />
+        {/* Removed (cancelled) scans don't count. */}
+        <SecurityTabs selected="checks" checks={checks.filter((check) => check.status !== "cancelled").length} jobs={jobs} />
+        {picker}
+        {/* While the pop-up asks where it goes, nothing is scanned yet. */}
+        <SecurityChecksPanel checks={checks} highlight={highlight} startWith={picker ? undefined : (brought ?? undefined)} show={typeof params.show === "string" ? params.show : undefined} page={Number(params.page) > 0 ? Math.floor(Number(params.page)) : 1} />
       </div>
     );
   }
