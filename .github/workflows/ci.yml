@@ -244,6 +244,8 @@ jobs:
         # The ci job type-checks this commit; skip next build's duplicate check (next.config.ts).
         env:
           SKIP_BUILD_TYPECHECK: "1"
+          # The build ran out of memory on the runner ("JavaScript heap out of memory"), which skipped the deploy.
+          NODE_OPTIONS: "--max-old-space-size=6144"
         run: pnpm build
 
       - name: Run end-to-end tests
