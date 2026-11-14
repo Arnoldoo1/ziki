@@ -26,7 +26,7 @@ vi.mock("@/lib/organisation-access", () => ({
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     securityCheck: { findMany: vi.fn().mockResolvedValue([]) },
-    membership: { findFirst: vi.fn().mockResolvedValue(null) },
+    membership: { findFirst: vi.fn().mockResolvedValue(null), findMany: vi.fn().mockResolvedValue([]) },
     securityCheckItem: { count: vi.fn().mockResolvedValue(0) },
     agentActivation: {
       findMany: vi.fn().mockResolvedValue([
@@ -165,6 +165,20 @@ describe("SecurityPage (/security)", () => {
     await expect(SecurityPage({ searchParams: Promise.resolve({ target: "yourshop.com" }) })).rejects.toMatchObject({
       digest: expect.stringContaining(`/organisations?next=${encodeURIComponent("/security?target=yourshop.com")}`),
     });
+  });
+
+  it("asks which workspace a scanned site goes in when you own or run more than one", async () => {
+    const { prisma } = await import("@/lib/prisma");
+    vi.mocked(prisma.membership.findMany).mockResolvedValueOnce([
+      { organisation: { id: "org_a", name: "Shop A" } },
+      { organisation: { id: "org_b", name: "Shop B" } },
+    ] as never);
+    const markup = renderToStaticMarkup(await SecurityPage({ searchParams: Promise.resolve({ target: "yourshop.com" }) }));
+    expect(markup).toContain("Which workspace should yourshop.com go in?");
+    expect(markup).toContain("Shop A");
+    expect(markup).toContain("Shop B");
+    expect(markup).toContain(encodeURIComponent("/security?target=yourshop.com&picked=1"));
+    expect(markup).toContain("Create a new workspace");
   });
 
   it("sends a plain member with no scanned site to Your work, as before", async () => {

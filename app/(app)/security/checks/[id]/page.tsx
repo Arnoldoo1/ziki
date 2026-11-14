@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { FixOnZiki } from "@/components/security-checks/fix-on-ziki";
 import { ReportLive } from "@/components/security-checks/report-live";
 import { ReportProgress } from "@/components/security-checks/report-progress";
-import { ReportResults, parseFixFilter } from "@/components/security-checks/report-results";
+import { PreviewResult } from "@/components/security-checks/preview-result";
+import { ReportResults } from "@/components/security-checks/report-results";
 import { ReportSummary } from "@/components/security-checks/report-summary";
 import { requireUser } from "@/lib/auth-helpers";
 import { substatusClass } from "@/lib/labels";
@@ -22,19 +22,15 @@ const WAITING_NOTE: Partial<Record<keyof typeof CHECK_STATUS_LABEL, string>> = {
 };
 
 /**
- * One security check (12 Nov plan, S1 and S2): live progress while Ziki
- * checks, then, once the report is posted, Ziki's summary and every finding
- * worst first, locked until the client unlocks it. Only the person who asked
- * for the check sees it.
+ * One security check (12 and 14 Nov plans, part S): live progress and the
+ * quick scan while Ziki checks, then, once the report is posted, Ziki's
+ * one-line summary and every finding worst first. The report is free; clients
+ * pay only to have findings fixed (14 Nov call).
+ * The report never goes away; moved findings are marked. Only the person who
+ * asked for the check sees it.
  */
-export default async function SecurityCheckPage({
-  params,
-  searchParams,
-}: {
-  params: Promise<{ id: string }>;
-  searchParams: Promise<{ show?: string | string[] }>;
-}) {
-  const [{ id }, { show }, user] = await Promise.all([params, searchParams, requireUser()]);
+export default async function SecurityCheckPage({ params }: { params: Promise<{ id: string }> }) {
+  const [{ id }, user] = await Promise.all([params, requireUser()]);
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) notFound();
   const report = await loadCheckReport(id, access.organisationId, user.id);
@@ -64,6 +60,7 @@ export default async function SecurityCheckPage({
         </ol>
       </nav>
 
+      {/* Only while ownership proof is on: with it off, the report shows such a check as waiting to start. */}
       {report.status === "awaiting_ownership" ? (
         <section aria-labelledby="ownership-heading" className={orgCard}>
           <Badge className={substatusClass.requires_confirmation}>{CHECK_STATUS_LABEL.awaiting_ownership}</Badge>
@@ -79,7 +76,15 @@ export default async function SecurityCheckPage({
         <>
           <ReportSummary report={report} />
 
-          {/* Progress only, until Ziki has summed up every part and posted the report. */}
+          {/* The quick scan's short titles while the agents check: never findings, so nothing here is sold. */}
+          {!report.posted && report.quickScan ? (
+            <section aria-labelledby="quick-scan-heading" className="flex flex-col gap-3">
+              <h2 id="quick-scan-heading" className="px-0.5 text-base font-semibold text-zk-text">Quick scan</h2>
+              <PreviewResult summary={report.quickScan} />
+            </section>
+          ) : null}
+
+          {/* Progress, until Ziki has summed up every part and posted the report. */}
           {!report.posted ? (
             <section aria-labelledby="progress-heading" className={orgCard}>
               <h2 id="progress-heading" className="text-base font-semibold text-zk-text">Progress</h2>
@@ -98,19 +103,8 @@ export default async function SecurityCheckPage({
             </section>
           ) : null}
 
-          {report.posted ? <ReportResults report={report} show={parseFixFilter(show)} /> : null}
+          {report.posted ? <ReportResults report={report} /> : null}
 
-          {/* Fix on Ziki (part N): unlocked findings only. "Fix them on Ziki" above jumps here. */}
-          {report.posted && report.findings.some((finding) => !finding.locked) ? (
-            <div id="fix-on-ziki" className="scroll-mt-20 rounded-lg bg-zk-surface">
-              <FixOnZiki
-                checkId={report.checkId}
-                results={report.findings.flatMap((finding) =>
-                  finding.locked ? [] : [{ id: finding.id, severity: finding.severity, title: finding.title }],
-                )}
-              />
-            </div>
-          ) : null}
         </>
       )}
     </div>
