@@ -8,9 +8,10 @@ type Message = { id: string; role: "user" | "assistant"; text: string };
 const MESSAGE_MAX = 600;
 
 /**
- * The chat under one site's result (#security-checks, 14 Nov call): ask about
- * that site's scan, and the conversation is saved, so it's still here after a
- * refresh or on another device. Loads when the result opens.
+ * The chat under one site's result (#security-checks, 14 Nov call): the earlier
+ * conversation about that site, carried on. It's saved, so it's still here after
+ * a refresh or on another device. Just the messages and the box; loads when the
+ * result opens.
  */
 export function SiteChatBox({ checkId, site }: { checkId: string; site: string }) {
   const [messages, setMessages] = useState<Message[] | null>(null);
@@ -57,7 +58,6 @@ export function SiteChatBox({ checkId, site }: { checkId: string; site: string }
 
   return (
     <section aria-label={`Chat about ${site}`} className="mt-3 flex flex-col gap-2 rounded-2xl border border-zk-border bg-zk-surface p-3 sm:p-4">
-      <p className="m-0 text-[13px] font-semibold text-zk-text">Ask about {site}</p>
       {messages && messages.length ? (
         <ol ref={log} className="m-0 flex max-h-80 list-none flex-col gap-2 overflow-y-auto p-0">
           {messages.map((message) => (
@@ -80,11 +80,7 @@ export function SiteChatBox({ checkId, site }: { checkId: string; site: string }
             </li>
           ) : null}
         </ol>
-      ) : messages ? (
-        <p className="m-0 text-[13px] text-zk-muted">Ask what a problem means, or what the agents check next. This chat is saved with this site.</p>
-      ) : (
-        <p className="m-0 text-[13px] text-zk-muted">Loading…</p>
-      )}
+      ) : null}
       <form
         onSubmit={(event) => {
           event.preventDefault();

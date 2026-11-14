@@ -130,7 +130,7 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
 
   // A plain link needs no AI.
   const direct = parseSecurityTarget(last.text);
-  if (direct.ok) return scanAndAdd(access.organisationId, user.id, direct.target, `Got it. Here's a quick look at ${direct.target.value}.`);
+  if (direct.ok) return scanAndAdd(access.organisationId, user.id, direct.target, `Got it. Here's a quick look at ${direct.target.value}.`, turns);
   if (direct.error === PRIVATE_TARGET_ERROR) return { kind: "reply", reply: PRIVATE_TARGET_ERROR };
 
   const limit = checkRateLimit(`security-assistant:${user.id}`, ASSISTANT_RATE_LIMIT);
@@ -140,7 +140,7 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
   if (!answer) return { kind: "reply", reply: ASK_FOR_ADDRESS };
   if (answer.target) {
     const picked = parseSecurityTarget(answer.target);
-    if (picked.ok) return scanAndAdd(access.organisationId, user.id, picked.target, answer.reply);
+    if (picked.ok) return scanAndAdd(access.organisationId, user.id, picked.target, answer.reply, turns);
     if (picked.error === PRIVATE_TARGET_ERROR) return { kind: "reply", reply: PRIVATE_TARGET_ERROR };
   }
   return { kind: "reply", reply: answer.reply };
@@ -165,7 +165,7 @@ export async function addSecurityAsset(link: string): Promise<ChatAnswer> {
  * site the scan couldn't reach isn't added; a private repo (the scan can't
  * see it) or a scan that only hit the limit still is.
  */
-async function scanAndAdd(organisationId: string, userId: string, target: ParsedTarget, reply: string): Promise<ChatAnswer> {
+async function scanAndAdd(organisationId: string, userId: string, target: ParsedTarget, reply: string, conversation: AssistantTurn[] = []): Promise<ChatAnswer> {
   const address = targetAddress(target);
   // Scanned before: don't scan it again, just point to its card.
   const scanned = await findScannedCheck(organisationId, userId, target);
@@ -188,8 +188,23 @@ async function scanAndAdd(organisationId: string, userId: string, target: Parsed
   const added = await addTargetAndCheck(organisationId, userId, target);
   if ("refused" in added) return { kind: "reply", reply: refusedMessage(added.refused, target.value) };
   if (summary) await saveQuickScan(added.targetId, summary);
+  // The conversation that led to this scan becomes the start of the site's saved chat,
+  // so "See result" later carries on from it (14 Nov call).
+  await keepConversation(organisationId, userId, added.targetId, conversation, reply, summary);
   revalidatePath("/security");
   return { kind: "scan", reply, target: address, summary, note: result.ok ? null : result.reason, checkId: added.checkId };
+}
+
+/** Save the chat that led to a scan, and the reply with what the quick scan found, as the start of that site's chat. */
+async function keepConversation(organisationId: string, userId: string, targetId: string, conversation: AssistantTurn[], reply: string, summary: PreviewSummary | null) {
+  if (!conversation.length) return;
+  const counts = summary
+    ? (["critical", "high", "medium", "low"] as const).filter((s) => summary.counts[s]).map((s) => `${summary.counts[s]} ${s}`).join(", ")
+    : "";
+  const found = summary ? (summary.total ? ` The quick scan found ${summary.total} ${summary.total === 1 ? "problem" : "problems"} (${counts}).` : " The quick scan found nothing.") : "";
+  for (const turn of conversation) await saveSiteMessage(organisationId, userId, targetId, turn.role, turn.text);
+  const said = `${reply}${found}`.trim();
+  if (said) await saveSiteMessage(organisationId, userId, targetId, "assistant", said);
 }
 
 /** Only well-formed turns, trimmed to the limits, at most the last few. */
