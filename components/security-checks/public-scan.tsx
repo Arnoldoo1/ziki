@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
+import { SCAN_STEP_MS } from "./scan-progress";
 import { runPublicScan } from "@/app/actions/security-preview";
 import { addSecurityAsset } from "@/app/actions/security-assistant";
 import { parseSecurityTarget, targetAddress } from "@/lib/security-checks/target";
@@ -12,8 +13,8 @@ import { PreviewResult } from "./preview-result";
 
 const SITE_STEPS = ["HTTPS", "Certificate", "Headers", "Cookies", "Email"];
 const REPO_STEPS = ["Secrets in files", "Security policy", "Dependency updates"];
-/** How long each area shows on the Scanning bar: steady, not rushed, not slow. The result waits for the bar to finish. */
-const STEP_MS = 1300;
+/** How long each area shows on the Scanning bar, the same as on Security. The result waits for the bar to finish. */
+const STEP_MS = SCAN_STEP_MS;
 
 /** The empty place below the header where the scan and its result open. */
 export const SCAN_RESULT_SLOT = "security-scan-result";

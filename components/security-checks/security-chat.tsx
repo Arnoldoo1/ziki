@@ -2,16 +2,18 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { talkToSecurityAssistant } from "@/app/actions/security-assistant";
+import { replaceScan, talkToSecurityAssistant } from "@/app/actions/security-assistant";
 import { TARGET_KIND_LABEL } from "@/lib/security-checks";
 import { ClaudeWorking } from "@/components/claude-working";
 import { parseSecurityTarget, PRIVATE_TARGET_ERROR } from "@/lib/security-checks/target";
 import type { AssistantTurn } from "@/lib/security-checks/assistant";
 import type { PreviewSummary } from "@/lib/security-checks/preview-summary";
 import { PreviewResult } from "./preview-result";
-import { ScanProgress } from "./scan-progress";
+import { SCAN_BAR_MS, ScanProgress } from "./scan-progress";
 
 const MESSAGE_MAX = 600;
+/** How long the Ideas-style thinking lines show before the Scanning bar. */
+const THINK_MS = 1500;
 
 /** What Ziki is doing while it answers, typed out like the Ideas chat. */
 const WORKING_STEPS = [
@@ -100,11 +102,17 @@ export function SecurityChat({
     setError(null);
     setThinking(true);
     if (thinkTimer.current) clearTimeout(thinkTimer.current);
-    thinkTimer.current = setTimeout(() => setThinking(false), 2200);
+    thinkTimer.current = setTimeout(() => setThinking(false), THINK_MS);
+    const started = Date.now();
     startTransition(async () => {
       try {
         // Only the words go to the server, never a scan card.
         const answer = await talkToSecurityAssistant(next.map(({ role, text }) => ({ role, text })));
+        // A fresh scan waits for the thinking lines and the Scanning bar to finish, like the public page.
+        if (answer.kind === "scan" && !answer.already && answer.summary) {
+          const left = THINK_MS + SCAN_BAR_MS - (Date.now() - started);
+          if (left > 0) await new Promise((done) => setTimeout(done, left));
+        }
         if (answer.kind === "error") {
           setError(answer.error);
           return;
@@ -243,14 +251,11 @@ export function SecurityChat({
 
 /** The quick scan in the chat: its locked rows, and that it's now in the person's scans with agents checking it. */
 function ScanCard({ scan }: { scan: NonNullable<ChatItem["scan"]> }) {
-  // Already scanned before: say so, and show its saved result; nothing new is added.
-  if (scan.already) {
-    const said = <p className="m-0 border-t border-zk-divider pt-3 text-[13px] leading-snug text-zk-muted">{scan.note}</p>;
-    if (scan.summary) return <PreviewResult summary={scan.summary}>{said}</PreviewResult>;
-  }
+  // Already in their scans: show the saved result and ask, like "this file already exists, replace it?".
+  if (scan.already && scan.checkId) return <AlreadyScanned scan={scan} checkId={scan.checkId} />;
   const added = scan.checkId && !scan.already ? (
     <p className="m-0 border-t border-zk-divider pt-3 text-[13px] leading-snug text-zk-muted">
-      Added to your scans below. Agents are checking it properly now; its report will be on its card.
+      It&apos;s in your scans below. Agents are checking it properly now; its report will be on its card.
     </p>
   ) : null;
   if (scan.summary) return <PreviewResult summary={scan.summary}>{added}</PreviewResult>;
@@ -260,4 +265,62 @@ function ScanCard({ scan }: { scan: NonNullable<ChatItem["scan"]> }) {
       {added}
     </div>
   );
+}
+
+/**
+ * A site already in the person's scans (#security-checks): its saved result,
+ * and "Replace it with a new scan?" with Replace and Keep. Replace runs the
+ * Scanning bar, saves the new result over the old one on the same card, and
+ * shows it here; Keep leaves the saved result as it is.
+ */
+function AlreadyScanned({ scan, checkId }: { scan: NonNullable<ChatItem["scan"]>; checkId: string }) {
+  const router = useRouter();
+  const [state, setState] = useState<"ask" | "scanning" | "replaced" | "kept">("ask");
+  const [summary, setSummary] = useState<PreviewSummary | null>(scan.summary);
+  const [error, setError] = useState<string | null>(null);
+
+  async function replace() {
+    setState("scanning");
+    setError(null);
+    try {
+      const [answer] = await Promise.all([replaceScan(checkId), new Promise((done) => setTimeout(done, SCAN_BAR_MS))]);
+      if (!answer.ok) {
+        setError(answer.error);
+        setState("ask");
+        return;
+      }
+      setSummary(answer.summary);
+      setState("replaced");
+      router.refresh();
+    } catch {
+      setError("The scan couldn't run just now. Try again in a moment.");
+      setState("ask");
+    }
+  }
+
+  if (state === "scanning") return <ScanProgress site={scan.target} />;
+
+  const footer = (
+    <div className="flex flex-col gap-2 border-t border-zk-divider pt-3">
+      {state === "replaced" ? (
+        <p className="m-0 text-[13px] leading-snug text-zk-muted">Replaced with a new scan. Its card in your scans shows this result now.</p>
+      ) : state === "kept" ? (
+        <p className="m-0 text-[13px] leading-snug text-zk-muted">Kept the saved result. It&apos;s on its card in your scans.</p>
+      ) : (
+        <>
+          <p className="m-0 text-[13px] leading-snug text-zk-text2">{error ?? scan.note}</p>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={replace} className="inline-flex h-8 items-center rounded-full bg-electric-blue-strong px-4 text-[13px] font-bold text-white hover:brightness-105">
+              Replace
+            </button>
+            <button type="button" onClick={() => setState("kept")} className="inline-flex h-8 items-center rounded-full border border-zk-border bg-zk-surface px-4 text-[13px] font-semibold text-zk-text hover:border-zk-accent hover:text-zk-accent">
+              Keep
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+  if (summary) return <PreviewResult summary={summary}>{footer}</PreviewResult>;
+  return <div className="flex w-full flex-col gap-3 rounded-2xl border border-zk-border bg-zk-surface p-4 text-left">{footer}</div>;
 }
