@@ -97,6 +97,25 @@ export function refusedMessage(refused: RefusedCheck["refused"], site: string, n
   return `You've used this month's ${FREE_SCANS_PER_WORKSPACE_PER_MONTH} scans. More start on ${day}.`;
 }
 
+/**
+ * A site this person has already scanned in this workspace (#security-checks):
+ * its latest check that wasn't cancelled, so the same site isn't scanned again.
+ */
+export async function findScannedCheck(organisationId: string, userId: string, target: ParsedTarget): Promise<{ checkId: string; summary: PreviewSummary | null } | null> {
+  const check = await prisma.securityCheck.findFirst({
+    where: {
+      organisationId,
+      requestedById: userId,
+      status: { not: "cancelled" },
+      target: { organisationId, kind: target.kind, value: target.value },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true, target: { select: { previewSummary: true } } },
+  });
+  // Its saved quick scan, so the person sees that result again instead of a new scan.
+  return check ? { checkId: check.id, summary: readQuickScan(check.target.previewSummary) } : null;
+}
+
 async function findOrCreateTarget(organisationId: string, userId: string, target: ParsedTarget) {
   const where = { organisationId_kind_value: { organisationId, kind: target.kind, value: target.value } };
   const select = { id: true, verifiedAt: true } as const;

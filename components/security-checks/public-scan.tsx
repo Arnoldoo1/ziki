@@ -12,6 +12,8 @@ import { PreviewResult } from "./preview-result";
 
 const SITE_STEPS = ["HTTPS", "Certificate", "Headers", "Cookies", "Email"];
 const REPO_STEPS = ["Secrets in files", "Security policy", "Dependency updates"];
+/** How long each area shows on the Scanning bar: steady, not rushed, not slow. The result waits for the bar to finish. */
+const STEP_MS = 1300;
 
 /** The empty place below the header where the scan and its result open. */
 export const SCAN_RESULT_SLOT = "security-scan-result";
@@ -51,7 +53,7 @@ export function PublicScan({ signedIn }: { signedIn: boolean }) {
   // Tick through the areas while the scan runs, so the wait shows what's happening.
   useEffect(() => {
     if (!pending) return;
-    const timer = setInterval(() => setStep((current) => Math.min(current + 1, STEPS.length - 1)), 900);
+    const timer = setInterval(() => setStep((current) => Math.min(current + 1, STEPS.length - 1)), STEP_MS);
     return () => clearInterval(timer);
   }, [pending]);
 
@@ -71,9 +73,12 @@ export function PublicScan({ signedIn }: { signedIn: boolean }) {
     setSite(address);
     setStep(0);
     setRepo(parsed.target.kind === "repo");
+    // The bar runs through every area before the result drops, even when the scan answers sooner.
+    const steps = parsed.target.kind === "repo" ? REPO_STEPS.length : SITE_STEPS.length;
+    const minimum = new Promise((done) => setTimeout(done, steps * STEP_MS));
     startTransition(async () => {
       try {
-        const answer = await runPublicScan(address);
+        const [answer] = await Promise.all([runPublicScan(address), minimum]);
         if (answer.ok) setSummary(answer.summary);
         else setNote(answer.reason);
       } catch {

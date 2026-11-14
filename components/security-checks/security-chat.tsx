@@ -29,7 +29,7 @@ const WORKING_STEPS = [
 const kept: { turns: ChatItem[]; text: string; started?: string } = { turns: [], text: "" };
 
 /** A message in the chat; a reply can carry a quick scan of the site. */
-type ChatItem = AssistantTurn & { scan?: { target: string; summary: PreviewSummary | null; note: string | null; checkId: string | null } };
+type ChatItem = AssistantTurn & { scan?: { target: string; summary: PreviewSummary | null; note: string | null; checkId: string | null; already?: boolean } };
 
 /**
  * The box on Security, with Ziki's AI behind it (#security-checks, 14 Nov plan
@@ -110,9 +110,9 @@ export function SecurityChat({
           return;
         }
         if (answer.kind === "scan") {
-          setTurns([...next, { role: "assistant", text: answer.reply, scan: { target: answer.target, summary: answer.summary, note: answer.note, checkId: answer.checkId } }]);
+          setTurns([...next, { role: "assistant", text: answer.reply, scan: { target: answer.target, summary: answer.summary, note: answer.note, checkId: answer.checkId, already: answer.already } }]);
           // Added to the person's scans: the list below picks it up.
-          if (answer.checkId) router.refresh();
+          if (answer.checkId && !answer.already) router.refresh();
           return;
         }
         if (answer.kind === "go") {
@@ -243,7 +243,12 @@ export function SecurityChat({
 
 /** The quick scan in the chat: its locked rows, and that it's now in the person's scans with agents checking it. */
 function ScanCard({ scan }: { scan: NonNullable<ChatItem["scan"]> }) {
-  const added = scan.checkId ? (
+  // Already scanned before: say so, and show its saved result; nothing new is added.
+  if (scan.already) {
+    const said = <p className="m-0 border-t border-zk-divider pt-3 text-[13px] leading-snug text-zk-muted">{scan.note}</p>;
+    if (scan.summary) return <PreviewResult summary={scan.summary}>{said}</PreviewResult>;
+  }
+  const added = scan.checkId && !scan.already ? (
     <p className="m-0 border-t border-zk-divider pt-3 text-[13px] leading-snug text-zk-muted">
       Added to your scans below. Agents are checking it properly now; its report will be on its card.
     </p>

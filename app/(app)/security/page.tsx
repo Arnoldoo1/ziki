@@ -25,7 +25,7 @@ import { LocalTime } from "@/components/local-time";
 import { SecurityChecksPanel } from "@/components/security-checks/entry-panel";
 import { SecurityTabs } from "@/components/security-checks/security-tabs";
 import { listWorkspaceChecks } from "@/lib/security-checks/entry";
-import { parseSecurityTarget } from "@/lib/security-checks/target";
+import { parseSecurityTarget, targetAddress } from "@/lib/security-checks/target";
 import { countAgentJobs } from "@/lib/security-checks/your-work";
 import { OrgPageHeader, ReadOnlyNote, orgCard, orgListCard } from "../[org]/[project]/org/org-ui";
 
@@ -81,26 +81,28 @@ export default async function SecurityPage(props: {
   // The page opens on the one box (#security-checks). The findings dashboard is
   // one link away, and any old link that carries a findings filter still lands on it.
   const showFindings = params.view === "findings" || FINDINGS_FILTERS.some((key) => params[key] !== undefined);
-  const brought = typeof params.target === "string" ? parseSecurityTarget(params.target) : null;
+  const parsed = typeof params.target === "string" ? parseSecurityTarget(params.target) : null;
+  // The scanned site as an address the parser reads back: a repo goes as github.com/owner/name.
+  const brought = parsed?.ok ? targetAddress(parsed.target) : null;
+  const back = brought ? `/security?target=${encodeURIComponent(brought)}` : "/security";
   if (!showFindings && !access.admin) {
     // Scans live in a workspace the person owns or runs. If the current one isn't theirs,
-    // open one that is (keeping the scanned site); with none, they're asked to create one below.
+    // open one that is, keeping the scanned site.
     const own = await prisma.membership.findFirst({
       where: { userId: user.id, role: { in: ["owner", "admin"] }, organisation: { archivedAt: null } },
       orderBy: { createdAt: "asc" },
       select: { organisationId: true },
     });
     if (own && own.organisationId !== access.organisationId) {
-      const back = brought?.ok ? `/security?target=${encodeURIComponent(brought.target.value)}` : "/security";
       redirect(`/organisations/open?organisation=${encodeURIComponent(own.organisationId)}&next=${encodeURIComponent(back)}`);
     }
+    // Owns none and arrived with a scanned site (from the public page): straight to creating one;
+    // they come back here afterwards and the scan starts.
+    if (!own && brought) redirect(`/organisations?next=${encodeURIComponent(back)}`);
+    // A plain member of this workspace just sees their own work, as before.
+    if (access.organisationId) redirect("/security/work");
   }
-  // From the public page with a scanned site and no workspace of their own: straight to creating one.
-  // They come back here afterwards and the scan starts.
-  if ((!access.organisationId || (!showFindings && !access.admin)) && brought?.ok) {
-    redirect(`/organisations?next=${encodeURIComponent(`/security?target=${encodeURIComponent(brought.target.value)}`)}`);
-  }
-  if (!access.organisationId || (!showFindings && !access.admin)) {
+  if (!access.organisationId) {
     return (
       <div className="space-y-4">
         <OrgPageHeader heading="h1" title="Security" actions={
@@ -111,14 +113,14 @@ export default async function SecurityPage(props: {
         }>Report and track security findings.</OrgPageHeader>
         {/* No workspace of their own: scans live in one, so make it first, then come straight back with the site. */}
         <ReadOnlyNote>
-          {brought?.ok ? `To scan ${brought.target.value}, first ` : "To secure a website, server or repo, first "}
+          {brought ? `To scan ${brought}, first ` : "To secure a website, server or repo, first "}
           <Link
-            href={`/organisations?next=${encodeURIComponent(brought?.ok ? `/security?target=${encodeURIComponent(brought.target.value)}` : "/security")}`}
+            href={`/organisations?next=${encodeURIComponent(back)}`}
             className="font-semibold text-zk-accent hover:underline"
           >
             create your workspace
           </Link>
-          . You&apos;ll come straight back here{brought?.ok ? " and the scan starts" : ""}.
+          . You&apos;ll come straight back here{brought ? " and the scan starts" : ""}.
         </ReadOnlyNote>
       </div>
     );
@@ -132,7 +134,7 @@ export default async function SecurityPage(props: {
       <div className="flex w-full flex-col pb-10">
         <h1 className="sr-only">Security</h1>
         <SecurityTabs selected="checks" checks={checks.length} jobs={jobs} />
-        <SecurityChecksPanel checks={checks} highlight={highlight} startWith={brought?.ok ? brought.target.value : undefined} />
+        <SecurityChecksPanel checks={checks} highlight={highlight} startWith={brought ?? undefined} />
       </div>
     );
   }
