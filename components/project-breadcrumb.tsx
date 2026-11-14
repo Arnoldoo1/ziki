@@ -3,7 +3,7 @@
 import { Fragment } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ideasPath, issuesPath, marketingPath, orgHomePath, projectPath, projectRef, type ProjectRef } from "@/lib/project-paths";
+import { ideasPath, marketingPath, orgHomePath, projectPath, projectRef, type ProjectRef } from "@/lib/project-paths";
 
 /** The organisation's slug, and the project (none on the organisation's own page). */
 export type BreadcrumbProject = { orgSlug: string; slug?: string; name?: string };
@@ -32,7 +32,13 @@ const ISSUE_LISTS: Record<string, string[]> = {
   new: ["Report an issue"],
 };
 const IDEA_LISTS: Record<string, string> = { rejected: "Rejected", drafts: "Drafts" };
-const MARKETING_PAGES: Record<string, string> = { "output-box": "Output box", settings: "Settings", ideas: "Rejected ideas", tasks: "New task" };
+const MARKETING_PAGES: Record<string, string> = { "output-box": "Output box", settings: "Settings", ideas: "Rejected ideas", tasks: "Tasks" };
+
+/** The project's settings, at its Goals section. */
+function projectGoalsSettingsHref(ref: ProjectRef): string {
+  const slug = decodeURIComponent(String(ref).split("/")[1] ?? "");
+  return `/projects/${encodeURIComponent(slug)}/settings?section=goals`;
+}
 
 /**
  * What the page under the project is, from its path: [Ideas], [In Progress, Closed], [Issue #12], …
@@ -40,27 +46,31 @@ const MARKETING_PAGES: Record<string, string> = { "output-box": "Output box", se
  */
 function sectionOf(pathname: string, ref: ProjectRef): Crumb[] {
   const rest = pathname.slice(projectPath(ref).length).replace(/^\/+|\/+$/g, "");
-  const [first, second] = rest.split("/");
+  const [first, second, third] = rest.split("/");
   const named = (...labels: string[]) => labels.map((label) => ({ label }));
   if (!first) return [];
   if (/^[0-9]+$/.test(first)) return named(`Issue #${first}`);
   if (first === "ideas") {
-    if (second && /^[0-9]+$/.test(second)) return [{ label: "Ideas", href: ideasPath(ref) }, { label: `Idea #${second}` }];
-    return second && IDEA_LISTS[second] ? named("Ideas", IDEA_LISTS[second]) : named("Ideas");
+    // The ideas lists are the New tab.
+    if (second && /^[0-9]+$/.test(second)) return [{ label: "New", href: ideasPath(ref) }, { label: `Idea #${second}` }];
+    return second && IDEA_LISTS[second] ? named("New", IDEA_LISTS[second]) : named("New");
   }
   if (first === "issues") return named(...(ISSUE_LISTS[second ?? "all"] ?? ["Issues"]).filter((part): part is string => Boolean(part)));
-  // A goal's own page sits under Project Overview, where the goals are listed.
-  if (first === "goals") return [{ label: "Project Overview", href: issuesPath(ref, "your-work") }, { label: "Goal" }];
+  // A goal's own page sits under the project's settings, where the goals are listed.
+  if (first === "goals") return [{ label: "Goals", href: projectGoalsSettingsHref(ref) }, { label: "Goal" }];
   if (first === "marketing") {
     if (!second) return named("Marketing");
+    if (second === "tasks" && third === "new") {
+      return [{ label: "Marketing", href: marketingPath(ref) }, { label: "Tasks", href: marketingPath(ref, "tasks") }, { label: "New task" }];
+    }
     return [{ label: "Marketing", href: marketingPath(ref) }, { label: MARKETING_PAGES[second] ?? "Marketing" }];
   }
-  if (first === "tasks") return [{ label: "Marketing", href: marketingPath(ref) }, { label: second ? `Task #${second}` : "Task" }];
+  if (first === "tasks") return [{ label: "Marketing", href: marketingPath(ref) }, { label: "Tasks", href: marketingPath(ref, "tasks") }, { label: second ? `Task #${second}` : "Task" }];
   if (first === "features") {
     if (!second) return named("Feature plans");
     return [{ label: "Feature plans", href: projectPath(ref, "/features") }, { label: second === "new" ? "New plan" : "Plan" }];
   }
-  const pages: Record<string, string> = { notes: "Notes", org: "Organisation", workstream: "Workstream", report: "Report an issue" };
+  const pages: Record<string, string> = { notes: "Notes", org: "Organisation", workstream: "Workstream", report: "Report an issue", import: "Import delivered work" };
   return pages[first] ? named(pages[first]) : [];
 }
 
@@ -119,6 +129,7 @@ export function ProjectBreadcrumb({ project }: { project: BreadcrumbProject }) {
           </>
         )}
       </ol>
+      {ref ? <Link href={`${projectPath(ref)}/import`} className={`${crumb} ml-auto shrink-0 text-zk-accent`}>Import work</Link> : null}
     </nav>
   );
 }

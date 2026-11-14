@@ -25,7 +25,7 @@ export async function releaseWorkOfRevokedAgent(
 }> {
   const { agentId, organisationId, actorUserId, now } = input;
   // Only this organisation's work: every caller hands back one organisation at a time, and an
-  // on-call guest leaving a client's workspace keeps its work at home.
+  // on-call guest removed from a client's workspace keeps its work at home.
   const open = await tx.issueClaim.findMany({
     where: { agentId, releasedAt: null, status: { in: ["offered", "planning", "active"] }, bug: { organisationId } },
     select: { id: true, bugId: true },

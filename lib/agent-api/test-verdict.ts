@@ -29,6 +29,7 @@ import { canSeeEvidenceFiles, evidenceFilesSchema, evidenceFilesView, uniqueEvid
 import { actionReason } from "@/lib/agent-api/action-reason";
 import { linkAttachments } from "@/lib/attachment-link";
 import { BUILT_IN_CHECKS, checkInfo, checksFor, loadProofRules, proofAttachmentIds, proofProblem, proofSchema, storedProof, type VerdictProof } from "@/lib/proof";
+import { sameCommit } from "@/lib/github/commit-sha";
 import { suggestRowAfterRating } from "@/lib/agent-api/test-card";
 
 /**
@@ -105,6 +106,7 @@ const NOT_YOURS = "proof: every attachmentId must be your own upload (POST /api/
 
 /** What the independence rule and the claim-holder check need about an issue. */
 const reviewedBugSelect = {
+  outsideWork: { select: { agentId: true } },
   id: true,
   title: true,
   organisationId: true,
@@ -591,7 +593,7 @@ export async function testVerdictEntries(
     current:
       Boolean(bug.pullRequestUrl) &&
       row.pullRequestUrl === bug.pullRequestUrl &&
-      (!bug.pullRequestHeadSha || !row.headSha || row.headSha === bug.pullRequestHeadSha),
+      (!bug.pullRequestHeadSha || !row.headSha || sameCommit(row.headSha, bug.pullRequestHeadSha)),
     replies: toEntryReplies(replies),
   }));
 }

@@ -6,6 +6,10 @@ const mocks = vi.hoisted(() => ({
   ask: vi.fn(),
   rate: vi.fn(),
   preview: vi.fn(),
+  saveQuickScan: vi.fn(),
+  findScannedCheck: vi.fn(),
+  removeOwnScan: vi.fn(),
+  findOwnScan: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -15,6 +19,10 @@ vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.rate, RATE_LIMIT_MESS
 vi.mock("@/lib/security-checks/entry", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/security-checks/entry")>()),
   addTargetAndCheck: mocks.addTargetAndCheck,
+  saveQuickScan: mocks.saveQuickScan,
+  findScannedCheck: mocks.findScannedCheck,
+  removeOwnScan: mocks.removeOwnScan,
+  findOwnScan: mocks.findOwnScan,
 }));
 vi.mock("@/lib/security-checks/assistant", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/security-checks/assistant")>()),
@@ -23,7 +31,7 @@ vi.mock("@/lib/security-checks/assistant", async (importOriginal) => ({
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 vi.mock("@/lib/security-checks/preview", () => ({ previewScan: mocks.preview }));
 
-import { addSecurityAsset, talkToSecurityAssistant } from "./security-assistant";
+import { addSecurityAsset, removeScan, replaceScan, talkToSecurityAssistant } from "./security-assistant";
 
 const say = (text: string) => [{ role: "user" as const, text }];
 
@@ -35,48 +43,88 @@ const SCAN = {
   checked: ["https", "certificate", "headers", "cookies", "email"],
   counts: { critical: 0, high: 1, medium: 1, low: 0 },
   findings: [
-    { id: "hsts", severity: "high", area: "headers", title: "No HSTS header SECRET", detail: "Browsers may load it over HTTP SECRET" },
-    { id: "dmarc", severity: "medium", area: "email", title: "No DMARC record SECRET", detail: "Mail can be faked SECRET" },
+    { id: "hsts", severity: "high", area: "headers", title: "No HSTS header", detail: "Browsers may load it over HTTP SECRET" },
+    { id: "dmarc", severity: "medium", area: "email", title: "No DMARC record", detail: "Mail can be faked SECRET" },
   ],
 };
 
 describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.access.mockResolvedValue({ organisationId: "org1", admin: false });
+    mocks.access.mockResolvedValue({ organisationId: "org1", admin: true });
     mocks.rate.mockReturnValue({ allowed: true });
     mocks.addTargetAndCheck.mockResolvedValue({ targetId: "t1", checkId: "c1", verified: false, reused: false });
     mocks.preview.mockResolvedValue(SCAN);
+    mocks.findScannedCheck.mockResolvedValue(null);
   });
 
-  it("scans a plain link without the AI, shows only counts, and saves nothing yet", async () => {
+  it("doesn't scan a site again that this person already scanned; it says so and shows its saved result", async () => {
+    mocks.findScannedCheck.mockResolvedValue({ checkId: "c-old", summary: null });
+    const answer = await talkToSecurityAssistant(say("https://www.settle.ng"));
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
+    expect(answer).toMatchObject({ kind: "scan", already: true, checkId: "c-old", summary: null, note: expect.stringContaining("settle.ng is already in your scans") });
+    // From the public page, signed in: straight to that scan's card.
+    expect(await addSecurityAsset("settle.ng")).toMatchObject({ kind: "go", href: "/security?check=c-old" });
+  });
+
+  it("refuses anyone who is not an owner or admin, before scanning, asking the AI or saving anything", async () => {
+    mocks.access.mockResolvedValue({ organisationId: "org1", admin: false });
+    await expect(talkToSecurityAssistant(say("https://www.settle.ng"))).resolves.toMatchObject({ kind: "error", error: expect.stringContaining("owners and admins") });
+    await expect(addSecurityAsset("settle.ng")).resolves.toMatchObject({ kind: "error", error: expect.stringContaining("owners and admins") });
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.ask).not.toHaveBeenCalled();
+    expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
+  });
+
+  it("scans a plain link without the AI, adds it to the person's scans at once, and saves the quick scan", async () => {
     const answer = await talkToSecurityAssistant(say("https://www.settle.ng"));
     expect(mocks.ask).not.toHaveBeenCalled();
     expect(mocks.preview).toHaveBeenCalledWith("settle.ng", { visitor: "user:u1" });
+    // No proof step: added straight away (14 Nov plan).
+    expect(mocks.addTargetAndCheck).toHaveBeenCalledWith("org1", "u1", expect.objectContaining({ kind: "website", value: "settle.ng" }));
+    expect(mocks.saveQuickScan).toHaveBeenCalledWith("t1", expect.objectContaining({ total: 2, risk: "high" }));
+    expect(answer).toMatchObject({ kind: "scan", target: "settle.ng", checkId: "c1", summary: { total: 2, risk: "high" } });
+    // What any browser sees is shown as titles; the detail never leaves the server.
+    expect(JSON.stringify(answer)).toContain("No HSTS header");
+    expect(JSON.stringify(answer)).not.toContain("SECRET");
+    expect(JSON.stringify(mocks.saveQuickScan.mock.calls[0][1])).not.toContain("SECRET");
+  });
+
+  it("adds nothing for a site the scan couldn't reach, but still adds it when only the limit was hit", async () => {
+    mocks.preview.mockResolvedValue({ ok: false, reason: "We couldn't reach settle.ng just now." });
+    expect(await talkToSecurityAssistant(say("settle.ng"))).toMatchObject({ kind: "scan", reply: "", summary: null, note: "We couldn't reach settle.ng just now.", checkId: null });
     expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
-    expect(answer).toMatchObject({ kind: "scan", target: "settle.ng", summary: { total: 2, risk: "high" } });
-    // What was found never leaves the server before the site is proven.
+
+    mocks.preview.mockResolvedValue({ ok: false, reason: "Too many scans.", retryAfterSeconds: 120 });
+    expect(await talkToSecurityAssistant(say("settle.ng"))).toMatchObject({ kind: "scan", summary: null, checkId: "c1" });
+  });
+
+  it("quick-scans a GitHub repo like any other asset and adds it", async () => {
+    mocks.preview.mockResolvedValue({ ...SCAN, kind: "repo", target: "settle/app", checked: ["secrets", "policy"], counts: { critical: 0, high: 1, medium: 0, low: 1 }, findings: [
+      { id: "s", severity: "high", area: "secrets", title: "A file that usually holds secrets", detail: ".env SECRET" },
+      { id: "p", severity: "low", area: "policy", title: "No security policy", detail: "No SECURITY.md SECRET" },
+    ] });
+    const answer = await talkToSecurityAssistant(say("github.com/settle/app"));
+    // The scan reads its link back through the same parser, so a repo must go in as a GitHub address, not "owner/name".
+    expect(mocks.preview).toHaveBeenCalledWith("github.com/settle/app", { visitor: "user:u1" });
+    expect(mocks.addTargetAndCheck).toHaveBeenCalledTimes(1);
+    expect(answer).toMatchObject({ kind: "scan", target: "github.com/settle/app", summary: { kind: "repo", total: 2, risk: "high" } });
     expect(JSON.stringify(answer)).not.toContain("SECRET");
   });
 
-  it("still offers Show it's yours when the scan can't run", async () => {
-    mocks.preview.mockResolvedValue({ ok: false, reason: "We couldn't reach settle.ng just now." });
-    const answer = await talkToSecurityAssistant(say("settle.ng"));
-    expect(answer).toMatchObject({ kind: "scan", summary: null, note: "We couldn't reach settle.ng just now." });
+  it("still adds a repo it can't see, such as a private one", async () => {
+    mocks.preview.mockResolvedValue({ ok: false, reason: "We couldn't see that repo on GitHub." });
+    const answer = await talkToSecurityAssistant(say("github.com/settle/private-app"));
+    expect(mocks.addTargetAndCheck).toHaveBeenCalledTimes(1);
+    expect(mocks.saveQuickScan).not.toHaveBeenCalled();
+    expect(answer).toMatchObject({ kind: "scan", summary: null, note: "We couldn't see that repo on GitHub.", checkId: "c1" });
   });
 
-  it("sends a GitHub repo straight on, since it can't be quick-scanned", async () => {
-    const answer = await talkToSecurityAssistant(say("github.com/settle/app"));
-    expect(mocks.preview).not.toHaveBeenCalled();
-    expect(answer).toMatchObject({ kind: "go", href: "/security/targets/t1/verify" });
-  });
-
-  it("adds the asset only on Show it's yours, then goes on to prove it", async () => {
-    expect(await addSecurityAsset("settle.ng")).toMatchObject({ kind: "go", href: "/security/targets/t1/verify" });
+  it("from the public page, signed in: scans, adds and goes to the Security page with the check open", async () => {
+    expect(await addSecurityAsset("settle.ng")).toMatchObject({ kind: "go", href: "/security?check=c1" });
     expect(mocks.addTargetAndCheck).toHaveBeenCalledWith("org1", "u1", expect.objectContaining({ kind: "website", value: "settle.ng" }));
-
-    mocks.addTargetAndCheck.mockResolvedValue({ targetId: "t1", checkId: "c9", verified: true, reused: false });
-    expect(await addSecurityAsset("settle.ng")).toMatchObject({ kind: "go", href: "/security?check=c9&added=1" });
+    expect(mocks.saveQuickScan).toHaveBeenCalledWith("t1", expect.objectContaining({ total: 2, risk: "high" }));
     expect(await addSecurityAsset("not a link")).toMatchObject({ kind: "error" });
   });
 
@@ -94,8 +142,8 @@ describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
 
     mocks.ask.mockResolvedValue({ reply: "Here's a quick look.", target: "settle.ng" });
     const answer = await talkToSecurityAssistant(say("It's settle dot ng, the website"));
-    expect(answer).toMatchObject({ kind: "scan", reply: "Here's a quick look.", target: "settle.ng" });
-    expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
+    expect(answer).toMatchObject({ kind: "scan", reply: "Here's a quick look.", target: "settle.ng", checkId: "c1" });
+    expect(mocks.addTargetAndCheck).toHaveBeenCalledTimes(1);
   });
 
   it("never adds a private address the AI picks out", async () => {
@@ -119,5 +167,25 @@ describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
   it("needs a workspace", async () => {
     mocks.access.mockResolvedValue({ organisationId: null, admin: false });
     expect((await talkToSecurityAssistant(say("settle.ng"))).kind).toBe("error");
+  });
+
+  it("removes one of your scans only while its report isn't posted", async () => {
+    mocks.removeOwnScan.mockResolvedValue(true);
+    expect(await removeScan("c1")).toEqual({ ok: true });
+    expect(mocks.removeOwnScan).toHaveBeenCalledWith("org1", "u1", "c1");
+    mocks.removeOwnScan.mockResolvedValue(false);
+    expect(await removeScan("c-posted")).toMatchObject({ ok: false, error: expect.stringContaining("reports stay") });
+  });
+
+  it("Replace: scans a site already in your scans again and saves the new result over the old one", async () => {
+    mocks.findOwnScan.mockResolvedValue({ checkId: "c1", targetId: "t1", target: { kind: "website", value: "settle.ng" } });
+    const answer = await replaceScan("c1");
+    expect(mocks.preview).toHaveBeenCalledWith("settle.ng", { visitor: "user:u1" });
+    expect(mocks.saveQuickScan).toHaveBeenCalledWith("t1", expect.objectContaining({ total: 2 }));
+    expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
+    expect(answer).toMatchObject({ ok: true, summary: { total: 2 } });
+    expect(JSON.stringify(answer)).not.toContain("SECRET");
+    mocks.findOwnScan.mockResolvedValue(null);
+    expect(await replaceScan("someone-elses")).toMatchObject({ ok: false });
   });
 });

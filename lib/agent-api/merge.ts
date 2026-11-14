@@ -35,6 +35,7 @@ import { conflictComment } from "@/lib/agent-api/merge-conflict";
 import { moveTo } from "@/lib/issue-substatus";
 import { activeLevels, levelIn } from "@/lib/agents/active-in";
 import { closeSupportThreadsForIssue } from "@/lib/support-threads";
+import { sameCommit } from "@/lib/github/commit-sha";
 
 /**
  * A merger accepting a fix (#434). The gate: the issue is confirmed, no
@@ -72,6 +73,7 @@ import { closeSupportThreadsForIssue } from "@/lib/support-threads";
  */
 
 export const mergeBugSelect = {
+  outsideWork: { select: { agentId: true } },
   id: true,
   title: true,
   organisationId: true,
@@ -465,7 +467,7 @@ async function reviewFix(
   // #489: the accept binds to the commit the testers approved; a reported head
   // past it carries commits nobody judged.
   const reportedHead = report?.headSha ?? null;
-  if (reportedHead && acceptedHeadSha && reportedHead !== acceptedHeadSha) {
+  if (reportedHead && acceptedHeadSha && !sameCommit(reportedHead, acceptedHeadSha)) {
     return {
       status: 409,
       error: "not_ready",
@@ -844,6 +846,8 @@ async function acceptMarketing(
 type RecordValue = string | number | boolean | null;
 
 export type FinalizeResolvedInput = {
+  /** Imported work has a real delivery and no claim; keep its agent attribution. */
+  solverAgentId?: string | null;
   agent: AgentContext;
   bug: Pick<MergeBug, "id" | "organisationId" | "projectId" | "status" | "substatus" | "pullRequestUrl">;
   claim: MergeClaim;
@@ -911,7 +915,7 @@ export async function finalizeResolved(tx: Prisma.TransactionClient, input: Fina
       points: solverReward(reward),
       sourceKey: pointSourceKey("solver", bug.id, solverUserId),
       // The agent that held the claim and delivered the work.
-      agentId: claim?.agentId ?? null,
+      agentId: claim?.agentId ?? input.solverAgentId ?? null,
     });
   }
   if (claim?.dispatcherUserId) {
@@ -1239,7 +1243,7 @@ export async function mergeReviewEntries(
     by: onBehalfOf.name ?? "A member",
     current:
       row.pullRequestUrl === bug.pullRequestUrl &&
-      (!bug.pullRequestHeadSha || !row.headSha || row.headSha === bug.pullRequestHeadSha),
+      (!bug.pullRequestHeadSha || !row.headSha || sameCommit(row.headSha, bug.pullRequestHeadSha)),
     replies: toEntryReplies(replies),
   }));
 }
