@@ -5,7 +5,7 @@ import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-erro
 
 export const runtime = "nodejs";
 
-/** Leave the cluster, decline your invite, or withdraw your request. */
+/** Leave the cluster, or decline your invite. */
 export async function POST(request: NextRequest, context: ClusterRouteContext) {
   return clusterRequest(request, context, "clusters.leave", true, (viewer, params) => leaveCluster(viewer, clusterIdOf(params)));
 }

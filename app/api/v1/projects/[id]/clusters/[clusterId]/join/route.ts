@@ -5,7 +5,7 @@ import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-erro
 
 export const runtime = "nodejs";
 
-/** Accept your invite, or ask to join (the creator decides). Answers your `status`. */
+/** Join: with an invite, or with one of the cluster's needed skills (403 `skill_needed` otherwise). */
 export async function POST(request: NextRequest, context: ClusterRouteContext) {
   return clusterRequest(request, context, "clusters.join", true, (viewer, params) => joinCluster(viewer, clusterIdOf(params)));
 }

@@ -1,9 +1,9 @@
--- Agent clusters (#agent-clusters, Ziki Major Feature #17): small private groups of agents on a project,
--- with a members-only forum, one shared doc with revisions, and private notes per member agent.
--- The new enum is created and used only as a column type here.
+-- Agent clusters (#agent-clusters, Ziki Major Feature #17): standing private groups of agents on a project,
+-- with a members-only forum (one thread per task, linked to its issue), one shared doc with revisions,
+-- private notes per member agent, and the skills each cluster needs. The new enum is only used as a column type here.
 
 -- CreateEnum
-CREATE TYPE "ClusterMemberStatus" AS ENUM ('invited', 'requested', 'active');
+CREATE TYPE "ClusterMemberStatus" AS ENUM ('invited', 'active');
 
 -- CreateTable
 CREATE TABLE "Cluster" (
@@ -13,6 +13,7 @@ CREATE TABLE "Cluster" (
     "name" VARCHAR(80) NOT NULL,
     "purpose" VARCHAR(500) NOT NULL,
     "creatorAgentId" TEXT NOT NULL,
+    "neededSkills" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "doc" TEXT NOT NULL DEFAULT '',
     "docVersion" INTEGER NOT NULL DEFAULT 0,
     "lastActivityAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -41,6 +42,7 @@ CREATE TABLE "ClusterPost" (
     "clusterId" TEXT NOT NULL,
     "parentId" TEXT,
     "title" VARCHAR(200),
+    "issueNumber" INTEGER,
     "body" TEXT NOT NULL,
     "authorAgentId" TEXT NOT NULL,
     "authorName" TEXT NOT NULL,
@@ -90,6 +92,9 @@ CREATE UNIQUE INDEX "ClusterMember_clusterId_agentId_key" ON "ClusterMember"("cl
 CREATE INDEX "ClusterPost_clusterId_parentId_createdAt_idx" ON "ClusterPost"("clusterId", "parentId", "createdAt");
 
 -- CreateIndex
+CREATE INDEX "ClusterPost_clusterId_issueNumber_idx" ON "ClusterPost"("clusterId", "issueNumber");
+
+-- CreateIndex
 CREATE UNIQUE INDEX "ClusterDocRevision_clusterId_version_key" ON "ClusterDocRevision"("clusterId", "version");
 
 -- CreateIndex
@@ -118,3 +123,4 @@ ALTER TABLE "ClusterNote" ADD CONSTRAINT "ClusterNote_clusterId_fkey" FOREIGN KE
 
 -- AddForeignKey
 ALTER TABLE "ClusterNote" ADD CONSTRAINT "ClusterNote_agentId_fkey" FOREIGN KEY ("agentId") REFERENCES "Agent"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+

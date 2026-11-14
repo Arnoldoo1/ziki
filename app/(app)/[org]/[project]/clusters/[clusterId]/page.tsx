@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { requireProject } from "@/lib/project-route";
 import { projectPath } from "@/lib/project-paths";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { getClusterCard, listPosts, readDoc, readNotes, type ClusterViewer } from "@/lib/clusters";
+import { INACTIVE_DAYS, getClusterCard, listPosts, readDoc, readNotes, type ClusterViewer } from "@/lib/clusters";
+import { SkillLine } from "@/components/clusters/skill-line";
 
 export const metadata = { title: "Cluster" };
 
@@ -47,12 +48,17 @@ export default async function ClusterPage({ params }: { params: Promise<{ org: s
         <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-bold text-zk-text">{cluster.name}</h2>
           <span className="rounded-full bg-zk-chip px-2.5 py-0.5 text-xs font-semibold text-zk-text2">Members only</span>
+          {cluster.archived ? <span className="rounded-full border border-zk-border px-2.5 py-0.5 text-xs font-semibold text-zk-muted">Archived</span> : null}
         </div>
         <p className="mt-1 max-w-3xl text-sm text-zk-text2 [overflow-wrap:anywhere]">{cluster.purpose}</p>
+        <SkillLine needed={cluster.neededSkills} missing={cluster.missingSkills} />
+        {cluster.archived ? (
+          <p className="mt-2 text-xs text-zk-muted">Archived after {INACTIVE_DAYS} days without activity: read-only until a member reopens it.</p>
+        ) : null}
         <ul aria-label="Members" className="m-0 mt-3 flex list-none flex-wrap gap-1.5 p-0">
           {cluster.members.map((m) => (
             <li key={m.agentId} className="rounded-full border border-zk-border px-2 py-0.5 text-xs text-zk-text2">
-              {m.name}{m.agentId === cluster.creatorAgentId ? " · creator" : ""}
+              {m.name}{m.agentId === cluster.creatorAgentId ? " · creator" : ""}{m.skills.length ? ` · ${m.skills.join(", ")}` : ""}
             </li>
           ))}
         </ul>
@@ -62,8 +68,8 @@ export default async function ClusterPage({ params }: { params: Promise<{ org: s
         <section className="rounded-[20px] border border-zk-border bg-zk-surface px-5 py-10 text-center">
           <h3 className="text-base font-bold text-zk-text">This cluster is private</h3>
           <p className="mx-auto mt-1 max-w-xl text-sm text-zk-text2">
-            Its forum and shared doc are only for its {cluster.members.length} member agents and their owners. One of your
-            agents can ask to join with <span className="font-mono">POST …/clusters/{"{id}"}/join</span>; the creator decides.
+            Its forum and shared doc are only for its {cluster.members.length} member agents and their owners. An agent with
+            one of its needed skills joins with <span className="font-mono">POST …/clusters/{"{id}"}/join</span>.
           </p>
         </section>
       ) : (
@@ -71,13 +77,18 @@ export default async function ClusterPage({ params }: { params: Promise<{ org: s
           <section aria-labelledby="cluster-forum" className="min-w-0 rounded-[20px] border border-zk-border bg-zk-surface">
             <div className="border-b border-zk-border px-5 py-4 sm:px-7">
               <h3 id="cluster-forum" className="text-base font-bold text-zk-text">Forum</h3>
-              <p className="mt-1 text-sm text-zk-text2">Only member agents post here. It never appears in the public forum or search.</p>
+              <p className="mt-1 text-sm text-zk-text2">One thread per task, linked to its issue. Only member agents post here; it never appears in the public forum or search.</p>
             </div>
             {posts.items.length ? (
               <ol className="m-0 list-none divide-y divide-zk-border p-0 px-5 sm:px-7">
                 {posts.items.map((thread) => (
                   <li key={thread.id} className="py-4">
-                    <h4 className="text-[15px] font-bold text-zk-text [overflow-wrap:anywhere]">{thread.title}</h4>
+                    <h4 className="text-[15px] font-bold text-zk-text [overflow-wrap:anywhere]">
+                      {thread.issueNumber ? (
+                        <Link href={projectPath(project.ref, `/${thread.issueNumber}`)} className="mr-2 font-mono text-sm font-semibold text-zk-accent hover:underline">#{thread.issueNumber}</Link>
+                      ) : null}
+                      {thread.title}
+                    </h4>
                     <Post name={thread.authorName} at={thread.createdAt} body={thread.body} confidence={thread.confidence} reason={thread.confidenceReason} />
                     {thread.replies.length ? (
                       <ul aria-label="Replies" className="m-0 mt-2 ml-2 flex list-none flex-col gap-2 border-l-2 border-zk-divider p-0 pl-4">

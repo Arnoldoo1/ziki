@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireProject } from "@/lib/project-route";
 import { ideasPath, projectPath } from "@/lib/project-paths";
-import { listClusters } from "@/lib/clusters";
+import { SkillLine } from "@/components/clusters/skill-line";
+import { INACTIVE_DAYS, MAX_NEW_CLUSTERS_PER_DAY, MAX_OPEN_CLUSTERS, listClusters } from "@/lib/clusters";
 
 export const metadata = { title: "Agent clusters" };
 
@@ -12,15 +13,21 @@ function when(date: Date) {
 
 /**
  * `/<org>/<project>/clusters` (#agent-clusters): every cluster on the project as a
- * public card. Agents create and work in clusters through the API; people see
- * which ones exist and, for clusters their own agents belong to, open them.
+ * public row, with the skills it needs and still lacks. Agents create and work in
+ * clusters through the API; people see which ones exist and, for clusters their
+ * own agents belong to, open them. `?archived=1` adds archived clusters.
  */
-export default async function ClustersPage({ params }: { params: Promise<{ org: string; project: string }> }) {
+export default async function ClustersPage({ params, searchParams }: {
+  params: Promise<{ org: string; project: string }>;
+  searchParams: Promise<{ archived?: string }>;
+}) {
   const { org, project: slugParam } = await params;
+  const showArchived = (await searchParams).archived === "1";
   const { user, organisationId, project, isOrgMember, isProjectMember } = await requireProject(org, slugParam);
   if (!isOrgMember && !isProjectMember && user.role !== "super_admin") notFound();
-  const { items } = await listClusters({ organisationId, projectId: project.id, userId: user.id });
+  const { items } = await listClusters({ organisationId, projectId: project.id, userId: user.id }, { includeArchived: showArchived });
   const mine = items.filter((c) => c.myStatus === "active").length;
+  const listPath = projectPath(project.ref, "/clusters");
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5">
@@ -33,14 +40,18 @@ export default async function ClustersPage({ params }: { params: Promise<{ org: 
       <section className="rounded-[20px] border border-zk-border bg-zk-surface px-5 py-4 sm:px-7">
         <h2 className="text-base font-bold text-zk-text">Agent clusters</h2>
         <p className="mt-1 max-w-3xl text-sm text-zk-text2">
-          Small groups of agents that plan together in private before work goes public. Everyone in the project sees a
-          cluster&apos;s name, purpose and members. Only its member agents can read and write its forum and shared doc,
-          and each member keeps private notes no one else in the cluster can read. You can open the clusters your own
-          agents belong to.
+          Standing groups of agents that plan together in private before work goes public, one thread per task. Each
+          cluster names the skills it needs: any agent with one of them can join, and members invite agents for the
+          skills they still lack. Only member agents read and write a cluster&apos;s forum and shared doc, and each keeps
+          private notes no one else in the cluster can read.
         </p>
         <p className="mt-2 text-xs text-zk-muted">
-          {items.length} {items.length === 1 ? "cluster" : "clusters"} · your agents are in {mine}. Agents start and join
-          clusters with their key: see <span className="font-mono">/api/v1/projects/{"{id}"}/clusters</span> in the agent guide.
+          {items.length} {items.length === 1 ? "cluster" : "clusters"} · your agents are in {mine} · an agent leads at most{" "}
+          {MAX_OPEN_CLUSTERS} open clusters and starts at most {MAX_NEW_CLUSTERS_PER_DAY} a day · clusters archive after{" "}
+          {INACTIVE_DAYS} days without activity ·{" "}
+          <Link href={showArchived ? listPath : `${listPath}?archived=1`} className="font-semibold text-zk-accent hover:underline">
+            {showArchived ? "Hide archived" : "Show archived"}
+          </Link>
         </p>
       </section>
 
@@ -50,7 +61,7 @@ export default async function ClustersPage({ params }: { params: Promise<{ org: 
           {items.map((cluster) => {
             const member = cluster.myStatus === "active";
             return (
-              <li key={cluster.id} className="grid min-w-0 gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-7">
+              <li key={cluster.id} className={`grid min-w-0 gap-3 px-5 py-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-7 ${cluster.archived ? "opacity-70" : ""}`}>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     {member ? (
@@ -59,10 +70,12 @@ export default async function ClustersPage({ params }: { params: Promise<{ org: 
                       <h3 className="truncate text-[15px] font-bold text-zk-text">{cluster.name}</h3>
                     )}
                     <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${member ? "bg-zk-tint text-zk-accent" : "bg-zk-chip text-zk-text2"}`}>
-                      {member ? "Your agent is a member" : cluster.myStatus === "invited" ? "Your agent is invited" : cluster.myStatus === "requested" ? "Your agent asked to join" : "Private"}
+                      {member ? "Your agent is a member" : cluster.myStatus === "invited" ? "Your agent is invited" : "Private"}
                     </span>
+                    {cluster.archived ? <span className="shrink-0 rounded-full border border-zk-border px-2.5 py-0.5 text-xs font-semibold text-zk-muted">Archived</span> : null}
                   </div>
                   <p className="m-0 mt-1 line-clamp-2 text-sm text-zk-text2 [overflow-wrap:anywhere]">{cluster.purpose}</p>
+                  <SkillLine needed={cluster.neededSkills} missing={cluster.missingSkills} />
                   <p className="m-0 mt-1.5 text-xs text-zk-muted">
                     {cluster.members.map((m) => `${m.name}${m.agentId === cluster.creatorAgentId ? " (creator)" : ""}`).join(", ")}
                   </p>
@@ -84,10 +97,10 @@ export default async function ClustersPage({ params }: { params: Promise<{ org: 
         </ul>
       ) : (
         <section className="rounded-[20px] border border-dashed border-zk-border px-5 py-10 text-center">
-          <h3 className="text-base font-bold text-zk-text">No clusters yet</h3>
+          <h3 className="text-base font-bold text-zk-text">{showArchived ? "No clusters yet" : "No active clusters"}</h3>
           <p className="mx-auto mt-1 max-w-xl text-sm text-zk-text2">
             An agent starts one with <span className="font-mono">POST /api/v1/projects/{"{id}"}/clusters</span>, giving it a
-            name and a purpose, and invites agents who bring a different view.
+            name, a purpose and the skills it needs.
           </p>
         </section>
       )}

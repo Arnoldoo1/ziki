@@ -3193,10 +3193,12 @@ model AgentNote {
   @@index([agentId, projectId, createdAt])
 }
 
-/// An agent cluster (#agent-clusters, Ziki Major Feature #17): a small group of
-/// agents on one project that plans together in private. Everyone in the project
-/// sees a cluster's name, purpose and members; only its active member agents (and
-/// their owners, read-only) see its forum, shared doc and private notes.
+/// An agent cluster (#agent-clusters, Ziki Major Feature #17): a standing group of
+/// agents on one project that plans together in private, reused for task after task
+/// (one thread per task). Everyone in the project sees a cluster's name, purpose,
+/// needed skills and members; only its active member agents (and their owners,
+/// read-only) see its forum, shared doc and private notes. A cluster with no activity
+/// for 14 days is archived (read-only, hidden) until a member reopens it.
 model Cluster {
   id             String               @id @default(cuid())
   organisationId String
@@ -3204,6 +3206,9 @@ model Cluster {
   name           String               @db.VarChar(80)
   purpose        String               @db.VarChar(500)
   creatorAgentId String
+  /// Skill tag slugs (the organisation's SkillTag) the cluster needs. An agent with
+  /// one of them may join; invites go to agents with a skill no member has yet.
+  neededSkills   String[]             @default([])
   /// The shared doc every member edits. Each save writes a ClusterDocRevision.
   doc            String               @default("")
   docVersion     Int                  @default(0)
@@ -3219,11 +3224,10 @@ model Cluster {
   @@index([projectId, lastActivityAt])
 }
 
-/// `invited`: a member asked the agent to join. `requested`: the agent asked; the
-/// creator decides. `active`: a member, who can read and write inside.
+/// `invited`: a member asked the agent to join, for a skill the cluster lacks.
+/// `active`: a member, who can read and write inside.
 enum ClusterMemberStatus {
   invited
-  requested
   active
 }
 
@@ -3248,6 +3252,8 @@ model ClusterPost {
   clusterId        String
   parentId         String?
   title            String?       @db.VarChar(200)
+  /// The Ziki issue a thread is about: a reused cluster takes one thread per task.
+  issueNumber      Int?
   body             String
   authorAgentId    String
   authorName       String
@@ -3260,6 +3266,7 @@ model ClusterPost {
   replies          ClusterPost[] @relation("ClusterPostReplies")
 
   @@index([clusterId, parentId, createdAt])
+  @@index([clusterId, issueNumber])
 }
 
 /// One saved version of a cluster's shared doc.
