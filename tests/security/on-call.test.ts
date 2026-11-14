@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildCallLog, cancelOnCallInvite, inviteToOnCall, respondToOnCallInvite } from "@/lib/security-checks/on-call";
+import { buildCallLog, cancelOnCallInvite, inviteToOnCall, resolveInviteEmail, respondToOnCallInvite, searchPeopleForOnCall } from "@/lib/security-checks/on-call";
 
 /** A fake Prisma client: every model method is a mock, and $transaction runs the callback on the same fake. */
 function fakeDb() {
   const db = {
-    user: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
-    onCallInvite: { create: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
+    user: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    onCallInvite: { create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
     notification: { create: vi.fn() },
     $transaction: vi.fn(),
   };
@@ -123,5 +123,52 @@ describe("the call log (#on-call)", () => {
     expect(log[1]).toMatchObject({ pickedUpBy: null, missed: true });
     expect(log[2]).toMatchObject({ pickedUpBy: "Ada", waitMs: 30_000, missed: false });
     expect(log[3]).toMatchObject({ pickedUpBy: "bo@example.com", waitMs: 0 });
+  });
+});
+
+describe("the invite box: search as you type, and names (#on-call)", () => {
+  it("searches by name or email, case-insensitively, and says who is already on call or invited", async () => {
+    const db = fakeDb();
+    db.user.findMany.mockResolvedValue([
+      { id: "u1", name: "Hamzat Adebayo", email: "Hamzat@Example.com", onCallAt: now },
+      { id: "u2", name: "Hamza Bello", email: "hbello@example.com", onCallAt: null },
+      { id: "u3", name: "Hamid Okoro", email: "hamid@example.com", onCallAt: null },
+    ]);
+    db.onCallInvite.findMany.mockResolvedValue([{ email: "hbello@example.com" }]);
+    const found = await searchPeopleForOnCall("  HAM ", asDb(db));
+    expect(db.user.findMany.mock.calls[0]![0].where).toEqual({
+      OR: [{ name: { contains: "HAM", mode: "insensitive" } }, { email: { contains: "HAM", mode: "insensitive" } }],
+    });
+    expect(found.map((p) => [p.name, p.state])).toEqual([
+      ["Hamzat Adebayo", "on_call"],
+      ["Hamza Bello", "invited"],
+      ["Hamid Okoro", null],
+    ]);
+    expect(db.onCallInvite.findMany.mock.calls[0]![0].where).toMatchObject({ status: "pending", email: { in: ["hamzat@example.com", "hbello@example.com", "hamid@example.com"] } });
+  });
+
+  it("does not search for fewer than 2 characters, and asks nothing about invites when nobody matches", async () => {
+    const db = fakeDb();
+    expect(await searchPeopleForOnCall("h", asDb(db))).toEqual([]);
+    expect(await searchPeopleForOnCall("   ", asDb(db))).toEqual([]);
+    expect(db.user.findMany).not.toHaveBeenCalled();
+    db.user.findMany.mockResolvedValue([]);
+    expect(await searchPeopleForOnCall("zz", asDb(db))).toEqual([]);
+    expect(db.onCallInvite.findMany).not.toHaveBeenCalled();
+  });
+
+  it("an email stays an email; a name must match exactly one person", async () => {
+    const db = fakeDb();
+    expect(await resolveInviteEmail(" new@example.com ", asDb(db))).toBe("new@example.com");
+    expect(db.user.findMany).not.toHaveBeenCalled();
+
+    db.user.findMany.mockResolvedValue([{ email: "hamzat@example.com" }]);
+    expect(await resolveInviteEmail("hamzat adebayo", asDb(db))).toBe("hamzat@example.com");
+    expect(db.user.findMany.mock.calls[0]![0].where).toEqual({ name: { equals: "hamzat adebayo", mode: "insensitive" } });
+
+    db.user.findMany.mockResolvedValue([{ email: "a@example.com" }, { email: "b@example.com" }]);
+    await expect(resolveInviteEmail("Ada", asDb(db))).rejects.toMatchObject({ code: "ambiguous" });
+    db.user.findMany.mockResolvedValue([]);
+    await expect(resolveInviteEmail("Nobody", asDb(db))).rejects.toMatchObject({ code: "not_found" });
   });
 });

@@ -9,8 +9,11 @@ import {
   cancelOnCallInvite,
   inviteToOnCall,
   removeFromOnCall,
+  resolveInviteEmail,
   respondToOnCallInvite,
+  searchPeopleForOnCall,
   setSecurityClearance,
+  type PersonMatch,
 } from "@/lib/security-checks/on-call";
 
 /**
@@ -35,14 +38,21 @@ async function orRedirect(page: string, run: () => Promise<unknown>): Promise<vo
   revalidatePath(page);
 }
 
-/** Invite a person by email. */
+/** Invite a person by email, or by display name when it matches exactly one person. */
 export async function inviteOnCallAction(formData: FormData): Promise<void> {
   const admin = await requireSuperAdmin();
-  const email = field(formData, "email");
-  if (!email) return;
-  await orRedirect(ADMIN_PAGE, () =>
-    inviteToOnCall(prisma, { email, invitedById: admin.id, clearForSecurity: formData.get("clearForSecurity") === "on" }),
-  );
+  const typed = field(formData, "email");
+  if (!typed) return;
+  await orRedirect(ADMIN_PAGE, async () => {
+    const email = await resolveInviteEmail(typed, prisma);
+    return inviteToOnCall(prisma, { email, invitedById: admin.id, clearForSecurity: formData.get("clearForSecurity") === "on" });
+  });
+}
+
+/** The invite box's search as staff type: people by display name or email. */
+export async function searchOnCallPeopleAction(query: string): Promise<PersonMatch[]> {
+  await requireSuperAdmin();
+  return searchPeopleForOnCall(typeof query === "string" ? query.slice(0, 100) : "", prisma);
 }
 
 export async function cancelOnCallInviteAction(formData: FormData): Promise<void> {
