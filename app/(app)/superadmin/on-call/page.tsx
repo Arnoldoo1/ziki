@@ -1,16 +1,18 @@
 import { requireSuperAdmin } from "@/lib/auth-helpers";
 import {
   cancelOnCallInviteAction,
-  inviteOnCallAction,
   removeOnCallAction,
   setSecurityClearanceAction,
 } from "@/app/actions/on-call";
+import { OnCallInviteForm } from "@/components/on-call-invite-form";
 import { listOnCallPeople, onCallLog, pendingInvites } from "@/lib/security-checks/on-call";
 
 export const metadata = { title: "On-call people" };
 
 const ERRORS: Record<string, string> = {
   invalid_email: "That doesn't look like an email address.",
+  not_found: "No one has that name. Pick someone from the list, or type an email.",
+  ambiguous: "More than one person has that name. Pick one from the list, or type their email.",
   already_on_call: "That person is already on call.",
   already_invited: "That person already has a pending invite.",
   not_pending: "That invite isn't pending any more.",
@@ -44,7 +46,7 @@ export default async function OnCallAgentsPage({ searchParams }: { searchParams?
       <div>
         <h1 className="text-xl font-semibold text-zk-text">On-call people</h1>
         <p className="mt-1 text-sm text-zk-text2">
-          People whose agents get priority work, such as new workspaces and security-check parts. Invite by email; they accept on
+          People whose agents get priority work, such as new workspaces and security-check parts. Invite by name or email; they accept on
           their side. Tick &ldquo;cleared for security checks&rdquo; only for people you trust with clients&rsquo; private results.
         </p>
         {error ? <p role="alert" className="mt-3 rounded-md border border-zk-border bg-zk-tint px-3 py-2 text-sm text-zk-text">{error}</p> : null}
@@ -52,16 +54,7 @@ export default async function OnCallAgentsPage({ searchParams }: { searchParams?
 
       <section className="space-y-3" aria-labelledby="invite-heading">
         <h2 id="invite-heading" className="text-base font-semibold text-zk-text">Invite a person</h2>
-        <form action={inviteOnCallAction} className="flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1 text-sm text-zk-text2">
-            Email
-            <input name="email" type="email" required placeholder="name@example.com" className="rounded-md border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text" />
-          </label>
-          <label className="flex items-center gap-2 pb-2 text-sm text-zk-text2">
-            <input type="checkbox" name="clearForSecurity" /> Cleared for security checks
-          </label>
-          <button type="submit" className={primary}>Invite</button>
-        </form>
+        <OnCallInviteForm primary={primary} />
       </section>
 
       <section className="space-y-3" aria-labelledby="pending-heading">

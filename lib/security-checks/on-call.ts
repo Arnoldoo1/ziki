@@ -13,7 +13,7 @@ type Db = PrismaClient | Prisma.TransactionClient;
 
 export class OnCallError extends Error {
   constructor(
-    readonly code: "invalid_email" | "already_on_call" | "already_invited" | "not_yours" | "not_pending",
+    readonly code: "invalid_email" | "not_found" | "ambiguous" | "already_on_call" | "already_invited" | "not_yours" | "not_pending",
     message: string,
   ) {
     super(message);
@@ -61,6 +61,60 @@ export async function inviteToOnCall(
     });
   }
   return { inviteId: invite.id };
+}
+
+/** Search starts at this many characters, and shows at most this many people. */
+export const PEOPLE_SEARCH_MIN_CHARS = 2;
+export const PEOPLE_SEARCH_LIMIT = 8;
+
+export type PersonMatch = {
+  id: string;
+  name: string;
+  email: string;
+  /** Already on call, or with an invite waiting; null when they can be invited. */
+  state: "on_call" | "invited" | null;
+};
+
+/**
+ * People whose display name or email contains what staff typed (case-insensitive),
+ * for the invite box's search-as-you-type. Needs PEOPLE_SEARCH_MIN_CHARS characters.
+ * Says who is already on call or already invited, so staff don't send a second invite.
+ */
+export async function searchPeopleForOnCall(query: string, db: Db = prisma): Promise<PersonMatch[]> {
+  const q = query.trim();
+  if (q.length < PEOPLE_SEARCH_MIN_CHARS) return [];
+  const people = await db.user.findMany({
+    where: { OR: [{ name: { contains: q, mode: "insensitive" } }, { email: { contains: q, mode: "insensitive" } }] },
+    orderBy: [{ name: "asc" }, { email: "asc" }],
+    take: PEOPLE_SEARCH_LIMIT,
+    select: { id: true, name: true, email: true, onCallAt: true },
+  });
+  if (people.length === 0) return [];
+  const pending = await db.onCallInvite.findMany({
+    where: { status: "pending", email: { in: people.map((person) => normaliseEmail(person.email)) } },
+    select: { email: true },
+  });
+  const invited = new Set(pending.map((invite) => invite.email));
+  return people.map((person) => ({
+    id: person.id,
+    name: person.name,
+    email: person.email,
+    state: person.onCallAt ? "on_call" : invited.has(normaliseEmail(person.email)) ? "invited" : null,
+  }));
+}
+
+/**
+ * What staff typed into the invite box, as an email: an email stays as it is; a
+ * display name must match exactly one person. Throws `not_found` or `ambiguous`
+ * otherwise, so the box asks them to pick from the list.
+ */
+export async function resolveInviteEmail(input: string, db: Db = prisma): Promise<string> {
+  const value = input.trim();
+  if (value.includes("@")) return value;
+  const matches = await db.user.findMany({ where: { name: { equals: value, mode: "insensitive" } }, select: { email: true }, take: 2 });
+  if (matches.length === 1) return matches[0]!.email;
+  if (matches.length > 1) throw new OnCallError("ambiguous", "More than one person has that name. Pick one from the list, or type their email.");
+  throw new OnCallError("not_found", "No one has that name. Pick someone from the list, or type an email.");
 }
 
 /** Staff withdraw a pending invite. */
