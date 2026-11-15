@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { SecuritySeverity } from "@prisma/client";
 import "@/components/security-finding.css";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +9,7 @@ import type { CheckReport, PostedReport } from "@/lib/security-checks/report";
 import { SECURITY_SEVERITIES, SEVERITY_LABEL } from "@/lib/security-severity";
 
 /** Ziki's issue status colours, by meaning: waiting on someone like Requires confirmation, working like In progress, finished like Live. */
-const STATUS_CLASS: Record<CheckReport["status"], string> = {
+export const STATUS_CLASS: Record<CheckReport["status"], string> = {
   awaiting_ownership: substatusClass.requires_confirmation,
   queued: substatusClass.requires_confirmation,
   splitting: statusClass.in_progress,
@@ -120,6 +121,11 @@ function Actions({ report }: { report: PostedReport }) {
         <DownloadIcon />
         Download report
       </a>
+      {report.findings.length > 0 ? (
+        <Link href={`/security/checks/${encodeURIComponent(report.checkId)}/fix`} className={PRIMARY_BUTTON}>
+          Move to your app
+        </Link>
+      ) : null}
     </div>
   );
 }
