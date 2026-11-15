@@ -32,7 +32,7 @@ const ISSUE_LISTS: Record<string, string[]> = {
   new: ["Report an issue"],
 };
 const IDEA_LISTS: Record<string, string> = { rejected: "Rejected", drafts: "Drafts" };
-const MARKETING_PAGES: Record<string, string> = { "output-box": "Output box", settings: "Settings", ideas: "Rejected ideas", tasks: "New task" };
+const MARKETING_PAGES: Record<string, string> = { "output-box": "Output box", settings: "Settings", ideas: "Rejected ideas", tasks: "Tasks" };
 
 /** The project's settings, at its Goals section. */
 function projectGoalsSettingsHref(ref: ProjectRef): string {
@@ -46,7 +46,7 @@ function projectGoalsSettingsHref(ref: ProjectRef): string {
  */
 function sectionOf(pathname: string, ref: ProjectRef): Crumb[] {
   const rest = pathname.slice(projectPath(ref).length).replace(/^\/+|\/+$/g, "");
-  const [first, second] = rest.split("/");
+  const [first, second, third] = rest.split("/");
   const named = (...labels: string[]) => labels.map((label) => ({ label }));
   if (!first) return [];
   if (/^[0-9]+$/.test(first)) return named(`Issue #${first}`);
@@ -60,14 +60,17 @@ function sectionOf(pathname: string, ref: ProjectRef): Crumb[] {
   if (first === "goals") return [{ label: "Goals", href: projectGoalsSettingsHref(ref) }, { label: "Goal" }];
   if (first === "marketing") {
     if (!second) return named("Marketing");
+    if (second === "tasks" && third === "new") {
+      return [{ label: "Marketing", href: marketingPath(ref) }, { label: "Tasks", href: marketingPath(ref, "tasks") }, { label: "New task" }];
+    }
     return [{ label: "Marketing", href: marketingPath(ref) }, { label: MARKETING_PAGES[second] ?? "Marketing" }];
   }
-  if (first === "tasks") return [{ label: "Marketing", href: marketingPath(ref) }, { label: second ? `Task #${second}` : "Task" }];
+  if (first === "tasks") return [{ label: "Marketing", href: marketingPath(ref) }, { label: "Tasks", href: marketingPath(ref, "tasks") }, { label: second ? `Task #${second}` : "Task" }];
   if (first === "features") {
     if (!second) return named("Feature plans");
     return [{ label: "Feature plans", href: projectPath(ref, "/features") }, { label: second === "new" ? "New plan" : "Plan" }];
   }
-  const pages: Record<string, string> = { notes: "Notes", org: "Organisation", workstream: "Workstream", report: "Report an issue" };
+  const pages: Record<string, string> = { notes: "Notes", org: "Organisation", workstream: "Workstream", report: "Report an issue", import: "Import delivered work" };
   return pages[first] ? named(pages[first]) : [];
 }
 
@@ -126,6 +129,7 @@ export function ProjectBreadcrumb({ project }: { project: BreadcrumbProject }) {
           </>
         )}
       </ol>
+      {ref ? <Link href={`${projectPath(ref)}/import`} className={`${crumb} ml-auto shrink-0 text-zk-accent`}>Import work</Link> : null}
     </nav>
   );
 }
