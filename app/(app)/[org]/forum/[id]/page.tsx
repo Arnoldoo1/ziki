@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { PublicMessageBoard } from "@/components/forum/message-board";
 import { requireOrg } from "@/lib/project-route";
-import { getForumMessageById, getUserAccessibleScopes } from "@/lib/forum";
+import { getForumMessageById, listForumMessages, getUserAccessibleScopes } from "@/lib/forum";
 
 export const metadata = {
   title: "Discussion — Organisation Forum",
@@ -17,12 +17,17 @@ export default async function OrgForumPostDetailPage({
   const { user, organisation } = await requireOrg(org);
   if (!organisation) notFound();
 
-  const [post, scopes] = await Promise.all([
+  const [post, messages, scopes] = await Promise.all([
     getForumMessageById(id),
+    listForumMessages({ scope: "org", organisationId: organisation.id }),
     getUserAccessibleScopes(user.id),
   ]);
 
   if (!post) notFound();
+
+  const combinedMessages = messages.some((m) => m.id === post.id)
+    ? messages
+    : [post, ...messages];
 
   return (
     <section className="space-y-6">
@@ -32,7 +37,7 @@ export default async function OrgForumPostDetailPage({
         orgName={organisation.name}
         initialView="detail"
         initialPostId={id}
-        initialMessages={[post]}
+        initialMessages={combinedMessages}
         organisations={scopes.organisations}
         externalProjects={scopes.externalProjects}
       />

@@ -225,8 +225,8 @@ export function PublicMessageBoard({
     initialMessages ?? INITIAL_FORUM_MESSAGES
   );
   const [view, setView] = useState<ForumViewMode>(initialView);
-  const [selectedPostId, setSelectedPostId] = useState<string>(
-    initialPostId ?? (initialMessages?.[0]?.id ?? INITIAL_FORUM_MESSAGES[0].id)
+  const [selectedPostId, setSelectedPostId] = useState<string | null>(
+    initialPostId ?? null
   );
 
   // Synchronize with external changes
@@ -392,9 +392,9 @@ export function PublicMessageBoard({
     }));
   };
 
-  const activePost =
-    messages.find((m) => m.id === selectedPostId || m.code === selectedPostId) ??
-    messages[0];
+  const activePost = selectedPostId
+    ? messages.find((m) => m.id === selectedPostId || m.code === selectedPostId)
+    : messages[0];
 
   const filteredMessages = messages
     .filter((msg) => {
@@ -440,6 +440,7 @@ export function PublicMessageBoard({
 
   const handleBackToList = () => {
     setView("list");
+    setSelectedPostId(null);
     if (router) {
       router.push(scopedForumPath(scope, orgSlug, projectSlug));
     }
@@ -1326,9 +1327,64 @@ export function PublicMessageBoard({
 
               {/* Compact Cards (Title Only, No Description, No Role/Code Clutter) */}
               <div className="flex flex-col gap-2">
-                {filteredMessages.length === 0 ? (
-                  <div className="rounded-lg border border-zk-border bg-zk-bg/50 p-8 text-center text-[13px] text-zk-muted">
-                    No forum posts match the current filters.
+                {messages.length === 0 ? (
+                  <div className="rounded-xl border border-zk-border bg-zk-surface p-12 text-center flex flex-col items-center justify-center gap-3">
+                    <div className="w-12 h-12 rounded-full bg-zk-tint/60 border border-zk-accent/20 flex items-center justify-center text-zk-accent">
+                      <Icon size={24}>
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                      </Icon>
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-[15px] font-semibold text-zk-text">
+                        No discussions yet in {selectedScope.name}
+                      </h3>
+                      <p className="text-[13px] text-zk-muted max-w-sm">
+                        Be the first agent or supervisor to ask a question, share an update, or request review.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setView("new")}
+                      className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-zk-accent text-zk-accent-fg hover:opacity-90 text-[13px] font-medium transition-opacity cursor-pointer shadow-xs"
+                    >
+                      <Icon size={14}>
+                        <line x1="12" y1="5" x2="12" y2="19" />
+                        <line x1="5" y1="12" x2="19" y2="12" />
+                      </Icon>
+                      <span>Start a discussion</span>
+                    </button>
+                  </div>
+                ) : filteredMessages.length === 0 ? (
+                  <div className="rounded-xl border border-zk-border bg-zk-surface p-10 text-center flex flex-col items-center justify-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-zk-chip flex items-center justify-center text-zk-muted">
+                      <Icon size={20}>
+                        <circle cx="11" cy="11" r="8" />
+                        <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                      </Icon>
+                    </div>
+                    <div className="space-y-1">
+                      <h3 className="text-[14px] font-semibold text-zk-text">
+                        No discussions match your filters
+                      </h3>
+                      <p className="text-[12px] text-zk-muted max-w-sm">
+                        {searchQuery.trim()
+                          ? `No results found for "${searchQuery}". Try different keywords or clear your filters.`
+                          : "Try adjusting or resetting your active category, track, or status filters."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStatusFilter("all");
+                        setFeedFilter("all");
+                        setTrackFilter("all");
+                        setSelectedTag(null);
+                        setSearchQuery("");
+                      }}
+                      className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zk-chip hover:bg-zk-border text-zk-text text-[12px] font-medium transition-colors cursor-pointer border border-zk-border"
+                    >
+                      <span>Reset all filters</span>
+                    </button>
                   </div>
                 ) : (
                   filteredMessages.map((msg) => {
@@ -1905,6 +1961,46 @@ export function PublicMessageBoard({
                 )}
               </div>
             </section>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 2 (NOT FOUND): POST NOT FOUND */}
+      {view === "detail" && !activePost && (
+        <div className="flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              onClick={handleBackToList}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zk-surface hover:bg-zk-chip border border-zk-border text-zk-text2 hover:text-zk-text text-[13px] font-medium transition-colors cursor-pointer"
+            >
+              <Icon size={14}>
+                <path d="m12 19-7-7 7-7M19 12H5" />
+              </Icon>
+              <span>Back to discussions</span>
+            </button>
+          </div>
+          <div className="rounded-xl border border-zk-border bg-zk-surface p-12 text-center flex flex-col items-center justify-center gap-3">
+            <div className="w-12 h-12 rounded-full bg-zk-chip flex items-center justify-center text-zk-muted">
+              <Icon size={24}>
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </Icon>
+            </div>
+            <h2 className="text-[16px] font-semibold text-zk-text">
+              Discussion not found
+            </h2>
+            <p className="text-[13px] text-zk-muted max-w-md">
+              This discussion post could not be found or may have been removed.
+            </p>
+            <button
+              type="button"
+              onClick={handleBackToList}
+              className="mt-2 px-4 py-2 rounded-lg bg-zk-accent text-zk-accent-fg hover:opacity-90 text-[13px] font-medium transition-opacity cursor-pointer"
+            >
+              Return to discussions list
+            </button>
           </div>
         </div>
       )}

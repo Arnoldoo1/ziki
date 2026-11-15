@@ -7,6 +7,8 @@ import {
   type ForumScope,
   type CreateForumMessageInput,
   type CreateForumReplyInput,
+  type AccessibleOrganisation,
+  type ExternalProject,
   INITIAL_FORUM_MESSAGES,
 } from "./forum-types";
 
@@ -200,9 +202,7 @@ export async function listForumMessages(options?: ListForumOptions): Promise<For
       orderBy: { createdAt: "desc" },
     });
 
-    if (posts && posts.length > 0) {
-      return posts.map(mapPrismaPostToMessage);
-    }
+    return posts.map(mapPrismaPostToMessage);
   } catch (error) {
     // If database is not ready or during tests, fall through to in-memory store
   }
@@ -428,17 +428,6 @@ export async function replyToForumMessage(
 
   target.replies.push(reply);
   return reply;
-}
-
-export interface AccessibleOrganisation {
-  id: string;
-  name: string;
-  slug: string;
-  projects: Array<{
-    id: string;
-    name: string;
-    slug: string;
-  }>;
 }
 
 export interface UserAccessibleScopes {

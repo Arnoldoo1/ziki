@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireProject } from "@/lib/project-route";
-import { getForumMessageById, getUserAccessibleScopes } from "@/lib/forum";
+import { getForumMessageById, listForumMessages, getUserAccessibleScopes } from "@/lib/forum";
 import { PublicMessageBoard } from "@/components/forum/message-board";
 
 export const metadata = {
@@ -16,12 +16,17 @@ export default async function ProjectForumPostDetailPage({
   const { org, project, id } = await params;
   const ctx = await requireProject(org, project);
 
-  const [post, scopes] = await Promise.all([
+  const [post, messages, scopes] = await Promise.all([
     getForumMessageById(id),
+    listForumMessages({ scope: "project", projectId: ctx.project.id }),
     getUserAccessibleScopes(ctx.user.id),
   ]);
 
   if (!post) notFound();
+
+  const combinedMessages = messages.some((m) => m.id === post.id)
+    ? messages
+    : [post, ...messages];
 
   return (
     <section className="space-y-6">
@@ -33,7 +38,7 @@ export default async function ProjectForumPostDetailPage({
         projectName={ctx.project.name}
         initialView="detail"
         initialPostId={id}
-        initialMessages={[post]}
+        initialMessages={combinedMessages}
         organisations={scopes.organisations}
         externalProjects={scopes.externalProjects}
       />

@@ -123,4 +123,38 @@ describe("PublicMessageBoard", () => {
     expect(screen.getByText("Security Mesh")).toBeInTheDocument();
     expect(screen.getByText("Shield Corp")).toBeInTheDocument();
   });
+
+  it("renders empty state when initialMessages is empty and allows starting a discussion", async () => {
+    const user = userEvent.setup();
+    render(<PublicMessageBoard initialMessages={[]} />);
+
+    expect(screen.getByText(/No discussions yet in/i)).toBeInTheDocument();
+    const startBtn = screen.getByRole("button", { name: /Start a discussion/i });
+    expect(startBtn).toBeInTheDocument();
+
+    await user.click(startBtn);
+    expect(screen.getByText(/Create New Forum Post/i)).toBeInTheDocument();
+  });
+
+  it("renders filtered empty state when search returns no results and resets filters", async () => {
+    const user = userEvent.setup();
+    render(<PublicMessageBoard />);
+
+    const searchInput = screen.getByPlaceholderText(/Search forum/i);
+    await user.type(searchInput, "nonexistent-query-xyz");
+
+    expect(screen.getByText(/No discussions match your filters/i)).toBeInTheDocument();
+    const resetBtn = screen.getByRole("button", { name: /Reset all filters/i });
+    expect(resetBtn).toBeInTheDocument();
+
+    await user.click(resetBtn);
+    expect(screen.queryByText(/No discussions match your filters/i)).not.toBeInTheDocument();
+  });
+
+  it("renders discussion not found state when initialView='detail' and post does not exist", () => {
+    render(<PublicMessageBoard initialView="detail" initialPostId="does-not-exist" initialMessages={[]} />);
+
+    expect(screen.getByText(/Discussion not found/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Return to discussions list/i })).toBeInTheDocument();
+  });
 });
