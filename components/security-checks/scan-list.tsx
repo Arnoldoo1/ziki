@@ -11,10 +11,8 @@ import { PaginationControls } from "@/components/pagination-controls";
 import { KindIcon } from "./entry-box";
 import "@/app/(app)/[org]/[project]/issues/_list/issues.css";
 import "@/components/security-finding.css";
-import { SecurityChat } from "./security-chat";
+import { SecurityChat, chatLeftOpen, keepChatOpen } from "./security-chat";
 
-const ROW_PRIMARY =
-  "inline-flex h-8 shrink-0 items-center rounded-full bg-electric-blue-strong px-3 text-xs font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue";
 
 /** Rows on each page. */
 const PAGE = 10;
@@ -182,14 +180,12 @@ function NoProblems() {
 /**
  * One scan as a row, in Ziki's list table (issues.css, as on Ideas and Issues): the site
  * and what it is on the left, what was found as small coloured counts (as Intruder, Snyk and
- * Detectify list their assets), when it was added, then its status and next step on the right
- * (as Ideas puts Approve).
+ * Detectify list their assets), when it was added, then its status. Opening it is the row; fixes
+ * are unlocked and moved from the scan's page.
  */
 function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highlighted: boolean; last: boolean }) {
   const stage = stageOf(check);
   const reportHref = `/security/checks/${check.id}`;
-  const payHref = `/security/checks/${check.id}/pay`;
-  const canUnlock = check.posted && check.unlocked < check.findings;
   const agent = check.agentReport;
   const severities = ["critical", "high", "medium", "low"] as const;
   const found = agent
@@ -240,10 +236,6 @@ function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highl
           {stage === "scanning" ? <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" /> : null}
           {STAGE[stage].label}
         </span>
-        {/* Only an action gets a button (like Approve on Ideas); opening the scan is the row itself. */}
-        {canUnlock ? (
-          <Link href={payHref} className={`${ROW_PRIMARY} relative z-10`}>Unlock fixes</Link>
-        ) : null}
       </span>
     </li>
   );
@@ -263,8 +255,11 @@ export function ScansArea({
   startWith?: string;
 }) {
   const router = useRouter();
-  const [adding, setAdding] = useState(Boolean(startWith));
-  const [justAdded, setJustAdded] = useState<string | null>(null);
+  // Open when arriving with a site, or when it was left open (back from a scan's page).
+  const [adding, setAdding] = useState(() => Boolean(startWith) || chatLeftOpen());
+  useEffect(() => {
+    keepChatOpen(adding);
+  }, [adding]);
   // The scan whose result is in the chat: its card waits until "See progress", so it isn't shown twice.
   const [inChat, setInChat] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -275,12 +270,11 @@ export function ScansArea({
       focusOnOpen
       startWith={startWith}
       onScanned={setInChat}
-      onSeeProgress={(checkId) => {
+      // Straight to the scan's page; the chat stays open for when they come back.
+      onSeeProgress={(checkId) => router.push(`/security/checks/${checkId}`)}
+      onClose={() => {
         setAdding(false);
         setInChat(null);
-        setJustAdded(checkId);
-        router.refresh();
-        setTimeout(() => list.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
       }}
     />
   ) : null;
@@ -289,7 +283,7 @@ export function ScansArea({
     <div ref={list} className="scroll-mt-24 p-3 sm:p-6">
       <ScanList
         checks={checks}
-        highlightId={justAdded ?? highlightId}
+        highlightId={highlightId}
         show={show}
         page={page}
         // Like "+ Add Idea": a second click closes the box.

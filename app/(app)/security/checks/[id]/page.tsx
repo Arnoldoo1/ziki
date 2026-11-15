@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { IssueActionsMenu } from "@/components/issue-actions-menu";
 import { RemoveScanButton } from "@/components/security-checks/remove-scan-button";
+import { QuickScanList } from "@/components/security-checks/preview-result";
 import { LiveCheckCard } from "@/components/security-checks/live-check-card";
 import { ReportLive } from "@/components/security-checks/report-live";
 import { ReportProgress } from "@/components/security-checks/report-progress";
@@ -80,6 +81,9 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
         <>
           {/* A running check is one card (headline, something always moving, the numbers and each part); otherwise the summary on top. */}
           {working && !report.posted ? <LiveCheckCard report={report} /> : <ReportSummary report={report} />}
+
+          {/* The quick scan from when it was added, until the agents' report replaces it (14 Nov plan). */}
+          {!report.posted && report.quickScan ? <QuickScanList summary={report.quickScan} /> : null}
 
           {/* A check that was cancelled keeps its parts; a running one shows them inside its card. */}
           {!report.posted && !working ? (
