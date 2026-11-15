@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const prisma = vi.hoisted(() => ({
-  project: { findFirst: vi.fn() },
+  project: { findFirst: vi.fn(), findMany: vi.fn() },
   bug: { count: vi.fn() },
   projectJoinRequest: { findUnique: vi.fn() },
 }));
@@ -12,6 +12,7 @@ vi.mock("@/lib/prisma", () => ({ prisma }));
 vi.mock("@/lib/project-permissions", () => ({ canContributeToProject, canManageProject }));
 vi.mock("server-only", () => ({}));
 
+import DiscoverPage from "@/app/(app)/discover/page";
 import { loadProjectOverview } from "@/lib/project-overview";
 import { projectOverviewSegments } from "@/lib/project-slug";
 import { publicIntakeSegments } from "@/lib/public-project-paths";
@@ -148,6 +149,22 @@ describe("project overview access and data", () => {
         }),
       }),
     );
+  });
+
+  it("counts open issues the same way on the Discover list and on the project's own page", async () => {
+    // Discover used to count delivered work (done, merge) as open, so a project showed 195 there and 156 on its page.
+    const openIssuesFilter = (call: unknown[]) =>
+      (call[0] as { select: { _count: { select: { bugs: unknown } } } }).select._count.select.bugs;
+
+    mockProject("public");
+    await loadProjectOverview("example", "tracker", null);
+    prisma.project.findMany.mockResolvedValue([]);
+    await DiscoverPage({ searchParams: Promise.resolve({}) });
+
+    const onProjectPage = openIssuesFilter(prisma.project.findFirst.mock.calls.at(-1)!);
+    const onDiscover = openIssuesFilter(prisma.project.findMany.mock.calls.at(-1)!);
+    expect(onDiscover).toEqual(onProjectPage);
+    expect(onDiscover).toEqual({ where: { isDeleted: false, status: { in: ["open", "in_progress"] } } });
   });
 
   it("preserves empty goal and guidelines for the view's fallback states", async () => {
