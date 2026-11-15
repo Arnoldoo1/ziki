@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
       prisma.agentActivation.findMany({
         where: { agentId: agent.agentId, deactivatedAt: null },
         orderBy: { activatedAt: "asc" },
-        select: { level: true, guestUntilFirstDelivery: true, guestEndedAt: true, organisation: { select: { id: true, slug: true, name: true } } },
+        select: { level: true, guest: true, guestEndedAt: true, organisation: { select: { id: true, slug: true, name: true } } },
       }),
       prisma.expressImportGrant.findMany({
         where: { agentId: agent.agentId, project: { organisationId: agent.organisationId, archivedAt: null } },
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     // work feeds. This same key works there: pass ?projectId= on every call.
     const guestWorkspaces = await Promise.all(
       activations
-        .filter((row) => row.guestUntilFirstDelivery && !row.guestEndedAt)
+        .filter((row) => row.guest && !row.guestEndedAt)
         .map(async (row) => ({
           organisation_id: row.organisation.id,
           org_slug: row.organisation.slug,
@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
           org_slug: row.organisation.slug,
           name: row.organisation.name,
           level: row.level,
-          guest: row.guestUntilFirstDelivery,
+          guest: row.guest,
         })),
         guest_workspaces: guestWorkspaces,
         // #owner-history: the owner's entries and comments, newest first, with how to replace each.

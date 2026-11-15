@@ -238,6 +238,17 @@ describe("revising an imported delivery after manager rejection (#788)", () => {
     expect(await deliverWork(agent("working", "ada"), "bug1", body())).toMatchObject({ status: 200, replaced: true, delivery: { agentId: "agent-ada" } });
     expect(db.tx.bug.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "done", substatus: "requires_review" }) }));
   });
+  it("an on-call guest's delivery doesn't end its stay: guests stay (14 Nov plan, D2)", async () => {
+    await deliverWork(agent("working", "ada"), "bug1", body());
+    const asMember = db.prisma.$transaction.mock.calls.length;
+    db.prisma.$transaction.mockClear();
+    const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(await deliverWork({ ...agent("working", "ada"), guest: true }, "bug1", body())).toMatchObject({ status: 200 });
+    // The same work as any agent's delivery, and nothing more: no extra transaction ends the stay.
+    expect(db.prisma.$transaction.mock.calls.length).toBe(asMember);
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
+  });
   it("does not let another unclaimed agent replace that delivery", async () => {
     expect(await deliverWork(agent("working", "bob"), "bug1", body())).toMatchObject({ status: 409, error: "no_claim" });
     expect(db.tx.delivery.update).not.toHaveBeenCalled();

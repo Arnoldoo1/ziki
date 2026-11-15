@@ -1,18 +1,19 @@
-import type { Prisma, PrismaClient, SecuritySeverity } from "@prisma/client";
+import type { Prisma, PrismaClient, SecurityCheckStatus, SecuritySeverity } from "@prisma/client";
 import { award } from "@/lib/points/award";
 import { logger } from "@/lib/logger";
-import { ON_CALL_QUIET_AFTER_MS, SEVERITY_PRICE, agentsMayWork } from "@/lib/security-checks";
-import { planParts, writeSummary, type PageReader, type SecurityAi } from "./ai";
+import { ON_CALL_QUIET_AFTER_MS, SEVERITY_PRICE, ZIKI_SECURITY_AGENT_USERNAME, agentsMayWork, fallbackWindowMs, ownershipProofRequired, provenTargetWhere } from "@/lib/security-checks";
+import { cleanParts, planParts, writeSummary, type PageReader, type PlannedPart, type SecurityAi } from "./ai";
 import { pickAgentFor, type CandidateAgent } from "./assign";
 import { realNetwork } from "./ownership";
 
 /**
  * The security check engine (#security-checks, 12 Nov plan H1).
  *
- * 1. Once ownership is proven, the check starts (`startCheck`, called by the
- *    ownership step, or the sweep): Ziki's own AI splits it into parts. It is
+ * 1. The check starts as soon as it is added (14 Nov plan: no proof while
+ *    `SECURITY_OWNERSHIP_PROOF_REQUIRED` is off; with it on, once ownership is
+ *    proven) with `startCheck`, called when it is added, or by the sweep: Ziki's own AI splits it into parts. It is
  *    not an agent and earns nothing.
- * 2. Each part goes to a security-cleared agent (`Agent.securityClearedAt`)
+ * 2. Each part goes to a security-cleared agent (its owner's `User.securityClearedAt`)
  *    that is online and not quiet: on-call agents first, then agents in the
  *    client's workspace, then the least busy. A few parts at a time each.
  * 3. Each part's agent reports what it found. Each result's price is set from
@@ -43,6 +44,12 @@ export const MAX_OPEN_JOBS_PER_AGENT = 2;
 /** A split or summary whose run crashed is retried after this long. */
 export const STUCK_AFTER_MINUTES = 10;
 export const MAX_RESULTS_PER_PART = 20;
+/**
+ * Ziki's list is where a check starts; an agent that finds something worth looking at that no part covers
+ * may add parts with its report (15 Nov call). A few per report, and a ceiling per check so it can't grow for ever.
+ */
+export const MAX_MORE_PARTS_PER_REPORT = 3;
+export const MAX_PARTS_PER_CHECK = 40;
 /**
  * Shown on Your work until it moves to per-finding earnings (12 Nov plan C1).
  * Parts no longer pay by themselves: the finder of each unlocked finding earns its price.
@@ -101,9 +108,9 @@ export async function startCheck(db: EngineDb, checkId: string, now = new Date()
   const { count } = await db.securityCheck.updateMany({
     where: {
       id: checkId,
-      target: { verifiedAt: { not: null } },
+      ...provenTargetWhere(),
       OR: [
-        { status: "queued" },
+        { status: { in: startableStatuses() } },
         { status: "splitting", startedAt: { lt: stuckBefore }, items: { none: { kind: "check" } } },
       ],
     },
@@ -133,7 +140,21 @@ export async function startCheck(db: EngineDb, checkId: string, now = new Date()
   return saved;
 }
 
-/** For the ownership step: starts the check in the background and never throws. */
+/**
+ * The states a check may start from: waiting to start, and, while ownership
+ * proof is off (14 Nov plan), also a check created waiting for proof, since
+ * nothing will ever prove it. So a check starts as soon as it is added, whatever
+ * state the add step left it in.
+ */
+function startableStatuses(): SecurityCheckStatus[] {
+  return ownershipProofRequired() ? ["queued"] : ["queued", "awaiting_ownership"];
+}
+
+/**
+ * Starts the check in the background and never throws. Call it right after a
+ * check is added (inside Next's `after()`), and, with proof on, after proof.
+ * If it isn't called, the sweep (every minute) starts the check anyway.
+ */
 export function kickCheck(db: EngineDb, checkId: string): Promise<void> {
   return startCheck(db, checkId).then(
     () => undefined,
@@ -146,8 +167,8 @@ export async function startWaitingChecks(db: EngineDb, now = new Date(), deps: E
   const stuckBefore = new Date(now.getTime() - STUCK_AFTER_MINUTES * 60_000);
   const waiting = await db.securityCheck.findMany({
     where: {
-      target: { verifiedAt: { not: null } },
-      OR: [{ status: "queued" }, { status: "splitting", startedAt: { lt: stuckBefore }, items: { none: { kind: "check" } } }],
+      ...provenTargetWhere(),
+      OR: [{ status: { in: startableStatuses() } }, { status: "splitting", startedAt: { lt: stuckBefore }, items: { none: { kind: "check" } } }],
     },
     orderBy: { createdAt: "asc" },
     select: { id: true },
@@ -191,14 +212,14 @@ export async function availableAgents(db: Db, now = new Date(), onlyAgentId?: st
   const agents = await db.agent.findMany({
     where: {
       ...(onlyAgentId ? { id: onlyAgentId } : {}),
-      securityClearedAt: { not: null },
+      owner: { securityClearedAt: { not: null } },
       revokedAt: null,
       pausedAt: null,
       apiKeys: { some: { revokedAt: null, lastUsedAt: { gte: seenSince } } },
     },
     select: {
       id: true,
-      onCallAt: true,
+      owner: { select: { onCallAt: true } },
       activations: { where: { deactivatedAt: null }, select: { organisationId: true } },
       _count: { select: { securityCheckItems: { where: { status: "checking" } } } },
     },
@@ -206,7 +227,7 @@ export async function availableAgents(db: Db, now = new Date(), onlyAgentId?: st
   return agents
     .map((agent) => ({
       id: agent.id,
-      onCall: agent.onCallAt !== null,
+      onCall: agent.owner.onCallAt !== null,
       organisationIds: agent.activations.map((a) => a.organisationId),
       openJobs: agent._count.securityCheckItems,
     }))
@@ -220,8 +241,17 @@ export async function availableAgents(db: Db, now = new Date(), onlyAgentId?: st
 export async function assignWaitingJobs(db: Db, now = new Date(), onlyAgentId?: string): Promise<number> {
   const agents = await availableAgents(db, now, onlyAgentId);
   if (agents.length === 0) return 0;
+  // Real agents get a part only while it is young: after the fallback time only Ziki's own agent takes it
+  // (lib/security-checks/fallback.ts), so an agent that keeps failing can't hold on to old parts for ever.
+  const window = fallbackWindowMs();
   const waiting = await db.securityCheckItem.findMany({
-    where: { kind: "check", status: "waiting", agentId: null, check: { status: "checking", target: { verifiedAt: { not: null } } } },
+    where: {
+      kind: "check",
+      status: "waiting",
+      agentId: null,
+      ...(window === null ? {} : { createdAt: { gte: new Date(now.getTime() - window) } }),
+      check: { status: "checking", ...provenTargetWhere() },
+    },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { id: true, check: { select: { organisationId: true } } },
     take: agents.length * MAX_OPEN_JOBS_PER_AGENT,
@@ -301,10 +331,20 @@ export type ResultInput = { severity: SecuritySeverity; title: string; descripti
 
 /**
  * A part's report: stores what was found (possibly nothing), each priced by
- * its severity. When it is the last part, the caller posts the report
- * (`postReportIfComplete`) after this returns.
+ * its severity, and any more parts the agent asks for (`moreParts`: new, not already
+ * on the check, a few per report, up to MAX_PARTS_PER_CHECK in all). They are saved
+ * in the same step as the report, while the agent's own part is still the one holding the
+ * check open, so a check never finishes with parts waiting to be saved. When it is the last
+ * part, the caller posts the report (`postReportIfComplete`) after this returns.
  */
-export async function submitReport(db: Transactional, agentId: string, itemId: string, results: ResultInput[], now = new Date()) {
+export async function submitReport(
+  db: Transactional,
+  agentId: string,
+  itemId: string,
+  results: ResultInput[],
+  now = new Date(),
+  moreParts: ReadonlyArray<PlannedPart> = [],
+) {
   if (results.length > MAX_RESULTS_PER_PART) {
     throw new SecurityJobError(400, "too_many_results", `Report at most ${MAX_RESULTS_PER_PART} problems for one part.`);
   }
@@ -328,8 +368,25 @@ export async function submitReport(db: Transactional, agentId: string, itemId: s
         })),
       });
     }
-    return { checkId: item.checkId, results: results.length };
+    const addedParts = await addMoreParts(tx, item.checkId, moreParts);
+    return { checkId: item.checkId, results: results.length, addedParts };
   });
+}
+
+/** Saves the parts an agent asked to add: only new titles, a few per report, within the check's ceiling. Returns how many. */
+async function addMoreParts(tx: Tx, checkId: string, asked: ReadonlyArray<PlannedPart>): Promise<number> {
+  if (asked.length === 0) return 0;
+  const existing = await tx.securityCheckItem.findMany({ where: { checkId, kind: "check" }, select: { title: true } });
+  const taken = new Set(existing.map((part) => part.title.trim().toLowerCase()));
+  const room = Math.max(0, MAX_PARTS_PER_CHECK - existing.length);
+  const fresh = cleanParts(asked)
+    .filter((part) => !taken.has(part.title.toLowerCase()))
+    .slice(0, Math.min(MAX_MORE_PARTS_PER_REPORT, room));
+  if (fresh.length === 0) return 0;
+  await tx.securityCheckItem.createMany({
+    data: fresh.map((part) => ({ checkId, kind: "check" as const, title: part.title, instructions: part.instructions })),
+  });
+  return fresh.length;
 }
 
 /** Gives a part back for another agent. */
@@ -407,7 +464,8 @@ export async function postFinishedReports(db: EngineDb, now = new Date(), deps: 
  */
 export async function payUnlockedFindings(db: EngineDb, now = new Date()): Promise<number> {
   const due = await db.securityCheckResult.findMany({
-    where: { unlockedAt: { not: null }, payoutReleasedAt: null, item: { agentId: { not: null } } },
+    // Ziki's own security agent (the fallback) earns nothing.
+    where: { unlockedAt: { not: null }, payoutReleasedAt: null, item: { agentId: { not: null }, agent: { username: { not: ZIKI_SECURITY_AGENT_USERNAME } } } },
     select: {
       id: true,
       severity: true,
