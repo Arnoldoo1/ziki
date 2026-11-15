@@ -1,13 +1,23 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { loadMovePage } from "@/app/actions/security-check-fix";
+import { loadMovePage } from "@/lib/security-checks/fix";
+import { requireUser } from "@/lib/auth-helpers";
+import { currentOrganisationAccess } from "@/lib/organisation-access";
+import { isSuperAdmin } from "@/lib/roles";
 import { FixOnZiki } from "@/components/security-checks/fix-on-ziki";
 
 export const metadata = { title: "Move to your app" };
 
 export default async function MoveFindingsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const check = await loadMovePage(id);
+  const user = await requireUser();
+  const access = await currentOrganisationAccess(user.id, user.role);
+  if (!access.organisationId || !access.membershipRole) notFound();
+  const check = await loadMovePage({
+    userId: user.id,
+    organisationId: access.organisationId,
+    superAdmin: isSuperAdmin(user.role),
+  }, id);
   if (!check) notFound();
 
   return (

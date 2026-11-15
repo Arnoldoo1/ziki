@@ -6,7 +6,7 @@ vi.mock("@/lib/agent-api/idea-verdicts", () => ({ convertClientVettedIdea: vi.fn
 
 import { convertClientVettedIdea } from "@/lib/agent-api/idea-verdicts";
 import { PLACEHOLDER_DESCRIPTION, PLACEHOLDER_SUMMARY } from "@/lib/security-findings";
-import { listFixProjects, sendCheckFindings } from "./fix";
+import { listFixProjects, loadMovePage, sendCheckFindings } from "./fix";
 
 const client = { userId: "u1", organisationId: "o1", superAdmin: false };
 const selection = { checkId: "c1", projectId: "p1", resultIds: ["r1"] };
@@ -16,7 +16,7 @@ const tx = {
   $executeRaw: vi.fn(),
   project: { findFirst: vi.fn() },
   securityCheck: { update: vi.fn() },
-  securityCheckResult: { findMany: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+  securityCheckResult: { findMany: vi.fn(), update: vi.fn(), updateManyAndReturn: vi.fn() },
   idea: { create: vi.fn() },
   securityFinding: { create: vi.fn() },
 };
@@ -29,22 +29,44 @@ beforeEach(() => {
   tx.$executeRaw.mockResolvedValue(1);
   tx.project.findFirst.mockResolvedValue({ slug: "web", organisation: { slug: "ziki" } });
   tx.securityCheckResult.findMany.mockResolvedValue([{ id: "r1", severity: "high", unlockedAt: new Date(), finding: null }]);
+  tx.securityCheckResult.updateManyAndReturn.mockResolvedValue([]);
   tx.idea.create.mockResolvedValue({ id: "i1" });
   tx.securityFinding.create.mockResolvedValue({ id: "f1" });
   vi.mocked(convertClientVettedIdea).mockResolvedValue({ issueNumber: 42 } as never);
 });
 
 describe("Fix on Ziki", () => {
-  it("simulates payment for a new result without a prior unlock", async () => {
+  it("totals only newly unlocked results in a mixed selection", async () => {
     tx.securityCheckResult.findMany.mockResolvedValue([
-      { id: "r1", severity: "high", priceCoins: 7, unlockedAt: null, finding: null },
+      { id: "r1", severity: "high", unlockedAt: null, finding: null },
+      { id: "r2", severity: "low", unlockedAt: new Date(), finding: null },
     ]);
-    await expect(send()).resolves.toMatchObject({ ok: true, created: 1, coins: 7 });
-    expect(tx.securityCheckResult.updateMany).toHaveBeenCalledWith({
-      where: { id: "r1", unlockedAt: null },
+    tx.securityCheckResult.updateManyAndReturn.mockResolvedValue([{ severity: "high", priceCoins: 7 }]);
+
+    await expect(send({ ...selection, resultIds: ["r1", "r2"] })).resolves.toMatchObject({
+      ok: true, created: 2, coins: 7,
+    });
+    expect(tx.securityCheckResult.updateManyAndReturn).toHaveBeenCalledWith({
+      where: { checkId: "c1", id: { in: ["r1", "r2"] }, unlockedAt: null },
       data: { unlockedAt: expect.any(Date) },
+      select: { severity: true, priceCoins: true },
     });
   });
+
+  it("does not load another person's check in the same workspace", async () => {
+    const otherCheck = { id: "c1", organisationId: "o1", requestedById: "u2" };
+    const lookup = {
+      securityCheck: { findFirst: vi.fn(({ where }) =>
+        Object.entries(where).every(([key, value]) => otherCheck[key as keyof typeof otherCheck] === value)
+          ? { postedAt: new Date(), target: { value: "example.test" } } : null,
+      ) },
+      securityCheckResult: { findMany: vi.fn().mockResolvedValue([]) },
+    };
+    await expect(loadMovePage(client, "c1", lookup as never)).resolves.toBeNull();
+    expect(lookup.securityCheckResult.findMany).not.toHaveBeenCalled();
+    await expect(loadMovePage({ ...client, userId: "u2" }, "c1", lookup as never)).resolves.toMatchObject({ posted: true });
+  });
+
   it("offers projects for a posted report", async () => {
     const lookup = {
       securityCheck: { findFirst: vi.fn().mockResolvedValue({ postedAt: new Date(), projectId: null }) },

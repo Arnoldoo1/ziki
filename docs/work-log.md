@@ -37,3 +37,7 @@
 - Merged upstream main with Seyi's #723, wired its report button to the standalone route, and raised the version to 0.1.176.
 
 - Browser verification on the migrated local demo: opened Seyi's report, followed Move to your app, moved a sample result, and verified the reopened report links to the same Issue #245.
+
+## 2026-11-15 — PR #730 review
+
+- Shared the simulated payment write between unlock and move. The move still writes the linked issue in the same transaction. Moved the page loader into server-only code and added tests for requester scope and mixed prices. Renamed the button to Pay and move.

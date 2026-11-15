@@ -129,7 +129,7 @@ function FixPicker({ checkId, results, standalone }: Props) {
             ) : null}
             <button type="submit" disabled={pending || !projectId || !selected.length}
               className="inline-flex min-h-11 w-full items-center justify-center rounded-full bg-electric-blue-strong px-5 py-2 text-sm font-semibold text-white transition hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent disabled:opacity-50">
-              {pending ? "Moving…" : standalone ? "Simulate payment and move" : "Move to your app"}
+              {pending ? "Moving…" : standalone ? "Pay and move" : "Move to your app"}
             </button>
           </div>
         </>

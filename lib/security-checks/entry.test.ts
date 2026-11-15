@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 const prismaMock = vi.hoisted(() => ({
   securityTarget: { findUnique: vi.fn(), create: vi.fn() },
   securityCheck: { findFirst: vi.fn(), create: vi.fn(), findMany: vi.fn(), count: vi.fn() },
-  securityCheckResult: { findMany: vi.fn(), updateMany: vi.fn() },
+  securityCheckResult: { updateManyAndReturn: vi.fn() },
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
@@ -170,28 +170,27 @@ describe("unlocking fixes per finding (plan C1, simulated payment)", () => {
 
   it("unlocks every locked finding and totals its price by severity", async () => {
     prismaMock.securityCheck.findFirst.mockResolvedValue(posted);
-    prismaMock.securityCheckResult.findMany.mockResolvedValue([
+    prismaMock.securityCheckResult.updateManyAndReturn.mockResolvedValue([
       { id: "r1", severity: "critical", priceCoins: 5 },
       { id: "r2", severity: "low", priceCoins: null },
     ]);
-    prismaMock.securityCheckResult.updateMany.mockResolvedValue({ count: 2 });
     const now = new Date("2026-11-12T12:00:00Z");
 
     expect(await unlockFindings("c1", "org1", "u1", "all", now)).toEqual({ ok: true, unlocked: 2, coins: 6 });
     expect(prismaMock.securityCheck.findFirst.mock.calls[0][0].where).toEqual({ id: "c1", organisationId: "org1", requestedById: "u1" });
-    expect(prismaMock.securityCheckResult.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ["r1", "r2"] }, checkId: "c1", unlockedAt: null },
+    expect(prismaMock.securityCheckResult.updateManyAndReturn).toHaveBeenCalledWith({
+      where: { checkId: "c1", unlockedAt: null },
       data: { unlockedAt: now },
+      select: { severity: true, priceCoins: true },
     });
   });
 
   it("unlocks only the chosen findings", async () => {
     prismaMock.securityCheck.findFirst.mockResolvedValue(posted);
-    prismaMock.securityCheckResult.findMany.mockResolvedValue([{ id: "r2", severity: "high", priceCoins: 3 }]);
-    prismaMock.securityCheckResult.updateMany.mockResolvedValue({ count: 1 });
+    prismaMock.securityCheckResult.updateManyAndReturn.mockResolvedValue([{ id: "r2", severity: "high", priceCoins: 3 }]);
 
     expect(await unlockFindings("c1", "org1", "u1", ["r2"])).toEqual({ ok: true, unlocked: 1, coins: 3 });
-    expect(prismaMock.securityCheckResult.findMany.mock.calls[0][0].where).toEqual({ checkId: "c1", unlockedAt: null, id: { in: ["r2"] } });
+    expect(prismaMock.securityCheckResult.updateManyAndReturn.mock.calls[0][0].where).toEqual({ checkId: "c1", unlockedAt: null, id: { in: ["r2"] } });
   });
 
   it("refuses someone else's check, an unposted report, and findings already unlocked", async () => {
@@ -200,9 +199,9 @@ describe("unlocking fixes per finding (plan C1, simulated payment)", () => {
     prismaMock.securityCheck.findFirst.mockResolvedValueOnce({ postedAt: null });
     expect(await unlockFindings("c1", "org1", "u1", "all")).toEqual({ ok: false, reason: "not_posted" });
     prismaMock.securityCheck.findFirst.mockResolvedValueOnce(posted);
-    prismaMock.securityCheckResult.findMany.mockResolvedValueOnce([]);
+    prismaMock.securityCheckResult.updateManyAndReturn.mockResolvedValueOnce([]);
     expect(await unlockFindings("c1", "org1", "u1", "all")).toEqual({ ok: false, reason: "nothing_to_unlock" });
-    expect(prismaMock.securityCheckResult.updateMany).not.toHaveBeenCalled();
+    expect(prismaMock.securityCheckResult.updateManyAndReturn).toHaveBeenCalledTimes(1);
   });
 
   it("prices a finding by its stored price, or its severity's for older ones", () => {

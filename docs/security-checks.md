@@ -98,7 +98,7 @@ The old `split` and `collate` job kinds are still in the database enum (Postgres
 
 ## Move to your app
 
-Open /security/checks/<id>/fix from a posted report. Select findings, choose an eligible workspace project, and review the total before selecting **Simulate payment and move**. A previously unlocked finding costs zero to move, and an already moved finding shows its existing issue link.
+Open /security/checks/<id>/fix from a posted report. Select findings, choose an eligible workspace project, and review the total before selecting **Pay and move**. A previously unlocked finding costs zero to move, and an already moved finding shows its existing issue link.
 
 The server checks report ownership, posting, project access, and result ownership. A transaction records simulated payment through the existing unlock timestamp, creates a private finding and a linked issue per new result, and sets the result's findingId. The report can use that link to show the issue. Repeat submissions reuse existing links. No real coins are debited.
 
