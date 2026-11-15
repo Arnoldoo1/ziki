@@ -229,7 +229,7 @@ function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highl
         found.map(([severity, n]) => (
           <span
             key={severity}
-            title={`${n} ${severity}`}
+            title={`${n ? n : "No"} ${severity} ${n === 1 ? "problem" : "problems"}, from the ${agent ? "agents' report" : "quick scan"}. ${SOURCE_HINT[agent ? "agents" : "quick"]}`}
             className={`inline-flex h-6 min-w-7 items-center justify-center rounded-md px-1.5 text-xs font-bold tabular-nums security-severity security-severity--${severity} ${n ? "" : "opacity-30"}`}
           >
             <span className="sr-only">{severity}: </span>
@@ -256,7 +256,19 @@ function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highl
         <span className="issues-row-title text-zk-text">{check.value}</span>
         <span className="issues-row-meta flex items-center text-zk-muted">
           <span>{TARGET_KIND_LABEL[check.kind]}</span>
-          <span>{agent ? "Agents' report" : check.preview ? "Quick scan" : "Not scanned yet"}</span>
+          {/* Where the numbers come from (15 Nov call), said once: hover the label for what it means. */}
+          {agent || check.preview ? (
+            <span
+              title={SOURCE_HINT[agent ? "agents" : "quick"]}
+              // Above the row link's cover, so the hover reaches it; clicking still opens the scan.
+              className="relative z-10 cursor-help underline decoration-dotted underline-offset-2"
+            >
+              {agent ? "Agents' report" : "Quick scan"}
+              <span className="sr-only">. {SOURCE_HINT[agent ? "agents" : "quick"]}</span>
+            </span>
+          ) : (
+            <span>Not scanned yet</span>
+          )}
           {check.moved ? <span>{check.moved} moved to your app</span> : null}
           {/* On a phone the side columns are hidden (issues.css), so the date shows here, as Ideas and Issues do. */}
           <span className="md:hidden">
@@ -276,16 +288,15 @@ function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highl
         </span>
       ) : null}
       {/* Like Intruder and Detectify: four coloured counts in a fixed order (critical, high, medium, low), in the report's own severity colours (security-finding.css); an empty one is the same box, faded, as on Detectify. */}
-      {/* Where the numbers come from (15 Nov call): the quick scan's until the agents' report replaces them, said under the counts and on hover. */}
-      <span className="hidden w-48 shrink-0 flex-col gap-1 md:flex" title={found.length || nothing ? SOURCE_HINT[agent ? "agents" : "quick"] : undefined}>
-        <span className="flex items-center gap-1">{counts}</span>
-        {found.length || nothing ? (
-          <span className="text-[11px] leading-tight text-zk-muted">
-            {agent ? "From the agents' report" : "From the quick scan"}
-            <span className="sr-only">. {SOURCE_HINT[agent ? "agents" : "quick"]}</span>
-          </span>
-        ) : null}
-      </span>
+      {/* Above the row link's cover so each box's hover says what it counts and where it comes from; it opens the scan too (out of the tab order: the row link is the one stop). */}
+      <Link
+        href={reportHref}
+        tabIndex={-1}
+        title={nothing ? `No problems, from the ${agent ? "agents' report" : "quick scan"}. ${SOURCE_HINT[agent ? "agents" : "quick"]}` : undefined}
+        className="relative z-10 hidden w-48 shrink-0 items-center gap-1 md:flex"
+      >
+        {counts}
+      </Link>
       <span className="hidden w-28 shrink-0 text-xs text-zk-muted md:block">
         <LocalTime date={check.createdAt} />
       </span>
