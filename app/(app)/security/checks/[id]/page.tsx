@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
-import { CheckActivity, type CheckPhase } from "@/components/security-checks/check-activity";
+import { LiveCheckCard } from "@/components/security-checks/live-check-card";
 import { ReportLive } from "@/components/security-checks/report-live";
 import { ReportProgress } from "@/components/security-checks/report-progress";
 import { ReportResults } from "@/components/security-checks/report-results";
@@ -23,12 +23,6 @@ export const metadata = { title: "Security check" };
  * The report never goes away; moved findings are marked. Only the person who
  * asked for the check sees it.
  */
-/** What the check is doing, for the progress strip: no parts yet (Ziki is planning them), parts being checked, or every part done and the report being written. */
-function phaseOf(report: { parts: readonly unknown[]; progress: { done: number; total: number } }): CheckPhase {
-  if (report.parts.length === 0) return "planning";
-  return report.progress.done >= report.progress.total ? "writing" : "checking";
-}
-
 export default async function SecurityCheckPage({ params }: { params: Promise<{ id: string }> }) {
   const [{ id }, user] = await Promise.all([params, requireUser()]);
   const access = await currentOrganisationAccess(user.id, user.role);
@@ -74,16 +68,15 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
         </section>
       ) : (
         <>
-          <ReportSummary report={report} />
+          {/* A running check is one card (headline, something always moving, the numbers and each part); otherwise the summary on top. */}
+          {working && !report.posted ? <LiveCheckCard report={report} /> : <ReportSummary report={report} />}
 
-          {/* Progress, until Ziki has summed up every part and posted the report. */}
-          {!report.posted ? (
+          {/* A check that was cancelled keeps its parts; a running one shows them inside its card. */}
+          {!report.posted && !working ? (
             <section aria-labelledby="progress-heading" className={orgCard}>
               <h2 id="progress-heading" className="text-base font-semibold text-zk-text">Progress</h2>
-              <div className="mt-3 space-y-4">
-                {/* Something is always moving while the check runs: planning, then the parts, then the write-up. */}
-                {working ? <CheckActivity phase={phaseOf(report)} done={report.progress.done} total={report.progress.total} /> : null}
-                {report.parts.length ? <ReportProgress progress={report.progress} parts={report.parts} working={working} /> : null}
+              <div className="mt-3">
+                {report.parts.length ? <ReportProgress progress={report.progress} parts={report.parts} /> : <p className="text-sm text-zk-text2">No parts were checked.</p>}
               </div>
             </section>
           ) : null}

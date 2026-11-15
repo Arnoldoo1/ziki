@@ -9,7 +9,7 @@ import type { CheckReport, PostedReport } from "@/lib/security-checks/report";
 import { SECURITY_SEVERITIES, SEVERITY_LABEL } from "@/lib/security-severity";
 
 /** Ziki's issue status colours, by meaning: waiting on someone like Requires confirmation, working like In progress, finished like Live. */
-const STATUS_CLASS: Record<CheckReport["status"], string> = {
+export const STATUS_CLASS: Record<CheckReport["status"], string> = {
   awaiting_ownership: substatusClass.requires_confirmation,
   queued: substatusClass.requires_confirmation,
   splitting: statusClass.in_progress,

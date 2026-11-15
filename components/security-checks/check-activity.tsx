@@ -43,7 +43,7 @@ const ROTATE_MS = 3200;
  * says only what phase the check is in: never what any part found. Movement
  * only with motion-safe:, so reduced motion shows it still.
  */
-export function CheckActivity({ phase, done, total }: { phase: CheckPhase; done: number; total: number }) {
+export function CheckActivity({ site, phase, done, total }: { site: string; phase: CheckPhase; done: number; total: number }) {
   const [index, setIndex] = useState(0);
   useEffect(() => {
     const timer = setInterval(() => setIndex((current) => current + 1), ROTATE_MS);
@@ -53,25 +53,30 @@ export function CheckActivity({ phase, done, total }: { phase: CheckPhase; done:
   const line = lines[index % lines.length]!;
 
   return (
-    <div className="flex items-center gap-4 rounded-2xl border border-zk-border bg-zk-tint/50 p-4 sm:p-5">
-      <span aria-hidden="true" className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl border border-zk-border bg-zk-surface text-zk-accent">
+    <div className="flex items-center gap-4">
+      <span aria-hidden="true" className="relative grid h-14 w-14 shrink-0 place-items-center rounded-2xl border border-zk-border bg-zk-tint text-zk-accent sm:h-16 sm:w-16">
+        <span className="absolute inset-0 rounded-2xl bg-zk-accent/10 motion-safe:animate-pulse" />
         <svg
-          width="26"
-          height="26"
+          width="28"
+          height="28"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="motion-safe:[animation:zk-check-peek_3.4s_ease-in-out_infinite]"
+          className="relative motion-safe:[animation:zk-check-peek_3.4s_ease-in-out_infinite]"
         >
           <circle cx="10.5" cy="10.5" r="6.5" />
           <path d="M15.5 15.5L21 21" />
         </svg>
       </span>
       <div className="min-w-0 flex-1">
-        <p className="m-0 flex items-center gap-2 text-[15px] font-bold text-zk-text">
+        {/* Ziki's big headline style (as on Coming soon): bigger and heavier than a page title. */}
+        <h1 id="check-headline" className="m-0 wrap-break-word text-2xl font-extrabold tracking-[-0.02em] text-zk-text sm:text-[28px]">
+          Ziki is checking {site}
+        </h1>
+        <p className="m-0 mt-1 flex items-center gap-2 text-[15px] font-bold text-zk-accent">
           {TITLE[phase]}
           <span aria-hidden="true" className="inline-flex items-end gap-1">
             {[0, 1, 2].map((dot) => (
@@ -84,7 +89,7 @@ export function CheckActivity({ phase, done, total }: { phase: CheckPhase; done:
           </span>
         </p>
         {/* Not announced each time it changes: the title and the numbers say where the check is. */}
-        <p key={line} aria-hidden="true" className="m-0 mt-0.5 text-[13px] text-zk-text2 motion-safe:[animation:zk-check-fade_0.4s_ease-out]">
+        <p key={line} aria-hidden="true" className="m-0 mt-0.5 min-h-5 text-[13px] text-zk-text2 motion-safe:[animation:zk-check-fade_0.4s_ease-out]">
           {line}
         </p>
         <p className="sr-only" role="status">

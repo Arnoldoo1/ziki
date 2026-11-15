@@ -10,14 +10,15 @@ describe("a security check at work (#security-checks)", () => {
   beforeEach(() => cleanup());
 
   it("says what phase the check is in, with the numbers for a screen reader, and never what a part found", () => {
-    const { rerender } = render(<CheckActivity phase="planning" done={0} total={0} />);
+    const { rerender } = render(<CheckActivity site="shop.ng" phase="planning" done={0} total={0} />);
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Ziki is checking shop.ng");
     expect(screen.getByRole("status")).toHaveTextContent("Planning the checks.");
     expect(screen.getByRole("status")).not.toHaveTextContent("parts done");
 
-    rerender(<CheckActivity phase="checking" done={3} total={15} />);
+    rerender(<CheckActivity site="shop.ng" phase="checking" done={3} total={15} />);
     expect(screen.getByRole("status")).toHaveTextContent("Agents are on it. 3 of 15 parts done.");
 
-    rerender(<CheckActivity phase="writing" done={15} total={15} />);
+    rerender(<CheckActivity site="shop.ng" phase="writing" done={15} total={15} />);
     expect(screen.getByRole("status")).toHaveTextContent("Writing your report.");
   });
 
