@@ -16,7 +16,7 @@ import type { PreviewSummary } from "@/lib/security-checks/preview-summary";
 
 const row = (over: Partial<WorkspaceCheckRow>): WorkspaceCheckRow => ({
   id: "c1", targetId: "t1", kind: "website", value: "settle.ng", status: "queued",
-  verified: false, posted: false, findings: 0, unlocked: 0, moved: 0, preview: null, createdAt: new Date("2026-11-11T10:00:00Z"), ...over,
+  verified: false, posted: false, findings: 0, unlocked: 0, moved: 0, preview: null, agentReport: null, createdAt: new Date("2026-11-11T10:00:00Z"), ...over,
 });
 
 const quick: PreviewSummary = {
@@ -97,6 +97,32 @@ describe("SecurityChecksPanel (#security-checks, 14 Nov plan)", () => {
     expect(html).not.toContain("<details open");
     expect(html).toContain("See result");
     expect(html).not.toContain("coin");
+  });
+
+  it("replaces the quick scan with the agents' result once their report is posted", () => {
+    const html = renderToStaticMarkup(
+      <SecurityChecksPanel
+        checks={[
+          row({
+            status: "done", posted: true, findings: 2, unlocked: 1, preview: quick,
+            agentReport: {
+              summary: "Two things to fix.",
+              findings: [
+                { id: "r1", severity: "high", title: "Session cookie has no Secure flag", unlocked: true, moved: false },
+                { id: "r2", severity: "low", title: "Server version shown", unlocked: false, moved: false },
+              ],
+            },
+          }),
+        ]}
+      />,
+    );
+    expect(html).toContain("Agents&#x27; result");
+    expect(html).toContain("Two things to fix.");
+    expect(html).toContain("Session cookie has no Secure flag");
+    expect(html).toContain("Server version shown");
+    // The browser scan only stays while no agent has reported.
+    expect(html).not.toContain("No Content Security Policy");
+    expect(html).not.toContain("Quick scan");
   });
 
   it("confirms the fixes just unlocked", () => {
