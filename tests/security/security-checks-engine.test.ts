@@ -248,6 +248,8 @@ describe("paying the finder of an unlocked finding (#security-checks)", () => {
     db.securityCheckResult.updateMany.mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 1 }).mockResolvedValueOnce({ count: 0 });
     expect(await payUnlockedFindings(asDb(db), now)).toBe(2);
     expect(db.securityCheckResult.findMany.mock.calls[0][0].where).toMatchObject({ unlockedAt: { not: null }, payoutReleasedAt: null });
+    // Ziki's own security agent (the fallback) is never paid.
+    expect(db.securityCheckResult.findMany.mock.calls[0][0].where.item).toEqual({ agentId: { not: null }, agent: { username: { not: "ziki-security" } } });
     expect(award.mock.calls[0][1]).toEqual({
       organisationId: "client",
       userId: "ownerB",
