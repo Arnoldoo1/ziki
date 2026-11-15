@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   preview: vi.fn(),
   saveQuickScan: vi.fn(),
   findScannedCheck: vi.fn(),
+  saveSiteMessage: vi.fn(),
   removeOwnScan: vi.fn(),
   findOwnScan: vi.fn(),
 }));
@@ -29,6 +30,10 @@ vi.mock("@/lib/security-checks/assistant", async (importOriginal) => ({
   askSecurityAssistant: mocks.ask,
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: {} }));
+vi.mock("@/lib/security-checks/site-chat", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/security-checks/site-chat")>()),
+  saveSiteMessage: mocks.saveSiteMessage,
+}));
 vi.mock("@/lib/security-checks/preview", () => ({ previewScan: mocks.preview }));
 
 import { addSecurityAsset, removeScan, replaceScan, talkToSecurityAssistant } from "./security-assistant";
@@ -187,5 +192,12 @@ describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
     expect(JSON.stringify(answer)).not.toContain("SECRET");
     mocks.findOwnScan.mockResolvedValue(null);
     expect(await replaceScan("someone-elses")).toMatchObject({ ok: false });
+  });
+
+  it("keeps the conversation that led to a scan as the start of that site's saved chat", async () => {
+    await talkToSecurityAssistant(say("https://www.settle.ng"));
+    expect(mocks.saveSiteMessage).toHaveBeenCalledWith("org1", "u1", "t1", "user", "https://www.settle.ng");
+    expect(mocks.saveSiteMessage).toHaveBeenCalledWith("org1", "u1", "t1", "assistant", expect.stringContaining("The quick scan found 2 problems (1 high, 1 medium)."));
+    expect(JSON.stringify(mocks.saveSiteMessage.mock.calls)).not.toContain("SECRET");
   });
 });
