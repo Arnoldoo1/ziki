@@ -459,7 +459,7 @@ export function IssueFilters({
         <div className={`min-w-0 flex-1 basis-[240px] max-w-xs ${compact ? `issues-search ${searchExpanded ? "issues-search-expanded" : ""}` : ""}`}>
           <label htmlFor="q" className="sr-only">Search</label>
           <div className="relative" aria-busy={isSearching} data-testid="search-box">
-            <div className="flex h-[42px] items-center gap-2 rounded-xl border border-zk-border bg-zk-surface px-4 backdrop-blur-md dark:border-white/[0.08] dark:bg-white/[0.03]">
+            <div className="flex h-[42px] items-center gap-2 rounded-xl border border-zk-border bg-zk-surface px-4">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-zk-muted" aria-hidden="true">
                 <circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" />
               </svg>
@@ -492,7 +492,7 @@ export function IssueFilters({
                 autoComplete="off"
                 value={text}
                 placeholder={compact ? "Search issues…" : "Search, or type a tag like Design"}
-                className="min-w-0 flex-1 border-0 bg-transparent text-sm text-zk-text outline-none placeholder:text-zk-muted dark:text-white dark:placeholder:text-slate-500"
+                className="min-w-0 flex-1 border-0 bg-transparent text-sm text-zk-text outline-none placeholder:text-zk-muted"
                 onChange={(event) => { setText(event.target.value); setOpen(true); setActive(-1); }}
                 onFocus={() => { setIsFocused(true); queryBeforeEditingRef.current = currentQuery; livePushedRef.current = false; setOpen(true); }}
                 onKeyDown={(event) => {
