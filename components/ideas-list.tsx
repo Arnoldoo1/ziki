@@ -90,12 +90,13 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
               <div
                 key={idea.id}
                 data-testid="idea-row"
-                className="rounded-2xl border border-zk-border bg-zk-surface p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-zk-accent/60 hover:shadow-xl hover:shadow-zk-accent/5"
+                className="group relative overflow-hidden rounded-2xl border border-zk-border bg-zk-surface p-6 shadow-sm transition-all duration-300 hover:-translate-y-1.5 hover:border-zk-accent/60 hover:shadow-2xl hover:shadow-zk-accent/10"
               >
-                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-zk-accent/0 via-transparent to-zk-accent/0 opacity-0 transition-opacity duration-500 group-hover:from-zk-accent/5 group-hover:to-zk-accent/10 group-hover:opacity-100" />
+                <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   {/* Left: circular score badge + title + metadata */}
                   <div className="flex min-w-0 flex-1 items-start gap-4 sm:items-center">
-                    <div className={`flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl border transition-all duration-300 group-hover:scale-105 shadow-[0_0_20px_-3px_rgba(16,185,129,0.35)] ${
+                    <div className={`flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl border transition-all duration-300 group-hover:scale-110 group-hover:rotate-3 shadow-[0_0_24px_-3px_rgba(16,185,129,0.4)] ${
                       idea.score > 0
                         ? "border-emerald-500/30 bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-transparent"
                         : idea.score < 0
@@ -120,7 +121,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                         </span>
                         <Link
                           href={ideaPath(slug, idea.number)}
-                          className="truncate text-sm font-bold tracking-tight text-zk-text transition-colors hover:text-zk-accent sm:text-base"
+                          className="truncate text-base font-extrabold tracking-tight text-zk-text transition-all duration-200 hover:text-zk-accent sm:text-lg group-hover:tracking-normal"
                         >
                           {idea.title}
                         </Link>
