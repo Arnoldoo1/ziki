@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { PipelineSteps } from "@/components/pipeline-steps";
-import { SecuritySettingsLink } from "@/components/security/security-settings-link";
 
 /**
  * The top of Security once someone has something there (#security-checks):
- * the same stage bar as a project's Your Work and Ideas, with Findings and
- * settings as small icon links on the right, like the project's own icons.
+ * the same stage bar as a project's Your Work and Ideas, with Findings as
+ * a small icon link on the right, like the project's own icons.
  */
 export function SecurityTabs({ selected, checks, jobs, canAdd = true }: { selected: "checks" | "work"; checks: number; jobs: number; canAdd?: boolean }) {
   // Only owners and admins own assets (13 Nov); everyone else sees just Your work.
@@ -45,7 +44,6 @@ export function SecurityTabs({ selected, checks, jobs, canAdd = true }: { select
             <path d="M12 8v4M12 16h.01" />
           </svg>
         </Link>
-        <SecuritySettingsLink />
       </div>
     </div>
     </>

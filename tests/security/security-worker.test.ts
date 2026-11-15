@@ -8,6 +8,7 @@ import {
   checkPrompt,
   claudeProblem,
   cleanClaudeEnv,
+  cleanMoreParts,
   cleanResults,
   extractJson,
   friendlyClaudeFailure,
@@ -91,6 +92,29 @@ describe("the laptop security worker (#security-checks)", () => {
     expect(wait).toBe(1000);
     expect(logs.join(" ")).toContain("1 findings reported");
     expect(logs.join(" ")).not.toContain("Secure flag");
+  });
+
+  it("sends the extra parts Claude suggests with the report, at most three and only usable ones", async () => {
+    const { ctx, calls } = fakeCtx([{ status: 200, body: { jobs: [job] } }, { status: 201, body: { ok: true } }]);
+    const moreParts = [
+      { title: "Admin path", instructions: "Seen linked in the footer: see what it shows." },
+      { title: "x", instructions: "too short a title" },
+      { title: "Admin path", instructions: "A duplicate title is dropped." },
+      { title: "API docs page", instructions: "Found at /docs: look for internal endpoints." },
+      { title: "Old subdomain", instructions: "staging.example.com answers: check what it shows." },
+      { title: "Fourth one", instructions: "Past the three allowed, dropped." },
+    ];
+    await tick(ctx, config, { failures: 0, lastNote: "" }, { runClaude: async () => ({ text: JSON.stringify({ results: [good], moreParts }) }) });
+    const body = calls[1]!.body as { results: unknown[]; moreParts: { title: string }[] };
+    expect(body.moreParts.map((p) => p.title)).toEqual(["Admin path", "API docs page", "Old subdomain"]);
+    expect(checkPrompt(job)).toContain("moreParts");
+    expect(cleanMoreParts({})).toEqual([]);
+  });
+
+  it("sends no moreParts at all when Claude suggests none", async () => {
+    const { ctx, calls } = fakeCtx([{ status: 200, body: { jobs: [job] } }, { status: 201, body: { ok: true } }]);
+    await tick(ctx, config, { failures: 0, lastNote: "" }, { runClaude: reply([good]) });
+    expect(calls[1]!.body).toEqual({ results: [expect.objectContaining({ title: "Cookie has no Secure flag" })] });
   });
 
   it("gives a part back and rests when Claude Code fails, instead of taking more", async () => {

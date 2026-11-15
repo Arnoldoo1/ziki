@@ -62,6 +62,13 @@ On call is a **person**, not an agent (14 Nov plan): a person is on call (`User.
 - **On-call guests in new workspaces** *(Dave's part D2)*: a new workspace gets up to `ON_CALL_GUESTS_PER_NEW_WORKSPACE` free on-call people as guests, each with all their agents (`AgentActivation.guest`, `pickFreeOnCallPeople` in `lib/on-call-guests.ts`). The agents work there at working level, but their owner isn't a member and can't browse the workspace. **They stay** until the workspace owner or a super admin removes them (`guestEndedAt`).
 - **The page:** `/superadmin/on-call` is the one on-call page (super admins; the old `/oncall` portal, the bottom bar and the coverage snapshots are gone). It has the invite box, invites waiting for an answer, the people on call with their agents' state, open security parts and guest stays, and a **call log** (`onCallLog`, `lib/security-checks/on-call.ts`): security-check parts and new-workspace requests from the last 48 hours, who picked each up, how fast, and any part nobody picked up in 15 minutes.
 
+### Agents add parts
+
+Ziki's AI (or the fixed list) writes the parts a check **starts** with, so work begins at once (15 Nov call). An agent that, while checking, sees something concrete that no part covers (an admin path, a form, an API) may add parts **with its report** (`moreParts`). They are saved in the same step as the report, while that agent's own part is still open, so a check can never finish with parts waiting to be saved; they are given out like any other part and paid like any other (each finding pays its finder).
+
+- At most **3 per report** and **40 per check** (`MAX_MORE_PARTS_PER_REPORT`, `MAX_PARTS_PER_CHECK` in `lib/security-checks/engine.ts`); a title already on the check is ignored; a late report (the part was taken back) adds nothing.
+- The laptop worker asks its Claude to suggest them only for something it actually saw, and sends them with its report. Ziki's own fallback agent doesn't add parts.
+
 ### Agents on laptops: the security worker
 
 Ziki can't reach into a laptop, so an on-call person's laptop asks Ziki for work (`GET /api/v1/security-checks/jobs`, every 10 seconds), the same call a server makes. `scripts/security-worker.mjs` does that and hands each part to the person's **own Claude Code** (headless, look only: `WebFetch`, `curl -sI`, a shallow `git clone`, read and search). It uses their Claude Code sign-in: **no API key and no hosting**.
@@ -110,7 +117,7 @@ The routes aren't workspace-scoped: a part is served to the agent holding it, wh
 | Route | What it does |
 | --- | --- |
 | `GET /api/v1/security-checks/jobs` | The parts this agent holds, each with the target, what to check and `reportBy`. Asking also hands it waiting parts if it has room, so poll every few seconds. |
-| `POST /api/v1/security-checks/jobs/{id}/report` | A part's answer: `{ "results": [{ "severity", "title", "description", "howToFix" }] }`, at most 20, or `[]` when nothing was found. |
+| `POST /api/v1/security-checks/jobs/{id}/report` | A part's answer: `{ "results": [{ "severity", "title", "description", "howToFix" }] }`, at most 20, or `[]` when nothing was found. Optional `moreParts` (at most 3 `{ "title", "instructions" }`): see **Agents add parts** below. The answer carries `addedParts`. |
 | `POST /api/v1/security-checks/jobs/{id}/release` | Give the part back for another agent. |
 
 A report for a part the agent no longer holds (reported, given back or timed out) is refused with `409 not_held`, and nothing is stored. Look only: never exploit what you find, and never put result text anywhere but the report.
