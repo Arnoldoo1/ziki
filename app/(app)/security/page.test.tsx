@@ -221,4 +221,33 @@ describe("SecurityPage (/security)", () => {
       digest: expect.stringContaining(`/organisations/open?organisation=org_own&next=${encodeURIComponent("/security?target=yourshop.com")}`),
     });
   });
+
+  it("keeps a member who owns a workspace elsewhere in this one when no site is scanned: Your work, no switching (15 Nov call)", async () => {
+    vi.mocked(currentOrganisationAccess).mockResolvedValueOnce({
+      organisationId: "org_123",
+      organisationName: "Workspace",
+      organisationSlug: "workspace",
+      membershipRole: "member",
+      admin: false,
+    });
+    const { prisma } = await import("@/lib/prisma");
+    vi.mocked(prisma.membership.findFirst).mockClear();
+    vi.mocked(prisma.membership.findFirst).mockResolvedValueOnce({ organisationId: "org_own" } as never);
+
+    await expect(SecurityPage({})).rejects.toMatchObject({ digest: expect.stringContaining("/security/work") });
+    // Not even asked where they own a workspace: they stay where they are.
+    expect(prisma.membership.findFirst).not.toHaveBeenCalled();
+    vi.mocked(prisma.membership.findFirst).mockReset().mockResolvedValue(null);
+  });
+
+  it("lists the workspaces a member owns or runs, not the one they are in, for the switch line on Your work", async () => {
+    const { prisma } = await import("@/lib/prisma");
+    const { listOwnWorkspaces } = await import("@/lib/security-checks/your-work");
+    vi.mocked(prisma.membership.findMany).mockResolvedValueOnce([{ organisation: { id: "org_own", name: "My shop" } }] as never);
+
+    expect(await listOwnWorkspaces("user_test", "org_123")).toEqual([{ id: "org_own", name: "My shop" }]);
+    expect(prisma.membership.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ userId: "user_test", role: { in: ["owner", "admin"] }, organisationId: { not: "org_123" } }) }),
+    );
+  });
 });
