@@ -17,36 +17,33 @@ export function PipelineSteps({ stages, label = "Stages" }: { stages: PipelineSt
     // One row whatever the number of stages (Your Work and Live come and go): a column each, about 133px wide.
     <nav
       aria-label={label}
-      className="grid w-full grid-cols-[repeat(var(--stages),minmax(0,1fr))] gap-x-2 rounded-xl border border-zk-border bg-zk-surface p-2 max-sm:gap-x-0 max-sm:border-b max-sm:border-zk-border"
-      style={{ "--stages": stages.length, maxWidth: stages.length * 140 } as React.CSSProperties}
+      className="grid w-full grid-cols-[repeat(var(--stages),minmax(0,1fr))] gap-x-1.5 max-sm:gap-x-0 max-sm:border-b max-sm:border-zk-border"
+      style={{ "--stages": stages.length, maxWidth: stages.length * 133 } as React.CSSProperties}
     >
       {stages.map((stage) => (
         <Link
           key={stage.label}
           href={stage.href}
           aria-current={stage.selected ? "page" : undefined}
-          className="group flex flex-col items-center gap-2 rounded-lg px-2 py-1.5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent max-sm:min-h-11 max-sm:justify-end max-sm:gap-1.5 max-sm:pb-0 max-sm:rounded-none max-sm:px-0.5"
+          className="group flex flex-col items-center gap-1.5 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zk-accent max-sm:min-h-11 max-sm:justify-end max-sm:gap-1.5 max-sm:pb-0 max-sm:rounded-none max-sm:px-0.5"
         >
           <span
-            className={`flex items-center gap-2 whitespace-nowrap text-sm max-sm:flex-col max-sm:gap-0 max-sm:whitespace-normal max-sm:text-center max-sm:text-[13px] max-sm:leading-[1.2] ${
+            className={`flex items-center gap-1 whitespace-nowrap text-xs max-sm:flex-col max-sm:gap-0 max-sm:whitespace-normal max-sm:text-center max-sm:text-[13px] max-sm:leading-[1.2] ${
               stage.selected ? "font-bold text-zk-text" : "font-medium text-zk-text2 group-hover:text-zk-text"
             }`}
           >
             {stage.label}
-            <span className={`inline-flex min-w-[1.75rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${
-              stage.selected
-                ? "bg-zk-accent text-white"
-                : "bg-zk-chip text-zk-text2 group-hover:bg-zk-accent/15 group-hover:text-zk-accent"
-            }`}>
-              {stage.count}
-            </span>
+            {/* The same face as the label on a phone, so the two lines read as one tab. */}
+            <span className={`font-mono text-[11px] font-medium tabular-nums text-zk-muted max-sm:mt-0.5 max-sm:font-sans max-sm:text-[12px] ${stage.selected ? "max-sm:font-semibold max-sm:text-zk-accent" : ""}`}>{stage.count}</span>
           </span>
+          {/* The dot is for the wide layout; a phone shows tabs. */}
+          <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full max-sm:hidden ${stage.selected ? "bg-electric-blue-strong" : "bg-electric-blue-strong/15"}`} />
           <span
             aria-hidden="true"
-            className={`h-1.5 w-full rounded-full max-sm:-mb-px max-sm:rounded-none ${
+            className={`h-2 w-full rounded-full max-sm:-mb-px max-sm:rounded-none ${
               stage.selected
-                ? "bg-zk-accent max-sm:h-[3px]"
-                : "bg-zk-border group-hover:bg-zk-accent/30 max-sm:h-0 max-sm:bg-transparent"
+                ? "bg-electric-blue-strong max-sm:h-[3px]"
+                : "bg-electric-blue-strong/15 group-hover:bg-electric-blue-strong/30 max-sm:h-0 max-sm:bg-transparent"
             }`}
           />
         </Link>
