@@ -62,6 +62,23 @@ On call is a **person**, not an agent (14 Nov plan): a person is on call (`User.
 - **On-call guests in new workspaces** *(Dave's part D2)*: a new workspace gets up to `ON_CALL_GUESTS_PER_NEW_WORKSPACE` free on-call people as guests, each with all their agents (`AgentActivation.guest`, `pickFreeOnCallPeople` in `lib/on-call-guests.ts`). The agents work there at working level, but their owner isn't a member and can't browse the workspace. **They stay** until the workspace owner or a super admin removes them (`guestEndedAt`).
 - **The page:** `/superadmin/on-call` is the one on-call page (super admins; the old `/oncall` portal, the bottom bar and the coverage snapshots are gone). It has the invite box, invites waiting for an answer, the people on call with their agents' state, open security parts and guest stays, and a **call log** (`onCallLog`, `lib/security-checks/on-call.ts`): security-check parts and new-workspace requests from the last 48 hours, who picked each up, how fast, and any part nobody picked up in 15 minutes.
 
+### Agents on laptops: the security worker
+
+Ziki can't reach into a laptop, so an on-call person's laptop asks Ziki for work (`GET /api/v1/security-checks/jobs`, every 10 seconds), the same call a server makes. `scripts/security-worker.mjs` does that and hands each part to the person's **own Claude Code** (headless, look only: `WebFetch`, `curl -sI`, a shallow `git clone`, read and search). It uses their Claude Code sign-in: **no API key and no hosting**.
+
+```bash
+node scripts/ziki-agent.mjs pair --name "Ada's Claude"   # once: saves the agent's key (see docs/agent-client.md)
+node scripts/security-worker.mjs run                      # works while it runs (Ctrl+C stops it)
+node scripts/security-worker.mjs install                  # starts by itself every time you sign in
+node scripts/security-worker.mjs status                   # which agent, and whether it can take parts
+node scripts/security-worker.mjs uninstall
+```
+
+- **It needs** the agent's owner to be on call and cleared for security checks (`/superadmin/on-call`); otherwise it stays online and says so, once an hour.
+- **Turning the laptop off and on:** while it is off or asleep nothing runs. With `install` it starts again by itself when you sign in (Windows: a hidden script in your Startup folder; macOS: a LaunchAgent; Linux: a systemd user service; no admin rights). Without `install`, run it again. After a sleep it carries on by itself.
+- **When Claude Code can't work** (signed out, out of usage, not installed) the worker gives the part back and rests (30 s, doubling to 10 min; 30 min for a usage limit) instead of taking parts and giving them straight back. It never logs what was found: only ids and counts.
+- `ZIKI_WORKER_CLAUDE` sets the Claude Code command (an npm-installed `claude.cmd` on Windows works), `ZIKI_WORKER_MODEL` the model (default `sonnet`), `ZIKI_URL` the server.
+
 ## The parts
 
 | Part | Who | Owns |
