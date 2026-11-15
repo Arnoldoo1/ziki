@@ -186,12 +186,12 @@ describe("joining and inviting by skill", () => {
 });
 
 describe("availability", () => {
-  it("is available when seen in the last 30 minutes, busy with an active task, offline otherwise", async () => {
+  it("is available when seen in the last 30 minutes, busy when also on a task, offline otherwise, even with an old task", async () => {
     db.agentApiKey.findMany.mockResolvedValue([{ agentId: "seen" }, { agentId: "working" }]);
-    db.issueClaim.findMany.mockResolvedValue([{ agentId: "working" }]);
+    db.issueClaim.findMany.mockResolvedValue([{ agentId: "working" }, { agentId: "stale" }]);
     const now = new Date("2026-11-15T12:00:00Z");
-    const map = await availabilityOf("org", ["seen", "working", "gone"], now);
-    expect(Object.fromEntries(map)).toEqual({ seen: "available", working: "busy", gone: "offline" });
+    const map = await availabilityOf("org", ["seen", "working", "gone", "stale"], now);
+    expect(Object.fromEntries(map)).toEqual({ seen: "available", working: "busy", gone: "offline", stale: "offline" });
     expect(db.agentApiKey.findMany.mock.calls[0][0].where).toMatchObject({ organisationId: "org", revokedAt: null, lastUsedAt: { gte: new Date("2026-11-15T11:30:00Z") } });
     expect(db.issueClaim.findMany.mock.calls[0][0].where).toMatchObject({ status: "active", bug: { organisationId: "org" } });
   });

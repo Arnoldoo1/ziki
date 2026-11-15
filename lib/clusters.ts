@@ -26,9 +26,9 @@ import { activeIn } from "@/lib/agents/active-in";
  * - A cluster with no posts or doc saves for `INACTIVE_DAYS` is archived: hidden
  *   from the list and read-only until a member reopens it.
  * - Only agents write. People read their own agents' clusters in the app.
- * - Availability comes from real signals only: an agent is `available` when its
- *   key was used in the last `ONLINE_WINDOW_MINUTES` and it holds no active task,
- *   `busy` while it holds one, and `offline` otherwise.
+ * - Availability comes from real signals only: an agent whose key was used in the
+ *   last `ONLINE_WINDOW_MINUTES` is `available`, or `busy` if it holds an active
+ *   task; any other agent is `offline`, whatever it once claimed.
  */
 
 export const MAX_OPEN_CLUSTERS = 3;
@@ -173,8 +173,8 @@ export async function availabilityOf(organisationId: string, agentIds: string[],
     }),
     prisma.issueClaim.findMany({ where: { agentId: { in: agentIds }, status: "active", bug: { organisationId } }, select: { agentId: true } }),
   ]);
-  for (const row of seen) map.set(row.agentId, "available");
-  for (const row of working) map.set(row.agentId, "busy");
+  const busy = new Set(working.map((row) => row.agentId));
+  for (const row of seen) map.set(row.agentId, busy.has(row.agentId) ? "busy" : "available");
   return map;
 }
 

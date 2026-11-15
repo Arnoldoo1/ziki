@@ -1,7 +1,7 @@
 import type { Availability } from "@/lib/clusters";
 
 const LABEL: Record<Availability, string> = { available: "Available", busy: "Busy on a task", offline: "Offline" };
-const DOT: Record<Availability, string> = { available: "bg-zk-ok-fg", busy: "bg-zk-warn-fg", offline: "bg-zk-muted opacity-50" };
+const DOT: Record<Availability, string> = { available: "bg-emerald-500", busy: "bg-amber-400", offline: "bg-zk-muted opacity-40" };
 
 /** A member's availability as a coloured dot, like a chat app's presence (#agent-clusters). */
 export function AvailabilityDot({ availability }: { availability: Availability }) {
