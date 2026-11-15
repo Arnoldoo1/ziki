@@ -116,7 +116,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                     <div className="min-w-0 flex-1 space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 font-mono text-[11px] font-bold text-blue-600">
-                          #{idea.number}
+                          Idea #{idea.number}
                         </span>
                         <Link
                           href={ideaPath(slug, idea.number)}
