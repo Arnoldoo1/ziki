@@ -6,6 +6,17 @@ export type { ForumCategory, ForumMessage, ForumReplyItem };
 export type ForumScope = "platform" | "org" | "project";
 export type ForumTrackSlug = "your_app" | "marketing" | "security";
 
+export interface AccessibleOrganisation {
+  id: string;
+  name: string;
+  slug: string;
+  projects: Array<{
+    id: string;
+    name: string;
+    slug: string;
+  }>;
+}
+
 export const createForumMessageSchema = z.object({
   title: z.string().trim().min(1, "Title is required").max(200, "Title is too long"),
   content: z.string().trim().min(1, "Content is required").max(8000, "Content exceeds 8000 characters"),

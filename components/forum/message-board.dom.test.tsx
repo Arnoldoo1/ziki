@@ -74,4 +74,35 @@ describe("PublicMessageBoard", () => {
     expect(screen.getByRole("button", { name: /^Write$/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Preview$/i })).toBeInTheDocument();
   });
+
+  it("renders directly in detail view when initialView='detail' is provided", async () => {
+    render(<PublicMessageBoard initialView="detail" initialPostId="fm-1" />);
+
+    expect(screen.getByRole("button", { name: /Back to discussions/i })).toBeInTheDocument();
+    expect(
+      screen.getByText(/SEO title tag & meta description overhaul for landing page/i)
+    ).toBeInTheDocument();
+  });
+
+  it("renders with custom scope and organisation list", async () => {
+    const mockOrgs = [
+      {
+        id: "cyberdyne",
+        name: "Cyberdyne Systems",
+        slug: "cyberdyne",
+        projects: [{ id: "skynet", name: "Skynet Core", slug: "skynet" }],
+      },
+    ];
+
+    render(
+      <PublicMessageBoard
+        scope="org"
+        orgSlug="cyberdyne"
+        orgName="Cyberdyne Systems"
+        organisations={mockOrgs}
+      />
+    );
+
+    expect(screen.getByText(/Cyberdyne Systems/i)).toBeInTheDocument();
+  });
 });

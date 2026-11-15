@@ -1,10 +1,20 @@
 "use client";
 
 import React, { useState } from "react";
-import { INITIAL_FORUM_MESSAGES } from "@/lib/forum-types";
+import { useRouter } from "next/navigation";
+import { INITIAL_FORUM_MESSAGES, type AccessibleOrganisation } from "@/lib/forum-types";
 import { Badge } from "@/components/ui/badge";
 import { RichText } from "@/components/rich-text";
 import { MarkdownEditor } from "@/components/markdown-editor";
+import { scopedForumPath, scopedForumPostPath } from "@/lib/project-paths";
+
+function useSafeRouter() {
+  try {
+    return useRouter();
+  } catch {
+    return null;
+  }
+}
 
 export type ForumCategory =
   | "all"
@@ -42,6 +52,11 @@ export interface ForumMessage {
   code: string;
   kind: "ask" | "report";
   track: "product" | "marketing" | "security";
+  scope?: "platform" | "org" | "project";
+  organisationId?: string;
+  organisationSlug?: string;
+  projectId?: string;
+  projectSlug?: string;
   author: {
     name: string;
     ownerName?: string;
@@ -179,18 +194,57 @@ Paste reproduction command, HTTP response, or benchmark...
 ## Applies to
 Specify affected routes, campaigns, or services...`;
 
+export interface PublicMessageBoardProps {
+  initialView?: ForumViewMode;
+  initialPostId?: string;
+  scope?: "platform" | "org" | "project";
+  orgSlug?: string;
+  orgName?: string;
+  projectSlug?: string;
+  projectName?: string;
+  organisations?: AccessibleOrganisation[];
+  initialMessages?: ForumMessage[];
+}
+
 export function PublicMessageBoard({
   initialView = "list",
   initialPostId,
-}: {
-  initialView?: ForumViewMode;
-  initialPostId?: string;
-} = {}) {
-  const [messages, setMessages] = useState<ForumMessage[]>(INITIAL_FORUM_MESSAGES);
+  scope = "platform",
+  orgSlug,
+  orgName,
+  projectSlug,
+  projectName,
+  organisations,
+  initialMessages,
+}: PublicMessageBoardProps = {}) {
+  const router = useSafeRouter();
+
+  const [messages, setMessages] = useState<ForumMessage[]>(
+    initialMessages ?? INITIAL_FORUM_MESSAGES
+  );
   const [view, setView] = useState<ForumViewMode>(initialView);
   const [selectedPostId, setSelectedPostId] = useState<string>(
-    initialPostId ?? INITIAL_FORUM_MESSAGES[0].id
+    initialPostId ?? (initialMessages?.[0]?.id ?? INITIAL_FORUM_MESSAGES[0].id)
   );
+
+  // Synchronize with external changes
+  React.useEffect(() => {
+    if (initialPostId) {
+      setSelectedPostId(initialPostId);
+    }
+  }, [initialPostId]);
+
+  React.useEffect(() => {
+    if (initialView) {
+      setView(initialView);
+    }
+  }, [initialView]);
+
+  React.useEffect(() => {
+    if (initialMessages) {
+      setMessages(initialMessages);
+    }
+  }, [initialMessages]);
 
   // Filters & Menus
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -202,22 +256,44 @@ export function PublicMessageBoard({
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<"newest" | "helpful" | "replies">("newest");
 
-  // Sidebar Scope Hierarchy State (Global, Organisations & Projects, External Projects)
+  // Initial scope hierarchy config
+  const initialScopeConfig = React.useMemo(() => {
+    if (scope === "org" && orgSlug) {
+      return {
+        type: "org" as const,
+        orgId: orgSlug,
+        name: orgName ?? orgSlug,
+      };
+    }
+    if (scope === "project" && orgSlug && projectSlug) {
+      return {
+        type: "project" as const,
+        orgId: orgSlug,
+        projectId: projectSlug,
+        name: projectName ?? `${orgName ?? orgSlug} / ${projectSlug}`,
+      };
+    }
+    return {
+      type: "global" as const,
+      name: "Global Ziki Forum",
+    };
+  }, [scope, orgSlug, orgName, projectSlug, projectName]);
+
   const [selectedScope, setSelectedScope] = useState<{
     type: "global" | "org" | "project" | "external";
     orgId?: string;
     projectId?: string;
     name: string;
-  }>({
-    type: "project",
-    orgId: "zedu",
-    projectId: "web",
-    name: "Web",
-  });
+  }>(initialScopeConfig);
+
+  React.useEffect(() => {
+    setSelectedScope(initialScopeConfig);
+  }, [initialScopeConfig]);
 
   const [expandedOrgs, setExpandedOrgs] = useState<Record<string, boolean>>({
     zedu: true,
     acme: false,
+    ...(orgSlug ? { [orgSlug]: true } : {}),
   });
 
   const toggleOrgExpanded = (orgId: string, e: React.MouseEvent) => {
@@ -225,26 +301,33 @@ export function PublicMessageBoard({
     setExpandedOrgs((prev) => ({ ...prev, [orgId]: !prev[orgId] }));
   };
 
-  // Mock organizations & projects
-  const ORGANISATIONS = [
+  // Fallback organizations & projects
+  const DEFAULT_ORGANISATIONS: AccessibleOrganisation[] = [
     {
       id: "zedu",
       name: "Zedu Technologies",
+      slug: "zedu",
       projects: [
-        { id: "web", name: "Web" },
-        { id: "mobile", name: "Mobile App" },
-        { id: "sdk", name: "Core SDK" },
+        { id: "web", name: "Web", slug: "web" },
+        { id: "mobile", name: "Mobile App", slug: "mobile" },
+        { id: "sdk", name: "Core SDK", slug: "sdk" },
       ],
     },
     {
       id: "acme",
       name: "Acme Labs",
+      slug: "acme",
       projects: [
-        { id: "infra", name: "Infra & Edge" },
-        { id: "ai-mesh", name: "AI Mesh" },
+        { id: "infra", name: "Infra & Edge", slug: "infra" },
+        { id: "ai-mesh", name: "AI Mesh", slug: "ai-mesh" },
       ],
     },
   ];
+
+  const effectiveOrgs =
+    organisations && organisations.length > 0
+      ? organisations
+      : DEFAULT_ORGANISATIONS;
 
   const EXTERNAL_PROJECTS = [
     {
@@ -276,7 +359,9 @@ export function PublicMessageBoard({
   // New Post Form State (no Why Context field)
   const [newKind, setNewKind] = useState<"ask" | "report">("ask");
   const [newTrack, setNewTrack] = useState<"product" | "marketing" | "security">("marketing");
-  const [newScope, setNewScope] = useState<"project" | "org" | "global">("project");
+  const [newScope, setNewScope] = useState<"project" | "org" | "global">(
+    scope === "platform" ? "global" : (scope ?? "project")
+  );
   const [newTitle, setNewTitle] = useState("");
   const [newContent, setNewContent] = useState(ASK_TEMPLATE);
   const [newTagsInput, setNewTagsInput] = useState("Marketing, SEO & Meta");
@@ -337,6 +422,16 @@ export function PublicMessageBoard({
   const handleOpenPost = (postId: string) => {
     setSelectedPostId(postId);
     setView("detail");
+    if (router) {
+      router.push(scopedForumPostPath(scope, postId, orgSlug, projectSlug));
+    }
+  };
+
+  const handleBackToList = () => {
+    setView("list");
+    if (router) {
+      router.push(scopedForumPath(scope, orgSlug, projectSlug));
+    }
   };
 
   const handleKindChange = (kind: "ask" | "report") => {
@@ -402,6 +497,9 @@ export function PublicMessageBoard({
     setNewIssueNumber("");
     setNewOfferAmount("");
     setView("detail");
+    if (router) {
+      router.push(scopedForumPostPath(scope, created.id, orgSlug, projectSlug));
+    }
 
     fetch("/api/v1/forum", {
       method: "POST",
@@ -415,6 +513,7 @@ export function PublicMessageBoard({
         tags: created.tags,
         issueNumber: created.issueNumber,
         offerAmount: created.offerAmount,
+        scope: newScope === "global" ? "platform" : newScope,
       }),
     }).catch(() => {});
   };
@@ -657,6 +756,9 @@ export function PublicMessageBoard({
           onClick={() => {
             setSelectedScope({ type: "global", name: "Global Ziki Forum" });
             setView("list");
+            if (router) {
+              router.push(scopedForumPath("platform"));
+            }
           }}
           className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-[13px] font-medium transition-colors cursor-pointer ${
             selectedScope.type === "global"
@@ -682,10 +784,12 @@ export function PublicMessageBoard({
         <span className="text-[10px] uppercase tracking-wider text-zk-muted font-semibold px-2 mb-1">
           Your Organisations
         </span>
-        {ORGANISATIONS.map((org) => {
+        {effectiveOrgs.map((org) => {
+          const currentOrgSlug = org.slug || org.id;
           const isOrgSelected =
-            selectedScope.type === "org" && selectedScope.orgId === org.id;
-          const isExpanded = expandedOrgs[org.id] ?? false;
+            selectedScope.type === "org" &&
+            (selectedScope.orgId === org.id || selectedScope.orgId === currentOrgSlug);
+          const isExpanded = expandedOrgs[org.id] ?? expandedOrgs[currentOrgSlug] ?? false;
 
           return (
             <div key={org.id} className="flex flex-col gap-0.5">
@@ -701,10 +805,13 @@ export function PublicMessageBoard({
                   onClick={() => {
                     setSelectedScope({
                       type: "org",
-                      orgId: org.id,
+                      orgId: currentOrgSlug,
                       name: org.name,
                     });
                     setView("list");
+                    if (router) {
+                      router.push(scopedForumPath("org", currentOrgSlug));
+                    }
                   }}
                   className="flex items-center gap-2 truncate flex-1 text-left py-0.5 focus:outline-none"
                 >
@@ -729,10 +836,11 @@ export function PublicMessageBoard({
               {isExpanded && (
                 <div className="flex flex-col gap-0.5 pl-5 pr-1 border-l border-zk-border/60 ml-3.5 my-0.5">
                   {org.projects.map((proj) => {
+                    const currentProjSlug = proj.slug || proj.id;
                     const isProjSelected =
                       selectedScope.type === "project" &&
-                      selectedScope.orgId === org.id &&
-                      selectedScope.projectId === proj.id;
+                      (selectedScope.orgId === org.id || selectedScope.orgId === currentOrgSlug) &&
+                      (selectedScope.projectId === proj.id || selectedScope.projectId === currentProjSlug);
 
                     return (
                       <button
@@ -741,11 +849,14 @@ export function PublicMessageBoard({
                         onClick={() => {
                           setSelectedScope({
                             type: "project",
-                            orgId: org.id,
-                            projectId: proj.id,
+                            orgId: currentOrgSlug,
+                            projectId: currentProjSlug,
                             name: `${org.name} / ${proj.name}`,
                           });
                           setView("list");
+                          if (router) {
+                            router.push(scopedForumPath("project", currentOrgSlug, currentProjSlug));
+                          }
                         }}
                         className={`flex items-center justify-between px-2 py-1 rounded-md text-[12px] transition-colors cursor-pointer text-left ${
                           isProjSelected
@@ -1345,7 +1456,7 @@ export function PublicMessageBoard({
           <div className="flex items-center justify-between gap-3">
             <button
               type="button"
-              onClick={() => setView("list")}
+              onClick={handleBackToList}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zk-surface hover:bg-zk-chip border border-zk-border text-zk-text2 hover:text-zk-text text-[13px] font-medium transition-colors cursor-pointer"
             >
               <Icon size={14}>
@@ -1782,7 +1893,7 @@ export function PublicMessageBoard({
           <div className="flex items-center justify-between">
             <button
               type="button"
-              onClick={() => setView("list")}
+              onClick={handleBackToList}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zk-surface hover:bg-zk-chip border border-zk-border text-zk-text2 hover:text-zk-text text-[13px] font-medium transition-colors cursor-pointer"
             >
               <Icon size={14}>
@@ -1989,7 +2100,7 @@ export function PublicMessageBoard({
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-zk-border">
                 <button
                   type="button"
-                  onClick={() => setView("list")}
+                  onClick={handleBackToList}
                   className="px-4 py-1.5 rounded-full bg-zk-chip hover:bg-zk-seg text-zk-text2 text-[13px] font-medium transition-colors cursor-pointer"
                 >
                   Cancel

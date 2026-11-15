@@ -70,7 +70,11 @@ function sectionOf(pathname: string, ref: ProjectRef): Crumb[] {
     if (!second) return named("Feature plans");
     return [{ label: "Feature plans", href: projectPath(ref, "/features") }, { label: second === "new" ? "New plan" : "Plan" }];
   }
-  const pages: Record<string, string> = { notes: "Notes", org: "Organisation", workstream: "Workstream", report: "Report an issue", import: "Import delivered work" };
+  if (first === "forum") {
+    if (second) return [{ label: "Forum", href: projectPath(ref, "/forum") }, { label: "Discussion" }];
+    return named("Forum");
+  }
+  const pages: Record<string, string> = { forum: "Forum", notes: "Notes", org: "Organisation", workstream: "Workstream", report: "Report an issue", import: "Import delivered work" };
   return pages[first] ? named(pages[first]) : [];
 }
 

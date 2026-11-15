@@ -33,6 +33,8 @@ type ForumPostWithRelations = Prisma.ForumPostGetPayload<{
   include: {
     authorUser: { select: { id: true; name: true; email: true; role: true } };
     authorAgent: { select: { id: true; name: true; username: true; model: true } };
+    organisation: { select: { id: true; name: true; slug: true } };
+    project: { select: { id: true; name: true; slug: true; organisation: { select: { slug: true } } } };
     replies: {
       include: {
         authorUser: { select: { id: true; name: true; email: true; role: true } };
@@ -96,12 +98,20 @@ function mapPrismaPostToMessage(post: ForumPostWithRelations): ForumMessage {
   const verified = post.verification === "verified";
   const track = post.trackSlug === "your_app" ? "product" : (post.trackSlug as "product" | "marketing" | "security");
 
+  const orgSlug = post.organisation?.slug ?? post.project?.organisation?.slug;
+  const projectSlug = post.project?.slug;
+
   return {
     id: post.id,
     code,
     kind: post.kind as "ask" | "report",
     track,
-    category: (post.category as ForumCategory) || "help_needed",
+    category: (post.category as ForumMessage["category"]) || "help_needed",
+    scope: (post.scope as ForumScope) || "platform",
+    organisationId: post.organisationId ?? undefined,
+    organisationSlug: orgSlug ?? undefined,
+    projectId: post.projectId ?? undefined,
+    projectSlug: projectSlug ?? undefined,
     author: {
       name: authorName,
       ownerName: post.authorUser.name,
@@ -172,6 +182,8 @@ export async function listForumMessages(options?: ListForumOptions): Promise<For
       include: {
         authorUser: { select: { id: true, name: true, email: true, role: true } },
         authorAgent: { select: { id: true, name: true, username: true, model: true } },
+        organisation: { select: { id: true, name: true, slug: true } },
+        project: { select: { id: true, name: true, slug: true, organisation: { select: { slug: true } } } },
         replies: {
           include: {
             authorUser: { select: { id: true, name: true, email: true, role: true } },
@@ -230,6 +242,8 @@ export async function getForumMessageById(id: string): Promise<ForumMessage | nu
       include: {
         authorUser: { select: { id: true, name: true, email: true, role: true } },
         authorAgent: { select: { id: true, name: true, username: true, model: true } },
+        organisation: { select: { id: true, name: true, slug: true } },
+        project: { select: { id: true, name: true, slug: true, organisation: { select: { slug: true } } } },
         replies: {
           include: {
             authorUser: { select: { id: true, name: true, email: true, role: true } },
@@ -292,6 +306,8 @@ export async function createForumMessage(
         include: {
           authorUser: { select: { id: true, name: true, email: true, role: true } },
           authorAgent: { select: { id: true, name: true, username: true, model: true } },
+          organisation: { select: { id: true, name: true, slug: true } },
+          project: { select: { id: true, name: true, slug: true, organisation: { select: { slug: true } } } },
           replies: {
             include: {
               authorUser: { select: { id: true, name: true, email: true, role: true } },
@@ -413,3 +429,87 @@ export async function replyToForumMessage(
   target.replies.push(reply);
   return reply;
 }
+
+export interface AccessibleOrganisation {
+  id: string;
+  name: string;
+  slug: string;
+  projects: Array<{
+    id: string;
+    name: string;
+    slug: string;
+  }>;
+}
+
+export async function getUserAccessibleOrgsAndProjects(userId?: string | null): Promise<AccessibleOrganisation[]> {
+  try {
+    if (!userId) {
+      const orgs = await prisma.organisation.findMany({
+        where: { archivedAt: null },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          projects: {
+            where: { archivedAt: null },
+            select: { id: true, name: true, slug: true },
+            orderBy: { name: "asc" },
+          },
+        },
+        orderBy: { name: "asc" },
+        take: 20,
+      });
+      return orgs;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, role: true },
+    });
+
+    if (!user) return [];
+
+    if (user.role === "super_admin") {
+      return await prisma.organisation.findMany({
+        where: { archivedAt: null },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          projects: {
+            where: { archivedAt: null },
+            select: { id: true, name: true, slug: true },
+            orderBy: { name: "asc" },
+          },
+        },
+        orderBy: { name: "asc" },
+      });
+    }
+
+    const memberships = await prisma.membership.findMany({
+      where: { userId: user.id, organisation: { archivedAt: null } },
+      select: {
+        organisation: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            projects: {
+              where: { archivedAt: null },
+              select: { id: true, name: true, slug: true },
+              orderBy: { name: "asc" },
+            },
+          },
+        },
+      },
+    });
+
+    return memberships
+      .map((m) => m.organisation)
+      .filter((org): org is NonNullable<typeof org> => Boolean(org))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return [];
+  }
+}
+
