@@ -96,12 +96,10 @@ A report for a part the agent no longer holds (reported, given back or timed out
 
 The old `split` and `collate` job kinds are still in the database enum (Postgres can't easily drop enum values), but nothing creates them. Any left open from the old engine are skipped.
 
-## Fix on Ziki
+## Move to your app
 
-Once the report is posted, choose the unlocked findings to remediate, select a project in your workspace, and click **Send selected findings**. Open the issue links to follow the work. The first successful submission sets the check's destination project. Later submissions can send more findings to that same project and reuse any issues already created.
+Open /security/checks/<id>/fix from a posted report. Select findings, choose an eligible workspace project, and review the total before selecting **Pay and move**. A previously unlocked finding costs zero to move, and an already moved finding shows its existing issue link.
 
-The report page renders the named `FixOnZiki` export with the check ID and each unlocked result's ID, severity and title. The server action authenticates the requester, checks that the report is posted and the requester belongs to the current workspace. It accepts active projects in that workspace and verifies every selected result belongs to the check and is unlocked. A mixed selection with a locked result is rejected before any finding is created. A single transaction locks the check and creates or reuses each link. Repeating the request won't create another finding or issue.
+The server checks report ownership, posting, project access, and result ownership. A transaction records simulated payment through the existing unlock timestamp, creates a private finding and a linked issue per new result, and sets the result's findingId. The report can use that link to show the issue. Repeat submissions reuse existing links. No real coins are debited.
 
-The shared idea and issue contain a placeholder. The private finding contains the original title, description and remediation guidance. Its linked issue starts as vetted and open for work. It follows the existing private finding access rules.
-
-To verify, use the focused tests in `lib/security-checks/fix.test.ts`. Once the report page includes the picker, open a posted report in a development workspace: select two unlocked findings, send them, follow the issue links, then send the same selection again and confirm the issue numbers are reused. Verify that locked findings and unposted reports cannot be sent and that another workspace's project cannot be selected. Do not reseed a shared database.
+Verify by moving a finding from a posted report, following its issue link, and reopening the move page to check the issue is still linked. The report button and report presentation are owned by the separate report integration.
