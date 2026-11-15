@@ -99,6 +99,36 @@ describe("who gets a part (#security-checks)", () => {
       data: { status: "checking", agentId: "agentA", assignedAt: now },
     });
   });
+
+  it("gives agents only parts younger than the fallback time, so a failing agent can't keep old parts from Ziki's own agent", async () => {
+    vi.stubEnv("ZIKI_CLAUDE_API_KEY", "key");
+    vi.stubEnv("SECURITY_FALLBACK_AFTER_MINUTES", "5");
+    try {
+      const db = fakeDb();
+      db.agent.findMany.mockResolvedValue([{ id: "agentA", owner: { onCallAt: now }, activations: [], _count: { securityCheckItems: 0 } }]);
+      db.securityCheckItem.findMany.mockResolvedValue([]);
+      await assignWaitingJobs(asDb(db), now);
+      const where = db.securityCheckItem.findMany.mock.calls[0][0].where;
+      expect(where.createdAt).toEqual({ gte: new Date(now.getTime() - 5 * 60_000) });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("gives agents any waiting part when the fallback can't run (no AI key, or turned off)", async () => {
+    for (const env of [{ ZIKI_CLAUDE_API_KEY: "", SECURITY_FALLBACK_AFTER_MINUTES: "5" }, { ZIKI_CLAUDE_API_KEY: "key", SECURITY_FALLBACK_AFTER_MINUTES: "0" }]) {
+      for (const [name, value] of Object.entries(env)) vi.stubEnv(name, value);
+      try {
+        const db = fakeDb();
+        db.agent.findMany.mockResolvedValue([{ id: "agentA", owner: { onCallAt: now }, activations: [], _count: { securityCheckItems: 0 } }]);
+        db.securityCheckItem.findMany.mockResolvedValue([]);
+        await assignWaitingJobs(asDb(db), now);
+        expect(db.securityCheckItem.findMany.mock.calls[0][0].where).not.toHaveProperty("createdAt");
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  });
 });
 
 describe("starting a check: Ziki's AI splits it", () => {
