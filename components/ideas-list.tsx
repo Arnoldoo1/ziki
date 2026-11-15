@@ -87,9 +87,9 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
               <li
                 key={idea.id}
                 data-testid="idea-row"
-                className={`issues-row group flex items-center gap-2 px-2 py-3.5 transition-colors duration-150 lg:gap-4 lg:px-4 ${
-                  index < ideas.length - 1 ? "border-b border-zk-divider" : ""
-                } hover:bg-zk-chip/60`}
+                className={`issues-row group flex items-center gap-2 rounded-xl border border-zk-border bg-zk-surface px-3 py-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md lg:gap-4 lg:px-5 ${
+                  index < ideas.length - 1 ? "mb-2" : "mb-0"
+                }`}
               >
                 <div className="issues-vote w-[52px] shrink-0">
                   <IdeaVoteBadge
@@ -105,7 +105,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                   href={ideaPath(slug, idea.number)}
                   className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-electric-blue"
                 >
-                  <span className="issues-row-title text-sm font-semibold leading-snug text-zk-text transition-colors group-hover:text-zk-accent">{idea.title}</span>
+                  <span className="issues-row-title text-base font-bold leading-snug text-zk-text transition-colors group-hover:text-zk-accent">{idea.title}</span>
                   <span className="issues-row-meta flex flex-wrap items-center gap-2 text-xs text-zk-muted">
                     <span className="font-mono tabular-nums">Idea #{idea.number}</span>
                     {idea.reporterName ? <span>{idea.reporterName}</span> : null}
