@@ -1345,7 +1345,7 @@ export function PublicMessageBoard({
                     <button
                       type="button"
                       onClick={() => setView("new")}
-                      className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-zk-accent text-zk-accent-fg hover:opacity-90 text-[13px] font-medium transition-opacity cursor-pointer shadow-xs"
+                      className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-electric-blue-strong hover:bg-electric-blue text-white text-[13px] font-semibold transition-colors cursor-pointer shadow-xs"
                     >
                       <Icon size={14}>
                         <line x1="12" y1="5" x2="12" y2="19" />
