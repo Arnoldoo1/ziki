@@ -11,6 +11,9 @@ const canManageProject = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/prisma", () => ({ prisma }));
 vi.mock("@/lib/project-permissions", () => ({ canContributeToProject, canManageProject }));
 vi.mock("server-only", () => ({}));
+// The Discover page signs nobody in here, and its card brings in the join action: the count this file checks needs neither.
+vi.mock("@/lib/auth-helpers", () => ({ optionalUser: vi.fn().mockResolvedValue(null) }));
+vi.mock("@/components/discover-project-card", () => ({ DiscoverProjectCard: () => null }));
 
 import DiscoverPage from "@/app/(app)/discover/page";
 import { loadProjectOverview } from "@/lib/project-overview";
