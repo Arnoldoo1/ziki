@@ -90,7 +90,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
               <div
                 key={idea.id}
                 data-testid="idea-row"
-                className="rounded-2xl border border-zk-border bg-zk-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-zk-accent/40 hover:shadow-lg dark:border-white/[0.08] dark:bg-white/[0.03] dark:backdrop-blur-md dark:hover:border-blue-500/30 dark:hover:shadow-[0_10px_30px_-5px_rgba(0,0,0,0.6),0_0_20px_-2px_rgba(75,117,255,0.15)]"
+                className="rounded-2xl border border-zk-border bg-zk-surface p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-zk-accent/40 hover:shadow-md dark:border-white/[0.08] dark:bg-white/[0.03] dark:backdrop-blur-md dark:shadow-none dark:hover:border-blue-500/30 dark:hover:shadow-[0_10px_30px_-5px_rgba(0,0,0,0.6),0_0_20px_-2px_rgba(75,117,255,0.15)]"
               >
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   {/* Left: circular score badge + title + metadata */}
