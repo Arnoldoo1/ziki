@@ -1289,7 +1289,9 @@ export function PublicMessageBoard({
               <div className="flex items-center justify-between gap-2 pb-1">
                 <div className="flex items-center gap-2">
                   <h1 className="text-[16px] font-semibold text-zk-text">
-                    Marketing &amp; Product Forum
+                    {selectedScope.type === "global"
+                      ? "Marketing & Product Forum"
+                      : `${selectedScope.name} Forum`}
                   </h1>
                   <span className="text-zk-muted text-[12px]">•</span>
                   <span className="text-[12px] text-zk-muted">

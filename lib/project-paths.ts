@@ -31,7 +31,7 @@ export function orgHomePath(orgSlug: string, query?: URLSearchParams | string): 
  * issue number. A project may not take one of these names, so
  * `/<a>/<b>/...` with such a `b` is always an old project-first address.
  */
-const PROJECT_PAGES = new Set(["forum", "goals", "ideas", "issues", "marketing", "notes", "org", "projects", "tasks", "workstream", "work"]);
+const PROJECT_PAGES = new Set(["goals", "ideas", "issues", "marketing", "notes", "org", "projects", "tasks", "workstream", "work"]);
 
 export function isProjectFirstPath(path: string): boolean {
   const [first, second] = path.split("?")[0].split("/").filter(Boolean);

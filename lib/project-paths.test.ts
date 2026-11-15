@@ -11,9 +11,8 @@ import {
 } from "./project-paths";
 
 describe("project-paths forum routing", () => {
-  it("recognizes forum as a project subpage so project-first paths resolve correctly", () => {
-    expect(isProjectFirstPath("/my-proj/forum")).toBe(true);
-    expect(isProjectFirstPath("/my-org/my-proj/forum")).toBe(false);
+  it("does not treat /<org>/forum as a legacy project-first path", () => {
+    expect(isProjectFirstPath("/my-org/forum")).toBe(false);
   });
 
   it("builds organisation forum paths", () => {

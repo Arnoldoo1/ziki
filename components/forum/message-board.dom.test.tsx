@@ -103,6 +103,6 @@ describe("PublicMessageBoard", () => {
       />
     );
 
-    expect(screen.getByText(/Cyberdyne Systems/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/Cyberdyne Systems/i).length).toBeGreaterThanOrEqual(1);
   });
 });
