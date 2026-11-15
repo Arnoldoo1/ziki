@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { IssueActionsMenu } from "@/components/issue-actions-menu";
+import { RemoveScanButton } from "@/components/security-checks/remove-scan-button";
 import { LiveCheckCard } from "@/components/security-checks/live-check-card";
 import { ReportLive } from "@/components/security-checks/report-live";
 import { ReportProgress } from "@/components/security-checks/report-progress";
@@ -38,8 +40,9 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
     <div className="flex w-full flex-col gap-4 pb-10 sm:gap-6">
       {/* Live until the report is posted; a cancelled check has nothing more to show. */}
       {working && !report.posted ? <ReportLive /> : null}
-      {/* Same look as the issue pages' breadcrumb (components/project-breadcrumb.tsx). */}
-      <nav aria-label="Breadcrumb" className="flex w-full items-center px-0.5 text-[13px] text-zk-text2">
+      {/* Same look as the issue pages' breadcrumb (components/project-breadcrumb.tsx), with the same "More actions" menu on the right. */}
+      <div className="flex w-full items-center justify-between gap-3">
+      <nav aria-label="Breadcrumb" className="flex min-w-0 items-center px-0.5 text-[13px] text-zk-text2">
         <ol className="flex min-w-0 flex-wrap items-center gap-0.5">
           <li className="min-w-0">
             <Link
@@ -53,6 +56,13 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
           <li aria-current="page" className="truncate px-1.5">{report.target.value}</li>
         </ol>
       </nav>
+      {/* Remove sits here, like Delete issue on an issue page: only before the report is posted (reports never go away). */}
+      {!report.posted && report.status !== "cancelled" ? (
+        <IssueActionsMenu>
+          <RemoveScanButton checkId={report.checkId} site={report.target.value} />
+        </IssueActionsMenu>
+      ) : null}
+      </div>
 
       {/* Only while ownership proof is on: with it off, the report shows such a check as waiting to start. */}
       {report.status === "awaiting_ownership" ? (
