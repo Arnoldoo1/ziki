@@ -56,12 +56,12 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
   if (ideas.length === 0 && welcome) return <>{welcome}</>;
   if (ideas.length === 0) {
     return (
-      <div className="rounded-2xl border border-white/[0.08] bg-white/[0.03] px-6 py-16 text-center backdrop-blur-md">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-white/[0.05] text-2xl" aria-hidden>
+      <div className="rounded-2xl border border-zk-border bg-zk-surface px-6 py-16 text-center dark:border-white/[0.08] dark:bg-white/[0.03] dark:backdrop-blur-md">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-zk-chip text-2xl dark:bg-white/[0.05]" aria-hidden>
           💡
         </div>
-        <p className="text-lg font-bold text-white">No ideas yet</p>
-        <p className="mx-auto mt-1.5 max-w-md text-sm text-slate-400">
+        <p className="text-lg font-bold text-zk-text dark:text-white">No ideas yet</p>
+        <p className="mx-auto mt-1.5 max-w-md text-sm text-zk-muted dark:text-slate-400">
           {empty ?? "New ideas show up here until an agent converts them to issues. Be the first to share one."}
         </p>
       </div>
@@ -90,7 +90,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
               <div
                 key={idea.id}
                 data-testid="idea-row"
-                className="glass-card rounded-2xl border border-white/[0.08] p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-500/30 hover:shadow-[0_10px_30px_-5px_rgba(0,0,0,0.6),0_0_20px_-2px_rgba(75,117,255,0.15)]"
+                className="rounded-2xl border border-zk-border bg-zk-surface p-5 transition-all duration-200 hover:-translate-y-0.5 hover:border-zk-accent/40 hover:shadow-lg dark:border-white/[0.08] dark:bg-white/[0.03] dark:backdrop-blur-md dark:hover:border-blue-500/30 dark:hover:shadow-[0_10px_30px_-5px_rgba(0,0,0,0.6),0_0_20px_-2px_rgba(75,117,255,0.15)]"
               >
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   {/* Left: circular score badge + title + metadata */}
@@ -100,15 +100,15 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                         ? "border-emerald-500/30 bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-transparent"
                         : idea.score < 0
                           ? "border-rose-500/30 bg-gradient-to-br from-rose-500/20 via-rose-500/10 to-transparent shadow-[0_0_20px_-3px_rgba(255,107,122,0.35)]"
-                          : "border-white/[0.08] bg-white/[0.05] shadow-none"
+                          : "border-zk-border bg-zk-chip shadow-none dark:border-white/[0.08] dark:bg-white/[0.05]"
                     }`}>
                       <span className={`font-mono text-xs font-extrabold tracking-tight ${
-                        idea.score > 0 ? "text-emerald-400" : idea.score < 0 ? "text-rose-400" : "text-white"
+                        idea.score > 0 ? "text-emerald-400" : idea.score < 0 ? "text-rose-400" : "text-zk-text dark:text-white"
                       }`}>
                         {idea.score > 0 ? `+${idea.score}` : idea.score}
                       </span>
                       <span className={`text-[9px] font-bold uppercase leading-none ${
-                        idea.score > 0 ? "text-emerald-500/80" : idea.score < 0 ? "text-rose-500/80" : "text-slate-400"
+                        idea.score > 0 ? "text-emerald-500/80" : idea.score < 0 ? "text-rose-500/80" : "text-zk-muted dark:text-slate-400"
                       }`}>
                         votes
                       </span>
@@ -120,25 +120,25 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                         </span>
                         <Link
                           href={ideaPath(slug, idea.number)}
-                          className="truncate text-sm font-bold tracking-tight text-white transition-colors hover:text-blue-400 sm:text-base"
+                          className="truncate text-sm font-bold tracking-tight text-zk-text transition-colors hover:text-zk-accent dark:text-white dark:hover:text-blue-400 sm:text-base"
                         >
                           {idea.title}
                         </Link>
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zk-muted dark:text-slate-400">
                         {idea.reporterName ? (
                           <span className="flex items-center space-x-1.5">
                             <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500/40 text-[9px] font-bold text-indigo-300">
                               {idea.reporterName.charAt(0).toUpperCase()}
                             </span>
-                            <span className="font-medium text-slate-300">{idea.reporterName}</span>
+                            <span className="font-medium text-zk-text dark:text-slate-300">{idea.reporterName}</span>
                           </span>
                         ) : null}
                         <span>•</span>
                         <span>Updated {idea.lastUpdateAt ? <LocalTime date={idea.lastUpdateAt} /> : <LocalTime date={idea.createdAt} />}</span>
                         <span>•</span>
-                        <span className="flex items-center gap-1 text-slate-300">
-                          <svg className="h-3.5 w-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <span className="flex items-center gap-1 text-zk-text dark:text-slate-300">
+                          <svg className="h-3.5 w-3.5 text-zk-muted dark:text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
                           </svg>
                           {idea.verdicts} verdict{idea.verdicts === 1 ? "" : "s"}
@@ -147,7 +147,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                     </div>
                   </div>
                   {/* Right: status pill + vote badge + path chips */}
-                  <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-white/[0.06] pt-3 sm:justify-end sm:border-t-0 sm:pt-0">
+                  <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-zk-border pt-3 sm:justify-end sm:border-t-0 sm:pt-0 dark:border-white/[0.06]">
                     <IdeaVoteBadge
                       ideaId={idea.id}
                       good={idea.good}
@@ -156,8 +156,8 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                       threshold={idea.threshold}
                       votable={!idea.rejected && !idea.archived}
                     />
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-500/40 bg-blue-500/20 px-3 py-1 text-xs font-semibold text-blue-300 shadow-[0_0_24px_-4px_rgba(75,117,255,0.35)]">
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-zk-accent/40 bg-zk-accent/15 px-3 py-1 text-xs font-semibold text-zk-accent shadow-sm dark:border-blue-500/40 dark:bg-blue-500/20 dark:text-blue-300 dark:shadow-[0_0_24px_-4px_rgba(75,117,255,0.35)]">
+                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zk-accent dark:bg-blue-400" />
                       <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} archived={idea.archived} bad={idea.bad} />
                     </span>
                     <IdeaPathChips ideaId={idea.id} approvedByMe={Boolean(idea.approvedByMe)} score={idea.score} threshold={idea.threshold} rejected={idea.rejected} archived={idea.archived} bad={idea.bad} />

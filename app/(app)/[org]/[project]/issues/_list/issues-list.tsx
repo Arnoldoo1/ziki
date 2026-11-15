@@ -1592,7 +1592,7 @@ export async function IssuesList({
       </div>
     </div>
     {/* The Ideas panel is narrower and centred, so each idea's status sits close to it. */}
-    <div className={`issues-page mx-auto w-full space-y-5 rounded-2xl ${isIdeasView ? "max-w-[920px] bg-[#070913] p-4" : "max-w-6xl"}`}>
+    <div className={`issues-page mx-auto w-full space-y-5 rounded-2xl ${isIdeasView ? "max-w-[920px] bg-zk-bg p-4 dark:bg-[#070913]" : "max-w-6xl"}`}>
       {headerContent}
       <div className="flex items-start gap-5 max-lg:flex-col max-lg:gap-3">
         {/* The Ideas stage has no sidebar: its Filter menu switches to Rejected ideas (#ideas-filter). */}
