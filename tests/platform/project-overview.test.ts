@@ -19,6 +19,7 @@ import DiscoverPage from "@/app/(app)/discover/page";
 import { loadProjectOverview } from "@/lib/project-overview";
 import { projectOverviewSegments } from "@/lib/project-slug";
 import { publicIntakeSegments } from "@/lib/public-project-paths";
+import { projectJsonLd } from "@/lib/seo/projects";
 
 function overviewProject(overrides: Record<string, unknown> = {}) {
   return {
@@ -194,5 +195,33 @@ describe("project overview route recognition", () => {
     expect(publicIntakeSegments("/example/tracker/report")).toEqual({ orgSlug: "example", projectSlug: "tracker", kind: "report" });
     expect(publicIntakeSegments("/example/tracker/track/private-token")).toEqual({ orgSlug: "example", projectSlug: "tracker", kind: "track" });
     expect(publicIntakeSegments("/example/tracker/issues/12")).toBeNull();
+  });
+});
+
+describe("project structured data for search engines", () => {
+  const project = {
+    slug: "tracker",
+    name: "Job Tracker",
+    goal: "A **streamlined** issue tracker.",
+    repoUrl: "https://github.com/example/tracker",
+    siteUrl: null,
+    visibility: "public" as const,
+    organisation: { name: "Example Org", slug: "example" },
+  };
+
+  it("describes a public project: its name, its goal as plain text, who runs it and where its code is", () => {
+    const [described] = projectJsonLd(project) as Array<Record<string, unknown>>;
+    expect(described).toMatchObject({
+      "@type": "Project",
+      name: "Job Tracker",
+      parentOrganization: { name: "Example Org" },
+      sameAs: ["https://github.com/example/tracker"],
+    });
+    expect(String(described.url)).toMatch(/\/example\/tracker$/);
+    expect(described.description).not.toContain("*");
+  });
+
+  it("says nothing about a private project, even to a member who may open its page", () => {
+    expect(projectJsonLd({ ...project, visibility: "private" })).toBeNull();
   });
 });
