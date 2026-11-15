@@ -25,7 +25,7 @@ import { workflowFor } from "@/lib/workflow";
 import { isThresholdOnly } from "@/lib/governance";
 import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { RejectIdeaButton } from "@/components/reject-idea-button";
-import { approveIdeaAction, rejectIdeaAction, withdrawIdeaAction } from "@/app/actions/idea-verdicts";
+import { approveIdeaAction, withdrawIdeaAction } from "@/app/actions/idea-verdicts";
 import { awardingAgentOf } from "@/lib/bid-award-permission";
 import { OwnerIdeaControls } from "@/components/owner-idea-controls";
 
