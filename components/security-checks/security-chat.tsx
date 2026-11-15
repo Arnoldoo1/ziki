@@ -136,9 +136,7 @@ export function SecurityChat({
     startTransition(async () => {
       try {
         // Only the words go to the server, never a scan card.
-        // The site scanned in this conversation, so a question about it gets answered about it.
-        const about = [...turns].reverse().find((turn) => turn.scan?.checkId)?.scan?.checkId ?? null;
-        const answer = await talkToSecurityAssistant(next.map(({ role, text }) => ({ role, text })), about);
+        const answer = await talkToSecurityAssistant(next.map(({ role, text }) => ({ role, text })));
         // A fresh scan waits for the thinking lines and the Scanning bar to finish, like the public page.
         if (answer.kind === "scan" && !answer.already && answer.summary) {
           const left = THINK_MS + SCAN_BAR_MS - (Date.now() - started);
@@ -179,7 +177,7 @@ export function SecurityChat({
   const lastUser = [...turns].reverse().find((turn) => turn.role === "user")?.text ?? "";
   const lastTarget = lastUser ? parseSecurityTarget(lastUser) : null;
   // The scan the latest answer is about, once it's in the person's scans: "See progress" shows it in the list.
-  const finishedCheckId = [...turns].reverse().find((turn) => turn.scan?.checkId)?.scan?.checkId ?? null;
+  const finishedCheckId = turns.at(-1)?.role === "assistant" ? (turns.at(-1)?.scan?.checkId ?? null) : null;
   // Only while the answer is still coming: not while the list below refreshes after it.
   const waiting = pending && turns.at(-1)?.role === "user";
   const scanning = waiting && !thinking && lastTarget?.ok === true;
