@@ -224,15 +224,14 @@ describe("what a client sees of a check (12 and 14 Nov plans, part S)", () => {
     expect(db.securityCheckResult.findMany).not.toHaveBeenCalled();
   });
 
-  it("before the report is posted: progress only, no quick scan and no result read at all; the PDF goes back to the check", async () => {
+  it("before the report is posted: progress and the quick scan, no result read at all; the PDF goes back to the check", async () => {
     db.securityCheck.findFirst.mockResolvedValue(check(null, { previewSummary: QUICK_SCAN }));
 
     const report = await loadCheckReport("check1", "org1", "owner");
 
     expect(db.securityCheckResult.findMany).not.toHaveBeenCalled();
-    // The quick scan stays on the scan's card; the check page shows only the agents' progress.
-    expect(report).toMatchObject({ posted: false });
-    expect(report).not.toHaveProperty("quickScan");
+    // The quick scan from when it was added shows first on the scan's page, until the agents' report replaces it.
+    expect(report).toMatchObject({ posted: false, quickScan: { total: 1, rows: [{ title: "No HSTS header" }] } });
     expect(report).not.toHaveProperty("findings");
     expect(report).not.toHaveProperty("summary");
     // A skipped part counts as finished (3 of 5).

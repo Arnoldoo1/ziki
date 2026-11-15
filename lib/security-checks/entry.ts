@@ -99,13 +99,14 @@ export function refusedMessage(refused: RefusedCheck["refused"], site: string, n
 }
 
 /**
- * Remove one of this person's scans (#security-checks): only while its report
- * isn't posted, since reports never go away (14 Nov plan). It's cancelled, so
- * agents stop and it leaves the list. False when it can't be removed.
+ * Remove one of this person's scans (#security-checks), finished or not (15 Nov:
+ * people can always remove their scans). It's cancelled, so agents stop and it
+ * leaves the list; findings already moved to the app stay there. False when it
+ * isn't theirs or is already removed.
  */
 export async function removeOwnScan(organisationId: string, userId: string, checkId: string): Promise<boolean> {
   const removed = await prisma.securityCheck.updateMany({
-    where: { id: checkId, organisationId, requestedById: userId, postedAt: null, status: { not: "cancelled" } },
+    where: { id: checkId, organisationId, requestedById: userId, status: { not: "cancelled" } },
     data: { status: "cancelled" },
   });
   return removed.count > 0;
