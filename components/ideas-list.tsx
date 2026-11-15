@@ -90,12 +90,12 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
               <div
                 key={idea.id}
                 data-testid="idea-row"
-                className="rounded-2xl border border-zk-border bg-zk-surface p-5 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-zk-accent/40 hover:shadow-md"
+                className="rounded-2xl border border-zk-border bg-zk-surface p-5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:border-zk-accent/60 hover:shadow-xl hover:shadow-zk-accent/5"
               >
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                   {/* Left: circular score badge + title + metadata */}
                   <div className="flex min-w-0 flex-1 items-start gap-4 sm:items-center">
-                    <div className={`flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl border shadow-[0_0_20px_-3px_rgba(16,185,129,0.35)] ${
+                    <div className={`flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl border transition-all duration-300 group-hover:scale-105 shadow-[0_0_20px_-3px_rgba(16,185,129,0.35)] ${
                       idea.score > 0
                         ? "border-emerald-500/30 bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-transparent"
                         : idea.score < 0
@@ -115,7 +115,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                     </div>
                     <div className="min-w-0 flex-1 space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 font-mono text-[11px] font-bold text-blue-600">
+                        <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 font-mono text-[11px] font-bold text-blue-600 transition-colors group-hover:border-blue-500/40 group-hover:bg-blue-500/20">
                           Idea #{idea.number}
                         </span>
                         <Link
@@ -156,7 +156,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                       threshold={idea.threshold}
                       votable={!idea.rejected && !idea.archived}
                     />
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-zk-accent/40 bg-zk-accent/15 px-3 py-1 text-xs font-semibold text-zk-accent shadow-sm">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-zk-accent/40 bg-zk-accent/15 px-3 py-1 text-xs font-semibold text-zk-accent shadow-sm transition-all duration-200 group-hover:border-zk-accent/60 group-hover:bg-zk-accent/25 group-hover:shadow-md">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zk-accent" />
                       <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} archived={idea.archived} bad={idea.bad} />
                     </span>
