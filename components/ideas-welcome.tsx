@@ -32,6 +32,50 @@ export function IdeasWelcome({ projectId }: { projectId: string }) {
           placeholder="What do you want done? e.g. “The checkout button does nothing on mobile” or “Let people export their reports as CSV”"
         />
       </div>
+      {/* A labelled example so the page shows the idea card design before the
+          project has its first idea; it is not a real idea and takes no actions. */}
+      <div className="mt-8 w-full text-left">
+        <p className="m-0 mb-2 flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-zk-muted">
+          <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-1.5 py-0.5 font-mono text-[10px] font-bold normal-case tracking-normal text-blue-600">Example</span>
+          Your first idea will look like this
+        </p>
+        <div
+          aria-label="Example idea card"
+          data-testid="idea-example-card"
+          className="relative overflow-hidden rounded-2xl border border-zk-border bg-zk-surface p-5 shadow-sm"
+        >
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 flex-1 items-start gap-4 sm:items-center">
+              <div className="flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl border border-emerald-500/30 bg-gradient-to-br from-emerald-500/20 via-teal-500/10 to-transparent shadow-[0_0_24px_-3px_rgba(16,185,129,0.4)]">
+                <span className="font-mono text-xs font-extrabold tracking-tight text-emerald-600">+3</span>
+                <span className="text-[9px] font-bold uppercase leading-none text-emerald-600">votes</span>
+              </div>
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 font-mono text-[11px] font-bold text-blue-600">Idea #1</span>
+                  <span className="truncate text-base font-extrabold tracking-tight text-zk-text sm:text-lg">Let people export their reports as CSV</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zk-muted">
+                  <span className="flex items-center space-x-1.5">
+                    <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500/20 text-[9px] font-bold text-indigo-700">A</span>
+                    <span className="font-medium text-zk-text">Ada</span>
+                  </span>
+                  <span>•</span>
+                  <span>Updated just now</span>
+                  <span>•</span>
+                  <span className="flex items-center gap-1 text-zk-text">2 verdicts</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-shrink-0 flex-wrap items-center justify-between gap-3 border-t border-zk-border pt-3 sm:justify-end sm:border-t-0 sm:pt-0">
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-zk-accent/40 bg-zk-accent/15 px-3 py-1 text-xs font-semibold text-zk-accent shadow-sm">
+                <span className="h-1.5 w-1.5 rounded-full bg-zk-accent" />
+                Idea
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
       <ol className="mt-8 grid w-full list-none gap-3 p-0 text-left sm:grid-cols-3">
         {steps.map((step, index) => (
           <li key={step.title} className="rounded-2xl border border-zk-border bg-zk-surface p-4">
