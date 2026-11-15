@@ -9,6 +9,7 @@ import { ReportLive } from "@/components/security-checks/report-live";
 import { ReportProgress } from "@/components/security-checks/report-progress";
 import { ReportResults } from "@/components/security-checks/report-results";
 import { ReportSummary } from "@/components/security-checks/report-summary";
+import { SiteChatToggle } from "@/components/security-checks/site-chat-box";
 import { requireUser } from "@/lib/auth-helpers";
 import { substatusClass } from "@/lib/labels";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
@@ -97,6 +98,8 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
 
           {report.posted ? <ReportResults report={report} /> : null}
 
+          {/* Back into this site's saved chat (15 Nov call): closed until asked for. */}
+          {report.status !== "cancelled" ? <SiteChatToggle checkId={report.checkId} site={report.target.value} /> : null}
         </>
       )}
     </div>

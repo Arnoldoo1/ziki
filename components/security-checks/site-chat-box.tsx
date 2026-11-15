@@ -8,6 +8,33 @@ type Message = { id: string; role: "user" | "assistant"; text: string };
 const MESSAGE_MAX = 600;
 
 /**
+ * The way back into a site's saved chat from its scan page (15 Nov call): a
+ * button, closed until clicked, so the page looks as it does without it.
+ */
+export function SiteChatToggle({ checkId, site }: { checkId: string; site: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="flex flex-col">
+      <button
+        type="button"
+        onClick={() => setOpen((shown) => !shown)}
+        aria-expanded={open}
+        aria-controls={`site-chat-panel-${checkId}`}
+        className="inline-flex h-9 w-fit items-center gap-1.5 rounded-lg border border-zk-border bg-zk-surface px-3 text-sm font-semibold text-zk-text hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue"
+      >
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z" /></svg>
+        {open ? "Hide chat" : `Ask about ${site}`}
+      </button>
+      {open ? (
+        <div id={`site-chat-panel-${checkId}`}>
+          <SiteChatBox checkId={checkId} site={site} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
  * The chat under one site's result (#security-checks, 14 Nov call): the earlier
  * conversation about that site, carried on. It's saved, so it's still here after
  * a refresh or on another device. Just the messages and the box; loads when the
