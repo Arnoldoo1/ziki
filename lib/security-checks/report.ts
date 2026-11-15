@@ -1,4 +1,6 @@
 import "server-only";
+import { readQuickScan } from "@/lib/security-checks/entry";
+import type { PreviewSummary } from "@/lib/security-checks/preview-summary";
 import type {
   IdeaStatus,
   Prisma,
@@ -118,10 +120,11 @@ type ReportBase = {
 };
 
 /**
- * Before the report is posted: progress only (the agents' checking), never the
- * quick scan, which belongs to the scan's card, and nothing about the agents' results.
+ * Before the report is posted: progress, and the quick scan run when the asset
+ * was added (`SecurityTarget.previewSummary`), shown first on the scan's page
+ * until the agents' report replaces it. Nothing about the agents' results.
  */
-export type UnpostedReport = ReportBase & { posted: false };
+export type UnpostedReport = ReportBase & { posted: false; quickScan: PreviewSummary | null };
 
 /** The posted report: Ziki's summary, then every finding worst first. */
 export type PostedReport = ReportBase & {
@@ -217,7 +220,7 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
   };
 
   // Not posted yet: progress and the quick scan only, so no result is read, not even a count.
-  if (!isReportPosted(check)) return { ...base, posted: false };
+  if (!isReportPosted(check)) return { ...base, posted: false, quickScan: readQuickScan(check.target.previewSummary) };
 
   // Every finding, in full: the report is free.
   const rows = await prisma.securityCheckResult.findMany({
