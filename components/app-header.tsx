@@ -21,7 +21,7 @@ import { type OrganisationRole } from "@/lib/organisation-role";
 import { roleAccessFor, type RoleAccess } from "@/lib/role-access";
 import { RoleAccessBadge } from "@/components/role-access-tooltip";
 import { Avatar } from "@/components/avatar";
-import { AccountThemeSelector } from "@/components/theme-toggle";
+import { AccountThemeSelector, NavThemeToggle } from "@/components/theme-toggle";
 import { CookieSettingsLink } from "@/components/consent-banner";
 import { VersionCredits } from "@/components/credits-dialog";
 import { PAGE_CONTAINER_CLASS } from "@/components/page-container";
@@ -309,6 +309,7 @@ export function AppHeader({
             </div>
           ) : null}
 
+          <NavThemeToggle />
           <div ref={accountRef} className="relative">
             <button
               ref={accountButtonRef}

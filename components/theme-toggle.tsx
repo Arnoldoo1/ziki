@@ -186,6 +186,29 @@ const THEME_ICONS: Record<(typeof THEMES)[number], string> = {
  * Compact theme selector for the account menu and mobile menu (#659): one row,
  * "Theme" and three small icon buttons, each named for screen readers.
  */
+/**
+ * Compact light/dark toggle for the top navigation bar. Cycles light -> dark -> light.
+ */
+export function NavThemeToggle() {
+  const [theme, setTheme, pending] = useTheme();
+  const isDark = theme === "dark";
+  const next = isDark ? "light" : "dark";
+  return (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => setTheme(next)}
+      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      title={isDark ? "Light mode" : "Dark mode"}
+      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zk-border bg-zk-surface text-zk-text2 transition hover:bg-zk-chip hover:text-zk-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d={THEME_ICONS[isDark ? "light" : "dark"]} />
+      </svg>
+    </button>
+  );
+}
+
 export function AccountThemeSelector() {
   const [theme, setTheme, pending] = useTheme();
 
