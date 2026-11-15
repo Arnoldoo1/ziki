@@ -1,4 +1,6 @@
+import type { SecurityCheckStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { CHECK_STATUS_LABEL } from "@/lib/security-checks";
 import type { PreviewSummary } from "./preview-summary";
 import { readQuickScan } from "./entry";
 import { targetAddress } from "./target";
@@ -37,7 +39,7 @@ export async function saveSiteMessage(organisationId: string, userId: string, ta
  * what it found (what any browser can see, already shown on the page), and the
  * report's counts. Never a finding's detail or fix.
  */
-export function siteContextNote(site: string, quick: PreviewSummary | null, report: { posted: boolean; findings: number; unlocked: number }): string {
+export function siteContextNote(site: string, quick: PreviewSummary | null, report: { posted: boolean; findings: number; unlocked: number }, status?: SecurityCheckStatus): string {
   const lines = [`Site: ${site}.`];
   if (quick) {
     const counts = (["critical", "high", "medium", "low"] as const).filter((s) => quick.counts[s]).map((s) => `${quick.counts[s]} ${s}`).join(", ");
@@ -49,7 +51,7 @@ export function siteContextNote(site: string, quick: PreviewSummary | null, repo
   lines.push(
     report.posted
       ? `Agents' report: ready, ${report.findings} findings, ${report.unlocked} unlocked.`
-      : "Agents' report: agents are still checking it.",
+      : `Agents' report: not ready yet; agents are still checking it${status ? ` (now: ${CHECK_STATUS_LABEL[status]})` : ""}.`,
   );
   return lines.join("\n");
 }
@@ -59,6 +61,7 @@ export async function siteChatScan(organisationId: string, userId: string, check
   const check = await prisma.securityCheck.findFirst({
     where: { id: checkId, organisationId, requestedById: userId },
     select: {
+      status: true,
       postedAt: true,
       target: { select: { id: true, kind: true, value: true, previewSummary: true } },
       results: { select: { unlockedAt: true } },
@@ -67,6 +70,7 @@ export async function siteChatScan(organisationId: string, userId: string, check
   if (!check) return null;
   return {
     targetId: check.target.id,
+    status: check.status,
     site: targetAddress(check.target),
     quick: readQuickScan(check.target.previewSummary),
     report: { posted: check.postedAt !== null, findings: check.results.length, unlocked: check.results.filter((r) => r.unlockedAt !== null).length },

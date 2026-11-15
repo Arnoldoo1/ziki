@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth-helpers";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import { checkRateLimit, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
-import { OWNERS_ONLY_MESSAGE } from "@/lib/security-checks";
+import { CHECK_STATUS_LABEL, OWNERS_ONLY_MESSAGE } from "@/lib/security-checks";
 import { parseSecurityTarget, PRIVATE_TARGET_ERROR, targetAddress } from "@/lib/security-checks/target";
 import { addTargetAndCheck, findOwnScan, findScannedCheck, refusedMessage, removeOwnScan, saveQuickScan } from "@/lib/security-checks/entry";
 import { previewScan } from "@/lib/security-checks/preview";
@@ -118,7 +118,13 @@ const ASSISTANT_RATE_LIMIT = { max: 30, windowMs: 60 * 60 * 1000 };
 const NO_WORKSPACE = "Join or create a workspace to secure your assets.";
 const ASK_FOR_ADDRESS = "Paste your website, a server address or a GitHub repo, and I'll set up a scan.";
 
-export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise<ChatAnswer> {
+/**
+ * The + Add asset chat. A pasted address is scanned; once a site is scanned in
+ * this conversation (`aboutCheckId`), anything else is a question about it:
+ * what's happening, what a problem means. It's answered from that scan and
+ * where the agents are, and without the AI it still gets a plain update.
+ */
+export async function talkToSecurityAssistant(history: AssistantTurn[], aboutCheckId?: string | null): Promise<ChatAnswer> {
   const user = await requireUser();
   const access = await currentOrganisationAccess(user.id, user.role);
   if (!access.organisationId) return { kind: "error", error: NO_WORKSPACE };
@@ -135,6 +141,14 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
 
   const limit = checkRateLimit(`security-assistant:${user.id}`, ASSISTANT_RATE_LIMIT);
   if (!limit.allowed) return { kind: "error", error: RATE_LIMIT_MESSAGE };
+
+  // A follow-up about the site already scanned here: answer from its scan and progress.
+  const scanned = typeof aboutCheckId === "string" && aboutCheckId ? await siteChatScan(access.organisationId, user.id, aboutCheckId) : null;
+  if (scanned) {
+    const context = siteContextNote(scanned.site, scanned.quick, scanned.report, scanned.status);
+    const reply = await askAboutSite(turns, context);
+    return { kind: "reply", reply: reply ?? plainUpdate(scanned) };
+  }
 
   const answer = await askSecurityAssistant(turns);
   if (!answer) return { kind: "reply", reply: ASK_FOR_ADDRESS };
@@ -219,4 +233,17 @@ function cleanHistory(history: unknown): AssistantTurn[] {
     .map((turn) => ({ role: turn.role, text: turn.text.trim().slice(0, ASSISTANT_MESSAGE_MAX) }))
     .filter((turn) => turn.text)
     .slice(-ASSISTANT_HISTORY_MAX);
+}
+
+/** Where a scanned site is, in plain words: the answer to "what's happening?" when the AI can't reply. */
+function plainUpdate(scan: NonNullable<Awaited<ReturnType<typeof siteChatScan>>>): string {
+  const quick = scan.quick
+    ? scan.quick.total
+      ? ` The quick scan found ${scan.quick.total} ${scan.quick.total === 1 ? "problem" : "problems"}.`
+      : " The quick scan found nothing."
+    : "";
+  if (scan.report.posted) {
+    return `${scan.site}: the agents' report is ready, with ${scan.report.findings} ${scan.report.findings === 1 ? "finding" : "findings"}.${quick} See progress opens it.`;
+  }
+  return `${scan.site}: agents are checking it now (${CHECK_STATUS_LABEL[scan.status].toLowerCase()}).${quick} See progress shows each step, and the report appears there when it's ready.`;
 }
