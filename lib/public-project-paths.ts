@@ -1,11 +1,22 @@
 export type PublicProjectRef = { orgSlug: string; projectSlug: string };
 
+export type PublicReportKind = "problem" | "improvement";
+
 export function publicProjectPath(ref: PublicProjectRef): string {
   return `/${encodeURIComponent(ref.orgSlug)}/${encodeURIComponent(ref.projectSlug)}`;
 }
 
-export function publicReportPath(ref: PublicProjectRef): string {
-  return `${publicProjectPath(ref)}/report`;
+export function publicReportPath(ref: PublicProjectRef, kind?: PublicReportKind): string {
+  const base = `${publicProjectPath(ref)}/report`;
+  return kind ? `${base}?type=${encodeURIComponent(kind)}` : base;
+}
+
+export function publicIssuesPath(ref: PublicProjectRef): string {
+  return `${publicProjectPath(ref)}/public-issues`;
+}
+
+export function publicIssueDetailPath(ref: PublicProjectRef, issueNumber: number): string {
+  return `${publicIssuesPath(ref)}/${issueNumber}`;
 }
 
 export function publicTrackingPath(ref: PublicProjectRef, token: string): string {
@@ -33,5 +44,21 @@ export function publicIntakeSegments(
     orgSlug,
     projectSlug,
     kind: match[3] === "report" ? "report" : "track",
+  };
+}
+
+/** Public issue browsing pages nested below a public project overview. */
+export function publicIssuesSegments(
+  path: string,
+): (PublicProjectRef & { kind: "public-issues" }) | null {
+  const match = /^\/([^/]+)\/([^/]+)\/public-issues(?:\/\d+)?\/?$/.exec(path);
+  if (!match) return null;
+  const orgSlug = decodeSegment(match[1] ?? "");
+  const projectSlug = decodeSegment(match[2] ?? "");
+  if (!orgSlug || !projectSlug) return null;
+  return {
+    orgSlug,
+    projectSlug,
+    kind: "public-issues",
   };
 }
