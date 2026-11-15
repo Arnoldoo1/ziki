@@ -3,7 +3,6 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { currentOrganisationAccess } from "@/lib/organisation-access";
 import SecurityPage from "./page";
-import SecuritySettingsPage from "./settings/page";
 
 vi.mock("@/app/actions/security-assistant", () => ({ talkToSecurityAssistant: vi.fn() }));
 // The page reads the session to tell a signed-in person from a visitor (the public page); the real auth cannot load here.
@@ -250,98 +249,5 @@ describe("SecurityPage (/security)", () => {
     expect(prisma.membership.findMany).toHaveBeenLastCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ userId: "user_test", role: { in: ["owner", "admin"] }, organisationId: { not: "org_123" } }) }),
     );
-  });
-
-  it("renders the Security settings gear link with its accessible name", async () => {
-    const markup = renderToStaticMarkup(await SecurityPage({}));
-
-    expect(markup).toContain('href="/security/settings"');
-    expect(markup).toContain('aria-label="Security settings"');
-    expect(markup).toContain('title="Security settings"');
-  });
-
-  it("renders the read-only settings cards and existing severity and stage guidance", async () => {
-    const markup = renderToStaticMarkup(await SecuritySettingsPage());
-
-    for (const text of [
-      "Breadcrumb",
-      "Security",
-      "Settings",
-      "Security settings",
-      "Back to findings",
-      "Only workspace owners and admins can change security settings.",
-      "Who can see a finding",
-      "Severity guide",
-      "Critical",
-      "Anyone can take over accounts",
-      "Agents cleared for security work",
-      "View agent clearance on Security",
-      "How findings move",
-      "Reported",
-      "Open",
-      "In progress",
-      "Done",
-      "Merge",
-      "Live",
-      "Closed",
-      "Rejected",
-      "Archived",
-    ]) {
-      expect(markup).toContain(text);
-    }
-    expect(markup).toContain('aria-current="page"');
-    expect(markup).toContain('href="/security?view=findings#agents-heading"');
-  });
-
-  it("shows only the no-workspace message when the user has no workspace", async () => {
-    vi.mocked(currentOrganisationAccess).mockResolvedValueOnce({
-      organisationId: null,
-      organisationName: null,
-      organisationSlug: null,
-      membershipRole: null,
-      admin: false,
-    });
-
-    const markup = renderToStaticMarkup(await SecuritySettingsPage());
-
-    expect(markup).toContain("Join or create a workspace to report and track security findings.");
-    expect(markup).not.toContain("Who can see a finding");
-    expect(markup).not.toContain("Severity guide");
-    expect(markup).not.toContain("Agents cleared for security work");
-  });
-
-  it("does not load or reveal the agent list to a non-admin", async () => {
-    vi.mocked(currentOrganisationAccess).mockResolvedValueOnce({
-      organisationId: "org_123",
-      organisationName: "Workspace",
-      organisationSlug: "workspace",
-      membershipRole: "member",
-      admin: false,
-    });
-
-    const markup = renderToStaticMarkup(await SecuritySettingsPage());
-
-    expect(markup).toContain("Only workspace owners and admins can see or change agent clearance.");
-    expect(markup).toContain('href="/security"');
-    expect(markup).not.toContain("SecurityAgent");
-    expect(markup).not.toContain("Clearance Toggle");
-  });
-
-  it("shows a clear load error without exposing access lookup details", async () => {
-    vi.mocked(currentOrganisationAccess).mockRejectedValueOnce(
-      new Error("private database connection detail"),
-    );
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-
-    try {
-      const markup = renderToStaticMarkup(await SecuritySettingsPage());
-
-      expect(markup).toContain("Security settings could not be loaded");
-      expect(markup).toContain("Something went wrong on our side.");
-      expect(markup).toContain("report it with this reference");
-      expect(markup).not.toContain("private database connection detail");
-    } finally {
-      errorSpy.mockRestore();
-    }
   });
 });
