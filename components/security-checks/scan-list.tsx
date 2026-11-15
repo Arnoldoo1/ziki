@@ -11,7 +11,7 @@ import { PaginationControls } from "@/components/pagination-controls";
 import { KindIcon } from "./entry-box";
 import "@/app/(app)/[org]/[project]/issues/_list/issues.css";
 import "@/components/security-finding.css";
-import { SecurityChat } from "./security-chat";
+import { SecurityChat, chatLeftOpen, keepChatOpen } from "./security-chat";
 
 
 /** Rows on each page. */
@@ -255,8 +255,11 @@ export function ScansArea({
   startWith?: string;
 }) {
   const router = useRouter();
-  const [adding, setAdding] = useState(Boolean(startWith));
-  const [justAdded, setJustAdded] = useState<string | null>(null);
+  // Open when arriving with a site, or when it was left open (back from a scan's page).
+  const [adding, setAdding] = useState(() => Boolean(startWith) || chatLeftOpen());
+  useEffect(() => {
+    keepChatOpen(adding);
+  }, [adding]);
   // The scan whose result is in the chat: its card waits until "See progress", so it isn't shown twice.
   const [inChat, setInChat] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -267,12 +270,11 @@ export function ScansArea({
       focusOnOpen
       startWith={startWith}
       onScanned={setInChat}
-      onSeeProgress={(checkId) => {
+      // Straight to the scan's page; the chat stays open for when they come back.
+      onSeeProgress={(checkId) => router.push(`/security/checks/${checkId}`)}
+      onClose={() => {
         setAdding(false);
         setInChat(null);
-        setJustAdded(checkId);
-        router.refresh();
-        setTimeout(() => list.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
       }}
     />
   ) : null;
@@ -281,7 +283,7 @@ export function ScansArea({
     <div ref={list} className="scroll-mt-24 p-3 sm:p-6">
       <ScanList
         checks={checks}
-        highlightId={justAdded ?? highlightId}
+        highlightId={highlightId}
         show={show}
         page={page}
         // Like "+ Add Idea": a second click closes the box.

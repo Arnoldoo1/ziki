@@ -124,3 +124,61 @@ function Fact({ label, tone, icon, value, detail }: { label: string; tone: strin
     </div>
   );
 }
+
+/**
+ * The quick scan on the scan's own page, before the agents' report: just its
+ * problems, worst first, laid out like the report's "What we found"
+ * (report-results.tsx) so the page reads the same before and after. The
+ * agents' report replaces it once it's ready.
+ */
+export function QuickScanList({ summary }: { summary: PreviewSummary }) {
+  const { counts, total } = summary;
+  const rank = (severity: SecuritySeverity) => SECURITY_SEVERITIES.indexOf(severity);
+  const rows = [...(summary.rows ?? [])].sort((a, b) => rank(a.severity) - rank(b.severity));
+  const areaLabel = new Map(summary.areas.map((area) => [area.area, area.label]));
+
+  return (
+    <section aria-labelledby="quick-scan-heading" className="overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface">
+      <div className="flex flex-wrap items-start justify-between gap-3 px-4 pt-4 sm:px-6 sm:pt-5">
+        <div className="min-w-0">
+          <h2 id="quick-scan-heading" className="text-base font-semibold text-zk-text">Quick scan</h2>
+          <p className="text-xs text-zk-muted">What any browser can see, worst first. The agents&apos; report replaces this.</p>
+        </div>
+        <ul aria-label="Results by severity" className="m-0 flex list-none flex-wrap gap-1.5 p-0">
+          {total ? (
+            SECURITY_SEVERITIES.filter((severity) => counts[severity] > 0).map((severity) => (
+              <li key={severity}>
+                <span className={`security-severity security-severity--${severity} ${CHIP}`}>
+                  {counts[severity]} {SEVERITY_LABEL[severity].toLowerCase()}
+                </span>
+              </li>
+            ))
+          ) : (
+            <li>
+              <span className={OK_CHIP}>No problems found</span>
+            </li>
+          )}
+        </ul>
+      </div>
+      {rows.length ? (
+        <ol className="m-0 mt-3 list-none divide-y divide-zk-border border-t border-zk-border p-0">
+          {rows.map((row, index) => (
+            <li key={index} className="grid gap-1.5 px-4 py-3 sm:grid-cols-[6rem_minmax(0,1fr)] sm:gap-4 sm:px-6">
+              <div>
+                <span className={`security-severity security-severity--${row.severity} ${CHIP}`}>{SEVERITY_LABEL[row.severity]}</span>
+              </div>
+              <div className="min-w-0">
+                <p className="m-0 wrap-break-word text-sm font-semibold text-zk-text">{row.title ?? "A problem in this area"}</p>
+                {areaLabel.get(row.area) ? <p className="m-0 text-xs text-zk-muted">{areaLabel.get(row.area)}</p> : null}
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="m-0 mt-3 border-t border-zk-border px-4 py-4 text-sm text-zk-text2 sm:px-6">
+          {total ? "Scan again to see what was found." : "Nothing a browser can see needs fixing."}
+        </p>
+      )}
+    </section>
+  );
+}

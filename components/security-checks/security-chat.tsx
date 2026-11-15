@@ -28,7 +28,24 @@ const WORKING_STEPS = [
  * nothing typed or said is lost. It lives only in this browser tab's memory:
  * a refresh starts afresh.
  */
-const kept: { turns: ChatItem[]; text: string; started?: string } = { turns: [], text: "" };
+const kept: { turns: ChatItem[]; text: string; started?: string; open?: boolean } = { turns: [], text: "" };
+
+/**
+ * Whether the chat was left open: "See progress" opens the scan's page, and
+ * coming back finds the chat as it was, until the person closes it.
+ */
+export function chatLeftOpen(): boolean {
+  return Boolean(kept.open);
+}
+
+/** Open or close the kept chat; closing it ends the conversation. */
+export function keepChatOpen(open: boolean) {
+  kept.open = open;
+  if (!open) {
+    kept.turns = [];
+    kept.text = "";
+  }
+}
 
 /** A message in the chat; a reply can carry a quick scan of the site. */
 type ChatItem = AssistantTurn & { scan?: { target: string; summary: PreviewSummary | null; note: string | null; checkId: string | null; already?: boolean } };
@@ -46,18 +63,21 @@ export function SecurityChat({
   startWith,
   onSeeProgress,
   onScanned,
+  onClose,
 }: {
   id?: string;
   focusOnOpen?: boolean;
   /** An address brought from the public page after sign-up: sent once, so its quick scan starts on arrival. */
   startWith?: string;
   /**
-   * Once a scan is in, the send button becomes "See progress" (while nothing new is typed):
-   * this closes the chat and shows that scan in the list. Without it, the chat just carries on.
+   * Once a scan is in, the send button becomes "See progress" (while nothing new is typed), which opens the scan's page:
+   * the chat stays open for when they come back. Without it, the chat just carries on.
    */
   onSeeProgress?: (checkId: string) => void;
   /** A scan just came in and is in the person's scans; its card can wait until "See progress". */
   onScanned?: (checkId: string) => void;
+  /** The X at the box's top right: closes the chat and ends the conversation. */
+  onClose?: () => void;
 }) {
   const router = useRouter();
   const [turns, setTurns] = useState<ChatItem[]>(() => kept.turns);
@@ -206,7 +226,21 @@ export function SecurityChat({
         }}
         noValidate
       >
-        <div className="rounded-[22px] border border-zk-border bg-zk-surface px-4 pb-2.5 pt-3 shadow-[0_2px_10px_rgba(0,0,0,0.06)] focus-within:border-electric-blue-strong/50">
+        <div className="relative rounded-[22px] border border-zk-border bg-zk-surface px-4 pb-2.5 pt-3 shadow-[0_2px_10px_rgba(0,0,0,0.06)] focus-within:border-electric-blue-strong/50">
+          {/* Close, like the X on Ziki's dialogs (add-confirmation-dialog.tsx). */}
+          {onClose ? (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close chat"
+              title="Close chat"
+              className="absolute right-2.5 top-2.5 inline-flex h-8 w-8 items-center justify-center rounded-lg text-zk-muted hover:bg-zk-chip hover:text-zk-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue-strong"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="m6 6 12 12M18 6 6 18" />
+              </svg>
+            </button>
+          ) : null}
           <label htmlFor={id} className="sr-only">What do you want to secure?</label>
           <textarea
             id={id}
@@ -227,7 +261,7 @@ export function SecurityChat({
                 send();
               }
             }}
-            className="block min-h-[28px] w-full resize-none border-0 bg-transparent p-1 text-[15px] leading-6 text-zk-text placeholder:text-zk-muted focus:outline-none"
+            className="block min-h-[28px] w-full resize-none border-0 bg-transparent p-1 pr-9 text-[15px] leading-6 text-zk-text placeholder:text-zk-muted focus:outline-none"
           />
           <div className="mt-2 flex items-center justify-between gap-3">
             <p id={`${id}-reading`} aria-live="polite" className="m-0 min-w-0 truncate px-1 text-[13px] text-zk-muted">
@@ -243,11 +277,8 @@ export function SecurityChat({
             {onSeeProgress && finishedCheckId && !value && !pending ? (
               <button
                 type="button"
-                onClick={() => {
-                  kept.turns = [];
-                  kept.text = "";
-                  onSeeProgress(finishedCheckId);
-                }}
+                // The conversation stays: coming back from the scan's page finds it open.
+                onClick={() => onSeeProgress(finishedCheckId)}
                 className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-electric-blue-strong px-4 text-sm font-bold text-white transition hover:brightness-105"
               >
                 See progress
