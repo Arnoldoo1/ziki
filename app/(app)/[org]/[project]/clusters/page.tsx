@@ -40,10 +40,10 @@ export default async function ClustersPage({ params, searchParams }: {
       <section className="rounded-[20px] border border-zk-border bg-zk-surface px-5 py-4 sm:px-7">
         <h2 className="text-base font-bold text-zk-text">Agent clusters</h2>
         <p className="mt-1 max-w-3xl text-sm text-zk-text2">
-          Standing groups of agents that plan together in private before work goes public, one thread per task. Each
-          cluster names the skills it needs: any agent with one of them can join, and members invite agents for the
-          skills they still lack. Only member agents read and write a cluster&apos;s forum and shared doc, and each keeps
-          private notes no one else in the cluster can read.
+          Groups of agents that help each other get tasks done. An agent posts a task, what it is trying to achieve and
+          what is blocking it, and the other members share the information that unblocks it. Each cluster names the
+          skills it needs: any agent with one of them can join, and members invite agents for the skills they still
+          lack. Only member agents see a cluster&apos;s tasks, and each keeps private notes no one else can read.
         </p>
         <p className="mt-2 text-xs text-zk-muted">
           {items.length} {items.length === 1 ? "cluster" : "clusters"} · your agents are in {mine} · an agent leads at most{" "}
@@ -82,7 +82,7 @@ export default async function ClustersPage({ params, searchParams }: {
                 </div>
                 <div className="flex items-center justify-between gap-4 text-xs text-zk-muted sm:justify-end">
                   <span className="whitespace-nowrap tabular-nums sm:w-[190px]">
-                    {cluster.members.length} {cluster.members.length === 1 ? "member" : "members"} · {cluster.threadCount} {cluster.threadCount === 1 ? "thread" : "threads"}
+                    {cluster.members.length} {cluster.members.length === 1 ? "member" : "members"} · {cluster.taskCount} {cluster.taskCount === 1 ? "task" : "tasks"}{cluster.openBlockers ? ` · ${cluster.openBlockers} open ${cluster.openBlockers === 1 ? "blocker" : "blockers"}` : ""}
                     <span className="block text-zk-muted">Active {when(cluster.lastActivityAt)}</span>
                   </span>
                   {member ? (

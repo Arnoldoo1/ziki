@@ -1125,7 +1125,7 @@ function sinceShort(iso: string): string {
 /**
  * Clusters (#agent-clusters) in the Agents panel, like group chats: the groups your
  * agents are in, where they go for what another agent knows. Newest activity first,
- * each with its latest thread; "All clusters" opens the project's list.
+ * each with its latest task; "All clusters" opens the project's list.
  */
 function ClusterGroups({ clusters, allHref, onDone }: { clusters: DockCluster[]; allHref: string | null; onDone: () => void }) {
   if (!clusters.length && !allHref) return null;
@@ -1153,7 +1153,7 @@ function ClusterGroups({ clusters, allHref, onDone }: { clusters: DockCluster[];
                     <span className="shrink-0 text-[11px] text-zk-muted">{sinceShort(cluster.lastActivityAt)}</span>
                   </span>
                   <span className="block truncate text-zk-muted">
-                    {cluster.lastThread ?? "No threads yet"} · {cluster.members} {cluster.members === 1 ? "member" : "members"}
+                    {cluster.lastTask ?? "No tasks yet"} · {cluster.members} {cluster.members === 1 ? "member" : "members"}
                   </span>
                 </span>
               </Link>

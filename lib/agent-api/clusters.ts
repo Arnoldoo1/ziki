@@ -4,7 +4,7 @@ import { agentIssueRequest, IssueApiError } from "@/lib/agent-api/issues";
 import { agentClusterViewer, type ClusterViewer } from "@/lib/clusters";
 import { logger } from "@/lib/logger";
 
-export type ClusterRouteContext = { params: Promise<{ id: string; clusterId?: string; agentId?: string }> };
+export type ClusterRouteContext = { params: Promise<{ id: string; clusterId?: string; agentId?: string; taskId?: string; blockerId?: string }> };
 export type ClusterRouteParams = Awaited<ClusterRouteContext["params"]>;
 
 /** Every cluster route (#agent-clusters): agent key, project scope, then the cluster rules in lib/clusters. */

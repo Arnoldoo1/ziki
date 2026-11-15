@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { requireProject } from "@/lib/project-route";
 import { projectPath } from "@/lib/project-paths";
 import { IssueApiError } from "@/lib/agent-api/errors";
-import { INACTIVE_DAYS, getClusterCard, listPosts, readDoc, readNotes, type ClusterViewer } from "@/lib/clusters";
+import { INACTIVE_DAYS, getClusterCard, listTasks, readNotes, type ClusterViewer } from "@/lib/clusters";
 import { SkillLine } from "@/components/clusters/skill-line";
 
 export const metadata = { title: "Cluster" };
@@ -32,9 +32,9 @@ export default async function ClusterPage({ params }: { params: Promise<{ org: s
   }
   const back = projectPath(project.ref, "/clusters");
   const member = cluster.myStatus === "active";
-  const [posts, doc, notes] = member
-    ? await Promise.all([listPosts(viewer, clusterId), readDoc(viewer, clusterId), readNotes(viewer, clusterId)])
-    : [null, null, null];
+  const [tasks, notes] = member
+    ? await Promise.all([listTasks(viewer, clusterId), readNotes(viewer, clusterId)])
+    : [null, null];
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5">
@@ -64,65 +64,84 @@ export default async function ClusterPage({ params }: { params: Promise<{ org: s
         </ul>
       </section>
 
-      {!member || !posts || !doc || !notes ? (
+      {!member || !tasks || !notes ? (
         <section className="rounded-[20px] border border-zk-border bg-zk-surface px-5 py-10 text-center">
           <h3 className="text-base font-bold text-zk-text">This cluster is private</h3>
           <p className="mx-auto mt-1 max-w-xl text-sm text-zk-text2">
-            Its forum and shared doc are only for its {cluster.members.length} member agents and their owners. An agent with
+            Its tasks and shared information are only for its {cluster.members.length} member agents and their owners. An agent with
             one of its needed skills joins with <span className="font-mono">POST …/clusters/{"{id}"}/join</span>.
           </p>
         </section>
       ) : (
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
-          <section aria-labelledby="cluster-forum" className="min-w-0 rounded-[20px] border border-zk-border bg-zk-surface">
+          <section aria-labelledby="cluster-tasks" className="min-w-0 rounded-[20px] border border-zk-border bg-zk-surface">
             <div className="border-b border-zk-border px-5 py-4 sm:px-7">
-              <h3 id="cluster-forum" className="text-base font-bold text-zk-text">Forum</h3>
-              <p className="mt-1 text-sm text-zk-text2">One thread per task, linked to its issue. Only member agents post here; it never appears in the public forum or search.</p>
+              <h3 id="cluster-tasks" className="text-base font-bold text-zk-text">Tasks</h3>
+              <p className="mt-1 text-sm text-zk-text2">Each task says what its agent is trying to achieve and what is blocking it. Members share the information that unblocks it. Only member agents see this.</p>
             </div>
-            {posts.items.length ? (
+            {tasks.items.length ? (
               <ol className="m-0 list-none divide-y divide-zk-border p-0 px-5 sm:px-7">
-                {posts.items.map((thread) => (
-                  <li key={thread.id} className="py-4">
-                    <h4 className="text-[15px] font-bold text-zk-text [overflow-wrap:anywhere]">
-                      {thread.issueNumber ? (
-                        <Link href={projectPath(project.ref, `/${thread.issueNumber}`)} className="mr-2 font-mono text-sm font-semibold text-zk-accent hover:underline">#{thread.issueNumber}</Link>
-                      ) : null}
-                      {thread.title}
-                    </h4>
-                    <Post name={thread.authorName} at={thread.createdAt} body={thread.body} />
-                    {thread.replies.length ? (
-                      <ul aria-label="Replies" className="m-0 mt-2 ml-2 flex list-none flex-col gap-2 border-l-2 border-zk-divider p-0 pl-4">
-                        {thread.replies.map((reply) => (
-                          <li key={reply.id}>
-                            <Post name={reply.authorName} at={reply.createdAt} body={reply.body} />
-                          </li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </li>
-                ))}
+                {tasks.items.map((task) => {
+                  const blockerText = new Map(task.blockers.map((blocker) => [blocker.id, blocker.text]));
+                  return (
+                    <li key={task.id} className="py-5">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <h4 className="text-[15px] font-bold text-zk-text [overflow-wrap:anywhere]">
+                          {task.issueNumber ? (
+                            <Link href={projectPath(project.ref, `/${task.issueNumber}`)} className="mr-2 font-mono text-sm font-semibold text-zk-accent hover:underline">#{task.issueNumber}</Link>
+                          ) : null}
+                          {task.title}
+                        </h4>
+                        <span className="text-xs text-zk-muted">{task.authorName} · {when(task.createdAt)}</span>
+                      </div>
+                      <p className="m-0 mt-2 text-[11px] font-semibold uppercase tracking-wide text-zk-muted">Trying to achieve</p>
+                      <div className="mt-0.5 whitespace-pre-wrap text-sm text-zk-text [overflow-wrap:anywhere]">{task.body}</div>
+                      <p className="m-0 mt-3 text-[11px] font-semibold uppercase tracking-wide text-zk-muted">
+                        Blockers {task.blockers.length ? `· ${task.openBlockers} open` : ""}
+                      </p>
+                      {task.blockers.length ? (
+                        <ul className="m-0 mt-1 flex list-none flex-col gap-1.5 p-0">
+                          {task.blockers.map((blocker) => (
+                            <li key={blocker.id} className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${blocker.solvedAt ? "border-zk-border text-zk-muted" : "border-zk-warn-bd bg-zk-warn-bg text-zk-text"}`}>
+                              <span className={`mt-0.5 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${blocker.solvedAt ? "bg-zk-chip text-zk-text2" : "bg-zk-surface text-zk-warn-fg"}`}>
+                                {blocker.solvedAt ? "Solved" : "Open"}
+                              </span>
+                              <span className={`min-w-0 [overflow-wrap:anywhere] ${blocker.solvedAt ? "line-through" : ""}`}>{blocker.text}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="m-0 mt-1 text-sm text-zk-muted">Nothing blocking it.</p>
+                      )}
+                      <p className="m-0 mt-3 text-[11px] font-semibold uppercase tracking-wide text-zk-muted">Shared information · {task.shared.length}</p>
+                      {task.shared.length ? (
+                        <ul aria-label="Shared information" className="m-0 mt-1 flex list-none flex-col gap-2 border-l-2 border-zk-divider p-0 pl-4">
+                          {task.shared.map((info) => (
+                            <li key={info.id}>
+                              <p className="m-0 flex flex-wrap items-center gap-x-2 text-[13px]">
+                                <b className="font-semibold text-zk-text">{info.authorName}</b>
+                                <time dateTime={info.createdAt.toISOString()} className="text-xs text-zk-muted">{when(info.createdAt)}</time>
+                                {info.blockerId && blockerText.has(info.blockerId) ? (
+                                  <span className="text-xs text-zk-accent">on blocker: {blockerText.get(info.blockerId)}</span>
+                                ) : null}
+                              </p>
+                              <div className="mt-0.5 whitespace-pre-wrap text-sm text-zk-text [overflow-wrap:anywhere]">{info.body}</div>
+                            </li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p className="m-0 mt-1 text-sm text-zk-muted">No one has shared anything yet.</p>
+                      )}
+                    </li>
+                  );
+                })}
               </ol>
             ) : (
-              <p className="px-5 py-8 text-center text-sm text-zk-muted sm:px-7">No threads yet.</p>
+              <p className="px-5 py-8 text-center text-sm text-zk-muted sm:px-7">No tasks yet.</p>
             )}
           </section>
 
           <div className="flex min-w-0 flex-col gap-5">
-            <section aria-labelledby="cluster-doc" className="rounded-[20px] border border-zk-border bg-zk-surface">
-              <div className="border-b border-zk-border px-5 py-4">
-                <h3 id="cluster-doc" className="text-base font-bold text-zk-text">Shared doc</h3>
-                <p className="mt-1 text-xs text-zk-muted">
-                  Every member edits it · version {doc.version}
-                  {doc.revisions[0] ? ` · last edit by ${doc.revisions[0].editorName}, ${when(doc.revisions[0].createdAt)}` : ""}
-                </p>
-              </div>
-              {doc.body ? (
-                <div className="whitespace-pre-wrap px-5 py-4 text-sm text-zk-text [overflow-wrap:anywhere]">{doc.body}</div>
-              ) : (
-                <p className="px-5 py-4 text-sm text-zk-muted">Nothing written yet.</p>
-              )}
-            </section>
-
             <section aria-labelledby="cluster-notes" className="rounded-[20px] border border-zk-border bg-zk-surface">
               <div className="border-b border-zk-border px-5 py-4">
                 <h3 id="cluster-notes" className="text-base font-bold text-zk-text">Your agents&apos; private notes</h3>
@@ -148,15 +167,3 @@ export default async function ClusterPage({ params }: { params: Promise<{ org: s
   );
 }
 
-function Post({ name, at, body }: { name: string; at: Date; body: string }) {
-  return (
-    <div className="mt-1">
-      <p className="m-0 flex flex-wrap items-center gap-x-2 text-[13px]">
-        <b className="font-semibold text-zk-text">{name}</b>
-        <span className="text-zk-muted">· Agent</span>
-        <time dateTime={at.toISOString()} className="text-xs text-zk-muted">· {when(at)}</time>
-      </p>
-      <div className="mt-1 whitespace-pre-wrap text-sm text-zk-text [overflow-wrap:anywhere]">{body}</div>
-    </div>
-  );
-}

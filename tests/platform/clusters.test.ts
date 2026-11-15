@@ -13,14 +13,14 @@ const db = vi.hoisted(() => ({
   cluster: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
   clusterMember: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), createMany: vi.fn(), update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
   clusterPost: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
-  clusterDocRevision: { findMany: vi.fn(), create: vi.fn() },
+  clusterBlocker: { findFirst: vi.fn(), create: vi.fn(), createMany: vi.fn(), update: vi.fn() },
   clusterNote: { findMany: vi.fn(), upsert: vi.fn() },
   $transaction: vi.fn(),
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 import {
-  agentClusterViewer, addPost, createCluster, decideMember, inviteToCluster, joinCluster,
-  listClusters, listPosts, readDoc, readNotes, reopenCluster, saveDoc, suggestInvites, type ClusterViewer,
+  agentClusterViewer, addBlocker, addTask, createCluster, decideMember, inviteToCluster, joinCluster,
+  listClusters, listTasks, readNotes, reopenCluster, setBlockerSolved, shareInformation, suggestInvites, type ClusterViewer,
 } from "@/lib/clusters";
 import type { AgentContext } from "@/lib/agents/require-agent";
 
@@ -56,23 +56,23 @@ describe("cluster access", () => {
     expect(db.project.findFirst.mock.calls[0][0].where).toMatchObject({ id: "foreign", organisationId: "org" });
   });
 
-  it("answers 404, not 403, to a non-member reading the forum, the doc or notes", async () => {
+  it("answers 404, not 403, to a non-member reading tasks or notes", async () => {
     const outsider = viewerFor("outsider");
-    await expect(listPosts(outsider, "c1")).rejects.toMatchObject({ status: 404, message: "Cluster not found." });
-    await expect(readDoc(outsider, "c1")).rejects.toMatchObject({ status: 404, message: "Cluster not found." });
+    await expect(listTasks(outsider, "c1")).rejects.toMatchObject({ status: 404, message: "Cluster not found." });
     await expect(readNotes(outsider, "c1")).rejects.toMatchObject({ status: 404, message: "Cluster not found." });
     expect(db.clusterPost.findMany).not.toHaveBeenCalled();
     expect(db.clusterNote.findMany).not.toHaveBeenCalled();
   });
 
   it("treats an invited agent as outside until it joins", async () => {
-    await listPosts(viewerFor("member"), "c1");
+    db.clusterPost.findMany.mockResolvedValue([]);
+    await listTasks(viewerFor("member"), "c1");
     expect(db.clusterMember.findFirst.mock.calls[0][0].where).toMatchObject({ clusterId: "c1", status: "active", agentId: "member" });
   });
 
   it("scopes a cluster to the caller's project and organisation", async () => {
     db.cluster.findFirst.mockResolvedValue(null);
-    await expect(listPosts(viewerFor("member"), "other-project-cluster")).rejects.toMatchObject({ status: 404 });
+    await expect(listTasks(viewerFor("member"), "other-project-cluster")).rejects.toMatchObject({ status: 404 });
     expect(db.cluster.findFirst.mock.calls[0][0].where).toMatchObject({ id: "other-project-cluster", projectId: "project", organisationId: "org" });
   });
 
@@ -91,11 +91,11 @@ describe("cluster access", () => {
 
   it("lists cards without content, with the skills still missing, and hides archived clusters unless asked", async () => {
     db.cluster.findMany.mockResolvedValue([{ id: "c1", name: "Payments", purpose: "Harden payments", creatorAgentId: "creator",
-      neededSkills: ["security", "testing"], lastActivityAt: new Date(), createdAt: new Date(0), _count: { posts: 2 },
+      neededSkills: ["security", "testing"], lastActivityAt: new Date(), createdAt: new Date(0), _count: { posts: 2, blockers: 1 },
       members: [{ agentId: "creator", joinedAt: new Date(0), agent: { name: "Creator", ownerUserId: "owner-creator" } }] }]);
     db.clusterMember.findMany.mockResolvedValue([]);
     const { items } = await listClusters(viewerFor("outsider"));
-    expect(items[0]).toMatchObject({ id: "c1", threadCount: 2, myStatus: null, missingSkills: ["testing"], archived: false });
+    expect(items[0]).toMatchObject({ id: "c1", taskCount: 2, openBlockers: 1, myStatus: null, missingSkills: ["testing"], archived: false });
     expect(items[0]).not.toHaveProperty("doc");
     expect(db.cluster.findMany.mock.calls[0][0].select).not.toHaveProperty("doc");
     expect(db.cluster.findMany.mock.calls[0][0].where).toHaveProperty("lastActivityAt");
@@ -172,8 +172,8 @@ describe("archived clusters", () => {
   it("are read-only after 14 days without activity until a member reopens them", async () => {
     const quiet = { ...cluster, lastActivityAt: new Date(Date.now() - 15 * DAY) };
     db.cluster.findFirst.mockResolvedValue(quiet);
-    await expect(addPost(viewerFor("member"), "c1", { title: "New task", body: "Hello" })).rejects.toMatchObject({ status: 409, body: { code: "cluster_archived" } });
-    await expect(saveDoc(viewerFor("member"), "c1", { body: "x", expectedVersion: 3 })).rejects.toMatchObject({ status: 409 });
+    await expect(addTask(viewerFor("member"), "c1", { title: "New task", tryingToAchieve: "Ship it" })).rejects.toMatchObject({ status: 409, body: { code: "cluster_archived" } });
+    await expect(shareInformation(viewerFor("member"), "c1", "t1", { body: "x" })).rejects.toMatchObject({ status: 409 });
     db.clusterMember.findUnique.mockResolvedValue(null);
     await expect(joinCluster(viewerFor("tester"), "c1")).rejects.toMatchObject({ status: 409 });
     await reopenCluster(viewerFor("member"), "c1");
@@ -181,35 +181,63 @@ describe("archived clusters", () => {
   });
 });
 
-describe("cluster forum and shared doc", () => {
-  it("links a thread to an issue of this project, one thread per task", async () => {
+describe("tasks, blockers and shared information", () => {
+  it("posts a task with what it is trying to achieve and its blockers, linked to an issue of this project", async () => {
     db.bug.findFirst.mockResolvedValue(null);
-    await expect(addPost(viewerFor("member"), "c1", { title: "Task", body: "Plan", issueNumber: 42 })).rejects.toMatchObject({ status: 404 });
+    await expect(addTask(viewerFor("member"), "c1", { title: "Refund retries", tryingToAchieve: "Retry soft declines", issueNumber: 42 })).rejects.toMatchObject({ status: 404 });
     expect(db.bug.findFirst.mock.calls[0][0].where).toMatchObject({ projectId: "project", number: 42 });
     db.bug.findFirst.mockResolvedValue({ id: "bug" });
-    db.clusterPost.create.mockResolvedValue({ id: "p", createdAt: new Date() });
-    await addPost(viewerFor("member"), "c1", { title: "Task", body: "Plan", issueNumber: 42 });
-    expect(db.clusterPost.create).toHaveBeenCalledWith({ data: expect.objectContaining({ issueNumber: 42, parentId: null }) });
+    db.clusterPost.create.mockResolvedValue({ id: "t1", createdAt: new Date() });
+    await addTask(viewerFor("member"), "c1", { title: "Refund retries", tryingToAchieve: "Retry soft declines", issueNumber: 42, blockers: ["Which declines are soft?"] });
+    expect(db.clusterPost.create).toHaveBeenCalledWith({ data: expect.objectContaining({ title: "Refund retries", body: "Retry soft declines", issueNumber: 42, authorAgentId: "member" }) });
+    expect(db.clusterBlocker.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ taskId: "t1", text: "Which declines are soft?", raisedByAgentId: "member" })] });
   });
 
-  it("needs a title for a thread and refuses a reply to a thread in another cluster", async () => {
-    await expect(addPost(viewerFor("member"), "c1", { body: "No title" })).rejects.toMatchObject({ status: 422 });
-    db.clusterPost.findFirst.mockResolvedValue(null);
-    await expect(addPost(viewerFor("member"), "c1", { parentId: "elsewhere", body: "Reply" })).rejects.toMatchObject({ status: 404 });
-    expect(db.clusterPost.findFirst.mock.calls[0][0].where).toEqual({ id: "elsewhere", clusterId: "c1", parentId: null });
+  it("needs a title and what the task is trying to achieve", async () => {
+    await expect(addTask(viewerFor("member"), "c1", { title: "No aim" })).rejects.toThrow();
     expect(db.clusterPost.create).not.toHaveBeenCalled();
   });
 
-  it("saves the doc as the next version with a revision, and refuses a stale save", async () => {
-    db.cluster.updateMany.mockResolvedValue({ count: 1 });
-    await expect(saveDoc(viewerFor("member"), "c1", { body: "New plan", expectedVersion: 3 })).resolves.toEqual({ version: 4 });
-    expect(db.clusterDocRevision.create).toHaveBeenCalledWith({ data: expect.objectContaining({ clusterId: "c1", version: 4, editorAgentId: "member" }) });
-    db.cluster.updateMany.mockResolvedValue({ count: 0 });
-    await expect(saveDoc(viewerFor("member"), "c1", { body: "Stale", expectedVersion: 1 })).rejects.toMatchObject({ status: 409 });
+  it("shares information only on a task in this cluster, and only against that task's own blockers", async () => {
+    db.clusterPost.findFirst.mockResolvedValue(null);
+    await expect(shareInformation(viewerFor("member"), "c1", "elsewhere", { body: "Here you go" })).rejects.toMatchObject({ status: 404 });
+    expect(db.clusterPost.findFirst.mock.calls[0][0].where).toEqual({ id: "elsewhere", clusterId: "c1", parentId: null });
+    db.clusterPost.findFirst.mockResolvedValue({ id: "t1", authorAgentId: "creator" });
+    db.clusterBlocker.findFirst.mockResolvedValue(null);
+    await expect(shareInformation(viewerFor("member"), "c1", "t1", { body: "Answer", blockerId: "other-task-blocker" })).rejects.toMatchObject({ status: 404 });
+    expect(db.clusterBlocker.findFirst.mock.calls[0][0].where).toEqual({ id: "other-task-blocker", taskId: "t1" });
+    db.clusterBlocker.findFirst.mockResolvedValue({ id: "b1" });
+    db.clusterPost.create.mockResolvedValue({ id: "i1", createdAt: new Date() });
+    await shareInformation(viewerFor("member"), "c1", "t1", { body: "Answer", blockerId: "b1" });
+    expect(db.clusterPost.create).toHaveBeenCalledWith({ data: expect.objectContaining({ parentId: "t1", blockerId: "b1", authorAgentId: "member" }) });
+  });
+
+  it("lets any member raise a blocker on a task", async () => {
+    db.clusterPost.findFirst.mockResolvedValue({ id: "t1", authorAgentId: "creator" });
+    db.clusterBlocker.create.mockResolvedValue({ id: "b2", createdAt: new Date() });
+    await addBlocker(viewerFor("member"), "c1", "t1", { text: "No staging access" });
+    expect(db.clusterBlocker.create).toHaveBeenCalledWith({ data: { clusterId: "c1", taskId: "t1", text: "No staging access", raisedByAgentId: "member" } });
+  });
+
+  it("lets only the task's author mark a blocker solved", async () => {
+    db.clusterBlocker.findFirst.mockResolvedValue({ id: "b1", task: { authorAgentId: "creator" } });
+    await expect(setBlockerSolved(viewerFor("member"), "c1", "b1", { solved: true })).rejects.toMatchObject({ status: 403 });
+    db.clusterBlocker.update.mockResolvedValue({ id: "b1" });
+    await setBlockerSolved(viewerFor("creator"), "c1", "b1", { solved: true });
+    expect(db.clusterBlocker.update).toHaveBeenCalledWith({ where: { id: "b1" }, data: { solvedAt: expect.any(Date), solvedByAgentId: "creator" } });
+  });
+
+  it("lists open blockers first and counts them", async () => {
+    db.clusterPost.findMany.mockResolvedValue([{ id: "t1", title: "T", body: "B", replies: [], blockers: [
+      { id: "b1", text: "done", solvedAt: new Date(0) }, { id: "b2", text: "still stuck", solvedAt: null },
+    ] }]);
+    const { items } = await listTasks(viewerFor("member"), "c1");
+    expect(items[0].blockers.map((b) => b.id)).toEqual(["b2", "b1"]);
+    expect(items[0]).toMatchObject({ openBlockers: 1, shared: [] });
   });
 
   it("lets no one but an agent write", async () => {
     db.clusterMember.findFirst.mockResolvedValue({ agentId: "member" });
-    await expect(addPost({ organisationId: "org", projectId: "project", userId: "owner-member" }, "c1", { title: "Hi", body: "Hello" })).rejects.toMatchObject({ status: 403 });
+    await expect(addTask({ organisationId: "org", projectId: "project", userId: "owner-member" }, "c1", { title: "Hi", tryingToAchieve: "Hello" })).rejects.toMatchObject({ status: 403 });
   });
 });
