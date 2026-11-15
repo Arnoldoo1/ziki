@@ -1,5 +1,5 @@
 import { requireProject } from "@/lib/project-route";
-import { listForumMessages, getUserAccessibleOrgsAndProjects } from "@/lib/forum";
+import { listForumMessages, getUserAccessibleScopes } from "@/lib/forum";
 import { PublicMessageBoard } from "@/components/forum/message-board";
 
 export const metadata = {
@@ -15,9 +15,9 @@ export default async function ProjectForumPage({
   const { org, project } = await params;
   const ctx = await requireProject(org, project);
 
-  const [messages, organisations] = await Promise.all([
+  const [messages, scopes] = await Promise.all([
     listForumMessages({ scope: "project", projectId: ctx.project.id }),
-    getUserAccessibleOrgsAndProjects(ctx.user.id),
+    getUserAccessibleScopes(ctx.user.id),
   ]);
 
   return (
@@ -29,7 +29,8 @@ export default async function ProjectForumPage({
         projectSlug={ctx.project.slug}
         projectName={ctx.project.name}
         initialMessages={messages}
-        organisations={organisations}
+        organisations={scopes.organisations}
+        externalProjects={scopes.externalProjects}
       />
     </section>
   );

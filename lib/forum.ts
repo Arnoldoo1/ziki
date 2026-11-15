@@ -441,7 +441,12 @@ export interface AccessibleOrganisation {
   }>;
 }
 
-export async function getUserAccessibleOrgsAndProjects(userId?: string | null): Promise<AccessibleOrganisation[]> {
+export interface UserAccessibleScopes {
+  organisations: AccessibleOrganisation[];
+  externalProjects: ExternalProject[];
+}
+
+export async function getUserAccessibleScopes(userId?: string | null): Promise<UserAccessibleScopes> {
   try {
     if (!userId) {
       const orgs = await prisma.organisation.findMany({
@@ -459,7 +464,7 @@ export async function getUserAccessibleOrgsAndProjects(userId?: string | null): 
         orderBy: { name: "asc" },
         take: 20,
       });
-      return orgs;
+      return { organisations: orgs, externalProjects: [] };
     }
 
     const user = await prisma.user.findUnique({
@@ -467,10 +472,10 @@ export async function getUserAccessibleOrgsAndProjects(userId?: string | null): 
       select: { id: true, role: true },
     });
 
-    if (!user) return [];
+    if (!user) return { organisations: [], externalProjects: [] };
 
     if (user.role === "super_admin") {
-      return await prisma.organisation.findMany({
+      const orgs = await prisma.organisation.findMany({
         where: { archivedAt: null },
         select: {
           id: true,
@@ -484,8 +489,10 @@ export async function getUserAccessibleOrgsAndProjects(userId?: string | null): 
         },
         orderBy: { name: "asc" },
       });
+      return { organisations: orgs, externalProjects: [] };
     }
 
+    // 1. User's organisations via Membership
     const memberships = await prisma.membership.findMany({
       where: { userId: user.id, organisation: { archivedAt: null } },
       select: {
@@ -504,12 +511,55 @@ export async function getUserAccessibleOrgsAndProjects(userId?: string | null): 
       },
     });
 
-    return memberships
+    const organisations = memberships
       .map((m) => m.organisation)
       .filter((org): org is NonNullable<typeof org> => Boolean(org))
       .sort((a, b) => a.name.localeCompare(b.name));
+
+    const userOrgIds = new Set(organisations.map((o) => o.id));
+
+    // 2. Direct project memberships where the project belongs to another organisation
+    const userProjectMemberships = await prisma.projectMembership.findMany({
+      where: {
+        userId: user.id,
+        project: {
+          archivedAt: null,
+          organisation: { archivedAt: null },
+        },
+      },
+      select: {
+        project: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            organisationId: true,
+            organisation: { select: { id: true, name: true, slug: true } },
+          },
+        },
+      },
+    });
+
+    const externalProjects: ExternalProject[] = userProjectMemberships
+      .filter((m) => !userOrgIds.has(m.project.organisationId))
+      .map((m) => ({
+        id: m.project.id,
+        name: m.project.name,
+        slug: m.project.slug,
+        organisationId: m.project.organisationId,
+        organisationName: m.project.organisation.name,
+        organisationSlug: m.project.organisation.slug,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
+    return { organisations, externalProjects };
   } catch {
-    return [];
+    return { organisations: [], externalProjects: [] };
   }
+}
+
+export async function getUserAccessibleOrgsAndProjects(userId?: string | null): Promise<AccessibleOrganisation[]> {
+  const { organisations } = await getUserAccessibleScopes(userId);
+  return organisations;
 }
 

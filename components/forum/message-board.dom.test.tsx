@@ -105,4 +105,22 @@ describe("PublicMessageBoard", () => {
 
     expect(screen.getAllByText(/Cyberdyne Systems/i).length).toBeGreaterThanOrEqual(1);
   });
+
+  it("renders external projects and handles external project selection", async () => {
+    const mockExternal = [
+      {
+        id: "proj-ext",
+        name: "Security Mesh",
+        slug: "security-mesh",
+        organisationId: "shield-org",
+        organisationName: "Shield Corp",
+        organisationSlug: "shield-corp",
+      },
+    ];
+
+    render(<PublicMessageBoard externalProjects={mockExternal} />);
+
+    expect(screen.getByText("Security Mesh")).toBeInTheDocument();
+    expect(screen.getByText("Shield Corp")).toBeInTheDocument();
+  });
 });

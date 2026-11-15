@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { PublicMessageBoard } from "@/components/forum/message-board";
 import { requireOrg } from "@/lib/project-route";
-import { listForumMessages, getUserAccessibleOrgsAndProjects } from "@/lib/forum";
+import { listForumMessages, getUserAccessibleScopes } from "@/lib/forum";
 
 export const metadata = {
   title: "Organisation Forum — Ziki",
@@ -17,9 +17,9 @@ export default async function OrgForumPage({
   const { user, organisation } = await requireOrg(org);
   if (!organisation) notFound();
 
-  const [messages, organisations] = await Promise.all([
+  const [messages, scopes] = await Promise.all([
     listForumMessages({ scope: "org", organisationId: organisation.id }),
-    getUserAccessibleOrgsAndProjects(user.id),
+    getUserAccessibleScopes(user.id),
   ]);
 
   return (
@@ -29,7 +29,8 @@ export default async function OrgForumPage({
         orgSlug={organisation.slug}
         orgName={organisation.name}
         initialMessages={messages}
-        organisations={organisations}
+        organisations={scopes.organisations}
+        externalProjects={scopes.externalProjects}
       />
     </section>
   );

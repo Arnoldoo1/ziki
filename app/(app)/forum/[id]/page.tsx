@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { PublicMessageBoard } from "@/components/forum/message-board";
 import { optionalUser } from "@/lib/auth-helpers";
-import { getForumMessageById, getUserAccessibleOrgsAndProjects } from "@/lib/forum";
+import { getForumMessageById, getUserAccessibleScopes } from "@/lib/forum";
 import { scopedForumPostPath } from "@/lib/project-paths";
 
 export const metadata = {
@@ -16,9 +16,9 @@ export default async function ForumPostDetailPage({
 }) {
   const { id } = await params;
   const user = await optionalUser();
-  const [post, organisations] = await Promise.all([
+  const [post, scopes] = await Promise.all([
     getForumMessageById(id),
-    getUserAccessibleOrgsAndProjects(user?.id),
+    getUserAccessibleScopes(user?.id),
   ]);
 
   if (!post) {
@@ -42,7 +42,8 @@ export default async function ForumPostDetailPage({
         initialView="detail"
         initialPostId={id}
         initialMessages={[post]}
-        organisations={organisations}
+        organisations={scopes.organisations}
+        externalProjects={scopes.externalProjects}
       />
     </section>
   );

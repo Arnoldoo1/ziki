@@ -17,6 +17,15 @@ export interface AccessibleOrganisation {
   }>;
 }
 
+export interface ExternalProject {
+  id: string;
+  name: string;
+  slug: string;
+  organisationId: string;
+  organisationName: string;
+  organisationSlug: string;
+}
+
 export const createForumMessageSchema = z.object({
   title: z.string().trim().min(1, "Title is required").max(200, "Title is too long"),
   content: z.string().trim().min(1, "Content is required").max(8000, "Content exceeds 8000 characters"),

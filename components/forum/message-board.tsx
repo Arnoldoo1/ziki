@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { INITIAL_FORUM_MESSAGES, type AccessibleOrganisation } from "@/lib/forum-types";
+import { INITIAL_FORUM_MESSAGES, type AccessibleOrganisation, type ExternalProject } from "@/lib/forum-types";
 import { Badge } from "@/components/ui/badge";
 import { RichText } from "@/components/rich-text";
 import { MarkdownEditor } from "@/components/markdown-editor";
@@ -203,6 +203,7 @@ export interface PublicMessageBoardProps {
   projectSlug?: string;
   projectName?: string;
   organisations?: AccessibleOrganisation[];
+  externalProjects?: ExternalProject[];
   initialMessages?: ForumMessage[];
 }
 
@@ -215,6 +216,7 @@ export function PublicMessageBoard({
   projectSlug,
   projectName,
   organisations,
+  externalProjects,
   initialMessages,
 }: PublicMessageBoardProps = {}) {
   const router = useSafeRouter();
@@ -329,20 +331,29 @@ export function PublicMessageBoard({
       ? organisations
       : DEFAULT_ORGANISATIONS;
 
-  const EXTERNAL_PROJECTS = [
+  const DEFAULT_EXTERNAL_PROJECTS: ExternalProject[] = [
     {
       id: "audit-staging",
       name: "Audit Staging",
-      orgName: "HyperScale Corp",
-      orgSlug: "hyperscale",
+      slug: "audit-staging",
+      organisationId: "hyperscale",
+      organisationName: "HyperScale Corp",
+      organisationSlug: "hyperscale",
     },
     {
       id: "auth-gateway",
       name: "Auth Gateway",
-      orgName: "ShieldNet",
-      orgSlug: "shieldnet",
+      slug: "auth-gateway",
+      organisationId: "shieldnet",
+      organisationName: "ShieldNet",
+      organisationSlug: "shieldnet",
     },
   ];
+
+  const effectiveExternalProjects =
+    externalProjects !== undefined
+      ? externalProjects
+      : DEFAULT_EXTERNAL_PROJECTS;
 
   const POPULAR_TAGS = [
     "seo",
@@ -879,48 +890,57 @@ export function PublicMessageBoard({
       </div>
 
       {/* Scope 3: External Projects (Collaborator) */}
-      <div className="flex flex-col gap-1 pt-2 border-t border-zk-border">
-        <span className="text-[10px] uppercase tracking-wider text-zk-muted font-semibold px-2 mb-1">
-          External Projects
-        </span>
-        {EXTERNAL_PROJECTS.map((ext) => {
-          const isExtSelected =
-            selectedScope.type === "external" &&
-            selectedScope.projectId === ext.id;
+      {effectiveExternalProjects.length > 0 && (
+        <div className="flex flex-col gap-1 pt-2 border-t border-zk-border">
+          <span className="text-[10px] uppercase tracking-wider text-zk-muted font-semibold px-2 mb-1">
+            External Projects
+          </span>
+          {effectiveExternalProjects.map((ext) => {
+            const extOrgSlug = ext.organisationSlug || (ext as any).orgSlug;
+            const extProjSlug = ext.slug || ext.id;
+            const isExtSelected =
+              (selectedScope.type === "external" || selectedScope.type === "project") &&
+              (selectedScope.orgId === extOrgSlug || selectedScope.orgId === ext.organisationId) &&
+              (selectedScope.projectId === extProjSlug || selectedScope.projectId === ext.id);
 
-          return (
-            <button
-              key={ext.id}
-              type="button"
-              onClick={() => {
-                setSelectedScope({
-                  type: "external",
-                  projectId: ext.id,
-                  name: `${ext.name} (${ext.orgName})`,
-                });
-                setView("list");
-              }}
-              className={`flex flex-col gap-0.5 px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
-                isExtSelected
-                  ? "bg-zk-tint text-zk-accent border border-zk-accent/25"
-                  : "text-zk-text2 hover:text-zk-text hover:bg-zk-chip/60"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-1 w-full">
-                <span className="text-[13px] font-medium text-zk-text truncate">
-                  {ext.name}
+            return (
+              <button
+                key={ext.id}
+                type="button"
+                onClick={() => {
+                  setSelectedScope({
+                    type: "external",
+                    orgId: extOrgSlug,
+                    projectId: extProjSlug,
+                    name: `${ext.name} (${ext.organisationName || (ext as any).orgName || extOrgSlug})`,
+                  });
+                  setView("list");
+                  if (router) {
+                    router.push(scopedForumPath("project", extOrgSlug, extProjSlug));
+                  }
+                }}
+                className={`flex flex-col gap-0.5 px-2.5 py-1.5 rounded-lg text-left transition-colors cursor-pointer ${
+                  isExtSelected
+                    ? "bg-zk-tint text-zk-accent border border-zk-accent/25"
+                    : "text-zk-text2 hover:text-zk-text hover:bg-zk-chip/60"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-1 w-full">
+                  <span className="text-[13px] font-medium text-zk-text truncate">
+                    {ext.name}
+                  </span>
+                  <span className="text-[9px] uppercase font-mono px-1 rounded bg-zk-chip text-zk-muted shrink-0">
+                    Guest
+                  </span>
+                </div>
+                <span className="text-[11px] text-zk-muted truncate font-mono">
+                  {ext.organisationName || (ext as any).orgName}
                 </span>
-                <span className="text-[9px] uppercase font-mono px-1 rounded bg-zk-chip text-zk-muted shrink-0">
-                  Guest
-                </span>
-              </div>
-              <span className="text-[11px] text-zk-muted truncate font-mono">
-                {ext.orgName}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </aside>
   );
 

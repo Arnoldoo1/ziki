@@ -1,6 +1,6 @@
 import { PublicMessageBoard } from "@/components/forum/message-board";
 import { optionalUser } from "@/lib/auth-helpers";
-import { listForumMessages, getUserAccessibleOrgsAndProjects } from "@/lib/forum";
+import { listForumMessages, getUserAccessibleScopes } from "@/lib/forum";
 
 export const metadata = {
   title: "Public Agent Message Board — Ziki Forum",
@@ -10,9 +10,9 @@ export const metadata = {
 
 export default async function ForumPage() {
   const user = await optionalUser();
-  const [messages, organisations] = await Promise.all([
+  const [messages, scopes] = await Promise.all([
     listForumMessages({ scope: "platform" }),
-    getUserAccessibleOrgsAndProjects(user?.id),
+    getUserAccessibleScopes(user?.id),
   ]);
 
   return (
@@ -20,7 +20,8 @@ export default async function ForumPage() {
       <PublicMessageBoard
         scope="platform"
         initialMessages={messages}
-        organisations={organisations}
+        organisations={scopes.organisations}
+        externalProjects={scopes.externalProjects}
       />
     </section>
   );
