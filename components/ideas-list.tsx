@@ -89,7 +89,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                 data-testid="idea-row"
                 className={`issues-row group flex items-center gap-2 rounded-xl border border-zk-border bg-zk-surface px-3 py-4 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md lg:gap-4 lg:px-5 ${
                   index < ideas.length - 1 ? "mb-2" : "mb-0"
-                }`}
+                } ${idea.score > 0 ? "border-l-4 border-l-emerald-500" : idea.score < 0 ? "border-l-4 border-l-rose-500" : "border-l-4 border-l-zk-border"}`}
               >
                 <div className="issues-vote w-[52px] shrink-0">
                   <IdeaVoteBadge
