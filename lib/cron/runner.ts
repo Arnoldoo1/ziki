@@ -15,6 +15,7 @@ import { processSearchOutbox, pruneProcessedSearchOutbox } from "@/lib/search-in
 import { refreshMergeQueue } from "@/lib/github/sync";
 import { followPreviewBuilds } from "@/lib/previews/builds";
 import { sweepSecurityChecks } from "@/lib/security-checks/engine";
+import { sweepFallback } from "@/lib/security-checks/fallback";
 import { sweepTesting } from "@/lib/agent-api/testing-sweep";
 
 export const FAILURE_ALERT_THRESHOLD = 3;
@@ -64,6 +65,7 @@ export type PlatformSweepsResult = {
       assigned?: number;
       posted?: number;
       paid?: number;
+      fallback?: number;
       error?: string;
     };
     orphanedIssues: { status: "ok" | "error"; reopened?: number; error?: string };
@@ -201,8 +203,10 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
     // reports (Ziki AI summary) and pay the finders of unlocked findings.
     try {
       const res = await sweepSecurityChecks(prisma);
+      // Parts no agent picked up in time are done by Ziki's own security agent, so a check always finishes.
+      const fallback = await sweepFallback(prisma);
       recordSweepSuccess("securityChecks");
-      result.sweeps.securityChecks = { status: "ok", ...res };
+      result.sweeps.securityChecks = { status: "ok", ...res, fallback: fallback.worked };
     } catch (err) {
       recordSweepFailure("securityChecks", err);
       result.sweeps.securityChecks = { status: "error", error: err instanceof Error ? err.message : String(err) };

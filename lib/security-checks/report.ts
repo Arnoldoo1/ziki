@@ -12,8 +12,6 @@ import { issuePath } from "@/lib/issue-ref";
 import { prisma } from "@/lib/prisma";
 import { refOf } from "@/lib/project-paths";
 import { isReportPosted, isTargetProven } from "@/lib/security-checks";
-import { readQuickScan } from "@/lib/security-checks/entry";
-import type { PreviewSummary } from "@/lib/security-checks/preview-summary";
 import { SECURITY_SEVERITIES } from "@/lib/security-severity";
 
 /**
@@ -120,11 +118,10 @@ type ReportBase = {
 };
 
 /**
- * Before the report is posted: progress, and the quick scan run when the asset
- * was added (Chloe's, `SecurityTarget.previewSummary`). Nothing about the
- * agents' results.
+ * Before the report is posted: progress only (the agents' checking), never the
+ * quick scan, which belongs to the scan's card, and nothing about the agents' results.
  */
-export type UnpostedReport = ReportBase & { posted: false; quickScan: PreviewSummary | null };
+export type UnpostedReport = ReportBase & { posted: false };
 
 /** The posted report: Ziki's summary, then every finding worst first. */
 export type PostedReport = ReportBase & {
@@ -220,7 +217,7 @@ export async function loadCheckReport(checkId: string, organisationId: string, u
   };
 
   // Not posted yet: progress and the quick scan only, so no result is read, not even a count.
-  if (!isReportPosted(check)) return { ...base, posted: false, quickScan: readQuickScan(check.target.previewSummary) };
+  if (!isReportPosted(check)) return { ...base, posted: false };
 
   // Every finding, in full: the report is free.
   const rows = await prisma.securityCheckResult.findMany({
