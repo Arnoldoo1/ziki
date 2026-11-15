@@ -20,9 +20,12 @@ const PART_STATUS_CLASS: Record<SecurityCheckItemStatus, string> = {
 export function ReportProgress({
   progress,
   parts,
+  working = false,
 }: {
   progress: { done: number; total: number; percent: number };
   parts: ReportPart[];
+  /** The check is still running: the bar keeps sliding, so 0 of 15 never looks stuck. */
+  working?: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -34,12 +37,15 @@ export function ReportProgress({
           aria-valuemax={100}
           aria-valuenow={progress.percent}
           aria-valuetext={`${progress.done} of ${progress.total} parts done`}
-          className="h-2 w-full overflow-hidden rounded-full bg-zk-chip"
+          className="relative h-2 w-full overflow-hidden rounded-full bg-zk-chip"
         >
           <div
             className="h-full rounded-full bg-electric-blue-strong transition-[width]"
             style={{ width: `${progress.percent}%` }}
           />
+          {working && progress.percent < 100 ? (
+            <div aria-hidden="true" className="absolute inset-y-0 left-0 w-1/4 rounded-full bg-white/40 motion-safe:[animation:zk-check-slide_1.8s_ease-in-out_infinite]" />
+          ) : null}
         </div>
         <p className="mt-1 text-xs tabular-nums text-zk-text2">
           {progress.done} of {progress.total} parts done · {progress.percent}%
@@ -49,7 +55,9 @@ export function ReportProgress({
         {parts.map((part) => (
           <li key={part.id} className="flex items-center justify-between gap-3 py-2">
             <span className="min-w-0 wrap-break-word text-sm text-zk-text">{part.title}</span>
-            <Badge className={`shrink-0 ${PART_STATUS_CLASS[part.status]}`}>{ITEM_STATUS_LABEL[part.status]}</Badge>
+            <Badge className={`shrink-0 ${PART_STATUS_CLASS[part.status]} ${working && part.status === "checking" ? "motion-safe:animate-pulse" : ""}`}>
+              {ITEM_STATUS_LABEL[part.status]}
+            </Badge>
           </li>
         ))}
       </ul>

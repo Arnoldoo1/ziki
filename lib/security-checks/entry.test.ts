@@ -8,7 +8,7 @@ const prismaMock = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: prismaMock }));
 
-import { addTargetAndCheck, listWorkspaceChecks, newOwnershipToken, nextStepPath, parseSiteFilter, refusedMessage, scanStage, siteStage } from "./entry";
+import { addTargetAndCheck, agentReportOf, listWorkspaceChecks, newOwnershipToken, nextStepPath, parseSiteFilter, refusedMessage, scanStage, siteStage } from "./entry";
 import { findingPrice, unlockFindings } from "./payment";
 
 const site = { kind: "website" as const, value: "settle.ng", input: "https://settle.ng" };
@@ -142,12 +142,28 @@ describe("nextStepPath", () => {
   });
 });
 
+describe("agentReportOf (a posted scan's card)", () => {
+  it("lists findings worst first, then by id, and says which are unlocked or moved", () => {
+    const report = agentReportOf("Two things.", [
+      { id: "b", severity: "low", title: "Low one", unlockedAt: null, findingId: null },
+      { id: "d", severity: "high", title: "High two", unlockedAt: new Date(), findingId: "f1" },
+      { id: "c", severity: "high", title: "High one", unlockedAt: null, findingId: null },
+    ]);
+    expect(report.summary).toBe("Two things.");
+    expect(report.findings).toEqual([
+      { id: "c", severity: "high", title: "High one", unlocked: false, moved: false },
+      { id: "d", severity: "high", title: "High two", unlocked: true, moved: true },
+      { id: "b", severity: "low", title: "Low one", unlocked: false, moved: false },
+    ]);
+  });
+});
+
 describe("listWorkspaceChecks", () => {
   it("lists only the checks this person asked for, newest first, with how many findings are unlocked", async () => {
     const createdAt = new Date("2026-11-11T10:00:00Z");
     prismaMock.securityCheck.findMany.mockResolvedValue([
       { id: "c1", status: "queued", postedAt: null, createdAt, target: { id: "t1", kind: "website", value: "settle.ng", verifiedAt: null, previewSummary: null }, results: [] },
-      { id: "c2", status: "done", postedAt: createdAt, createdAt, target: { id: "t2", kind: "repo", value: "settle/app", verifiedAt: createdAt, previewSummary: null }, results: [{ unlockedAt: createdAt, findingId: "i1" }, { unlockedAt: null, findingId: null }] },
+      { id: "c2", status: "done", postedAt: createdAt, createdAt, summary: "Two things.", target: { id: "t2", kind: "repo", value: "settle/app", verifiedAt: createdAt, previewSummary: null }, results: [{ id: "r1", severity: "high", title: "Secret in a file", unlockedAt: createdAt, findingId: "i1" }, { id: "r2", severity: "low", title: "No policy", unlockedAt: null, findingId: null }] },
     ]);
 
     const rows = await listWorkspaceChecks("org1", "u1");
@@ -155,13 +171,16 @@ describe("listWorkspaceChecks", () => {
     const query = prismaMock.securityCheck.findMany.mock.calls[0][0];
     expect(query.where).toEqual({ organisationId: "org1", requestedById: "u1" });
     expect(query.orderBy).toEqual({ createdAt: "desc" });
-    // Only whether each finding is unlocked: never its text.
-    expect(query.select.results).toEqual({ select: { unlockedAt: true, findingId: true } });
+    // A finding's id, severity, title and whether it is unlocked or moved (what the report page already shows its owner): never its description or how to fix it.
+    expect(query.select.results).toEqual({ select: { id: true, severity: true, title: true, unlockedAt: true, findingId: true } });
     expect(rows.map((r) => [r.id, r.verified, r.posted, r.findings, r.unlocked, r.moved, r.preview])).toEqual([
       ["c1", false, false, 0, 0, 0, null],
       ["c2", true, true, 2, 1, 1, null],
     ]);
     expect(rows.map(scanStage)).toEqual(["scanning", "in_app"]);
+    // The agents' result only exists once the report is posted.
+    expect(rows[0]!.agentReport).toBeNull();
+    expect(rows[1]!.agentReport).toMatchObject({ summary: "Two things.", findings: [{ id: "r1", title: "Secret in a file", unlocked: true, moved: true }, { id: "r2", unlocked: false, moved: false }] });
   });
 });
 

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { CheckActivity, type CheckPhase } from "@/components/security-checks/check-activity";
 import { ReportLive } from "@/components/security-checks/report-live";
 import { ReportProgress } from "@/components/security-checks/report-progress";
-import { PreviewResult } from "@/components/security-checks/preview-result";
 import { ReportResults } from "@/components/security-checks/report-results";
 import { ReportSummary } from "@/components/security-checks/report-summary";
 import { requireUser } from "@/lib/auth-helpers";
@@ -15,12 +15,6 @@ import { orgCard } from "../../../[org]/[project]/org/org-ui";
 
 export const metadata = { title: "Security check" };
 
-/** What each step tells the client while there are no parts to list yet. */
-const WAITING_NOTE: Partial<Record<keyof typeof CHECK_STATUS_LABEL, string>> = {
-  queued: "Ziki will start planning the checks in a moment.",
-  splitting: "Ziki is looking at it and planning the checks.",
-};
-
 /**
  * One security check (12 and 14 Nov plans, part S): live progress and the
  * quick scan while Ziki checks, then, once the report is posted, Ziki's
@@ -29,6 +23,12 @@ const WAITING_NOTE: Partial<Record<keyof typeof CHECK_STATUS_LABEL, string>> = {
  * The report never goes away; moved findings are marked. Only the person who
  * asked for the check sees it.
  */
+/** What the check is doing, for the progress strip: no parts yet (Ziki is planning them), parts being checked, or every part done and the report being written. */
+function phaseOf(report: { parts: readonly unknown[]; progress: { done: number; total: number } }): CheckPhase {
+  if (report.parts.length === 0) return "planning";
+  return report.progress.done >= report.progress.total ? "writing" : "checking";
+}
+
 export default async function SecurityCheckPage({ params }: { params: Promise<{ id: string }> }) {
   const [{ id }, user] = await Promise.all([params, requireUser()]);
   const access = await currentOrganisationAccess(user.id, user.role);
@@ -76,29 +76,14 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
         <>
           <ReportSummary report={report} />
 
-          {/* The quick scan's short titles while the agents check: never findings, so nothing here is sold. */}
-          {!report.posted && report.quickScan ? (
-            <section aria-labelledby="quick-scan-heading" className="flex flex-col gap-3">
-              <h2 id="quick-scan-heading" className="px-0.5 text-base font-semibold text-zk-text">Quick scan</h2>
-              <PreviewResult summary={report.quickScan} />
-            </section>
-          ) : null}
-
           {/* Progress, until Ziki has summed up every part and posted the report. */}
           {!report.posted ? (
             <section aria-labelledby="progress-heading" className={orgCard}>
               <h2 id="progress-heading" className="text-base font-semibold text-zk-text">Progress</h2>
-              <div className="mt-3">
-                {report.parts.length ? (
-                  <>
-                    <ReportProgress progress={report.progress} parts={report.parts} />
-                    {working && report.progress.done === report.progress.total ? (
-                      <p className="mt-3 text-sm text-zk-text2">Every part is checked. Ziki is writing your report.</p>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className="text-sm text-zk-text2">{WAITING_NOTE[report.status] ?? "No parts to check yet."}</p>
-                )}
+              <div className="mt-3 space-y-4">
+                {/* Something is always moving while the check runs: planning, then the parts, then the write-up. */}
+                {working ? <CheckActivity phase={phaseOf(report)} done={report.progress.done} total={report.progress.total} /> : null}
+                {report.parts.length ? <ReportProgress progress={report.progress} parts={report.parts} working={working} /> : null}
               </div>
             </section>
           ) : null}
