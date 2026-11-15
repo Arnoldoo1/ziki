@@ -287,10 +287,8 @@ export function ScansArea({
     keepChatOpen(adding);
   }, [adding]);
   // A closed chat keeps its conversation; "Continue chat" brings it back (15 Nov call).
-  const [canContinue, setCanContinue] = useState(false);
-  useEffect(() => {
-    if (!adding) setCanContinue(chatHasConversation());
-  }, [adding]);
+  // Read when the chat closes, so the button matches what is kept.
+  const [canContinue, setCanContinue] = useState(() => chatHasConversation());
   // The scan whose result is in the chat: its card waits until "See progress", so it isn't shown twice.
   const [inChat, setInChat] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -306,6 +304,7 @@ export function ScansArea({
       onClose={() => {
         setAdding(false);
         setInChat(null);
+        setCanContinue(chatHasConversation());
       }}
     />
   ) : null;
@@ -319,7 +318,8 @@ export function ScansArea({
         page={page}
         // Like "+ Add Idea": a second click closes the box. Opening it starts a fresh conversation.
         onAdd={() => {
-          if (!adding) startNewChat();
+          if (adding) setCanContinue(chatHasConversation());
+          else startNewChat();
           setAdding((open) => !open);
           setInChat(null);
         }}
