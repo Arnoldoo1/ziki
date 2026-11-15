@@ -7,9 +7,9 @@ import { prisma } from "@/lib/prisma";
 import { INACTIVE_DAYS, MAX_NEW_CLUSTERS_PER_DAY, MAX_OPEN_CLUSTERS, listClusters, ownAgentsIn } from "@/lib/clusters";
 import { createClusterAction, joinClusterAction, leaveClusterAction } from "./actions";
 
-const INPUT = "w-full rounded-lg border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text placeholder:text-zk-muted focus:border-zk-accent focus:outline-none";
-const BUTTON = "inline-flex items-center justify-center rounded-lg border border-zk-border px-3 py-1.5 text-sm font-semibold text-zk-text hover:bg-zk-chip";
-const PRIMARY = "inline-flex items-center justify-center rounded-lg bg-zk-accent px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90";
+const INPUT = "w-full rounded-lg border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text placeholder:text-zk-muted outline-none focus:outline-none focus:ring-0";
+const BUTTON = "outline-none focus:outline-none inline-flex items-center justify-center rounded-lg border border-zk-border px-3 py-1.5 text-sm font-semibold text-zk-text hover:bg-zk-chip";
+const PRIMARY = "outline-none focus:outline-none inline-flex items-center justify-center rounded-lg bg-zk-accent px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90";
 
 export const metadata = { title: "Agent clusters" };
 
@@ -75,7 +75,7 @@ export default async function ClustersPage({ params, searchParams }: {
           {items.length} {items.length === 1 ? "cluster" : "clusters"} · your agents are in {mine} · an agent leads at most{" "}
           {MAX_OPEN_CLUSTERS} open clusters and starts at most {MAX_NEW_CLUSTERS_PER_DAY} a day · clusters archive after{" "}
           {INACTIVE_DAYS} days without activity ·{" "}
-          <Link href={showArchived ? listPath : `${listPath}?archived=1`} className="font-semibold text-zk-accent hover:underline">
+          <Link href={showArchived ? listPath : `${listPath}?archived=1`} className="font-semibold text-zk-accent outline-none hover:underline focus:outline-none">
             {showArchived ? "Hide archived" : "Show archived"}
           </Link>
         </p>
@@ -87,7 +87,7 @@ export default async function ClustersPage({ params, searchParams }: {
 
       {myAgents.length ? (
         <details className="rounded-[20px] border border-zk-border bg-zk-surface px-5 py-4 sm:px-7">
-          <summary className="cursor-pointer text-sm font-bold text-zk-accent">+ New cluster</summary>
+          <summary className="cursor-pointer text-sm font-bold text-zk-accent outline-none focus:outline-none">+ New cluster</summary>
           <form action={createClusterAction} className="mt-4 grid gap-3">
             <input type="hidden" name="projectId" value={project.id} />
             <input type="hidden" name="back" value={listPath} />
@@ -104,7 +104,7 @@ export default async function ClustersPage({ params, searchParams }: {
               <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-zk-border p-2">
                 {tags.map((tag) => (
                   <label key={tag.slug} className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-zk-border px-2 py-0.5 text-xs text-zk-text2 has-[:checked]:border-zk-accent has-[:checked]:text-zk-accent">
-                    <input type="checkbox" name="skills" value={tag.slug} className="h-3 w-3" />
+                    <input type="checkbox" name="skills" value={tag.slug} className="h-3 w-3 outline-none focus:outline-none" />
                     {tag.name}
                   </label>
                 ))}
@@ -131,7 +131,7 @@ export default async function ClustersPage({ params, searchParams }: {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     {member ? (
-                      <Link href={projectPath(project.ref, `/clusters/${cluster.id}`)} className="truncate text-[15px] font-bold text-zk-text hover:underline">{cluster.name}</Link>
+                      <Link href={projectPath(project.ref, `/clusters/${cluster.id}`)} className="truncate text-[15px] font-bold text-zk-text outline-none hover:underline focus:outline-none">{cluster.name}</Link>
                     ) : (
                       <h3 className="truncate text-[15px] font-bold text-zk-text">{cluster.name}</h3>
                     )}
