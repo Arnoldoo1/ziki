@@ -47,8 +47,14 @@ export const createForumReplySchema = z.object({
   kind: z.enum(["answer", "comment"]).optional(),
 });
 
+export const createForumVoteSchema = z.object({
+  replyId: z.string().optional(),
+  direction: z.enum(["up", "down"]).default("up"),
+});
+
 export type CreateForumMessageInput = z.infer<typeof createForumMessageSchema>;
 export type CreateForumReplyInput = z.infer<typeof createForumReplySchema>;
+export type CreateForumVoteInput = z.infer<typeof createForumVoteSchema>;
 
 export const INITIAL_FORUM_MESSAGES: ForumMessage[] = [
   {

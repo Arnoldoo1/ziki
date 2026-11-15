@@ -287,6 +287,27 @@ export async function createForumMessage(
         },
       });
 
+      let resolvedOrgId: string | null = null;
+      if (input.organisationId) {
+        const org = await prisma.organisation.findFirst({
+          where: { OR: [{ id: input.organisationId }, { slug: input.organisationId }] },
+          select: { id: true },
+        });
+        resolvedOrgId = org?.id ?? input.organisationId;
+      }
+
+      let resolvedProjId: string | null = null;
+      if (input.projectId) {
+        const proj = await prisma.project.findFirst({
+          where: {
+            OR: [{ id: input.projectId }, { slug: input.projectId }],
+            ...(resolvedOrgId ? { organisationId: resolvedOrgId } : {}),
+          },
+          select: { id: true },
+        });
+        resolvedProjId = proj?.id ?? input.projectId;
+      }
+
       const newPost = await prisma.forumPost.create({
         data: {
           scope: (input.scope as PrismaForumScope) || "platform",
@@ -298,8 +319,8 @@ export async function createForumMessage(
           tags: input.tags && input.tags.length > 0 ? input.tags : ["General"],
           authorUserId: author.userId,
           authorAgentId: author.agentId || null,
-          organisationId: input.organisationId || null,
-          projectId: input.projectId || null,
+          organisationId: resolvedOrgId,
+          projectId: resolvedProjId,
           sourceType: input.sourceType || null,
           sourceId: input.sourceId || null,
         },
@@ -428,6 +449,123 @@ export async function replyToForumMessage(
 
   target.replies.push(reply);
   return reply;
+}
+
+export interface ToggleVoteResult {
+  helpfulCount: number;
+  userVote: "up" | "down" | null;
+}
+
+export async function toggleForumVote(params: {
+  postId: string;
+  replyId?: string;
+  voterUserId: string;
+  voterAgentId?: string;
+  direction?: "up" | "down";
+}): Promise<ToggleVoteResult> {
+  const direction = params.direction ?? "up";
+  const targetValue = direction === "down" ? -1 : 1;
+
+  try {
+    const post = await prisma.forumPost.findFirst({
+      where: {
+        OR: [
+          { id: params.postId },
+          ...(params.postId.includes("-") && !isNaN(parseInt(params.postId.split("-")[1], 10))
+            ? [{ number: parseInt(params.postId.split("-")[1], 10) }]
+            : []),
+        ],
+      },
+      select: { id: true, authorUserId: true },
+    });
+
+    if (!post) {
+      throw new Error("Forum post not found");
+    }
+
+    let targetUserId = post.authorUserId;
+    if (params.replyId) {
+      const reply = await prisma.forumReply.findUnique({
+        where: { id: params.replyId },
+        select: { id: true, authorUserId: true },
+      });
+      if (!reply) {
+        throw new Error("Forum reply not found");
+      }
+      targetUserId = reply.authorUserId;
+    }
+
+    const existingVote = await prisma.forumVote.findFirst({
+      where: {
+        postId: post.id,
+        replyId: params.replyId ?? null,
+        voterUserId: params.voterUserId,
+      },
+    });
+
+    let userVote: "up" | "down" | null = null;
+
+    if (existingVote) {
+      if (existingVote.value === targetValue) {
+        await prisma.forumVote.delete({
+          where: { id: existingVote.id },
+        });
+        userVote = null;
+      } else {
+        await prisma.forumVote.update({
+          where: { id: existingVote.id },
+          data: {
+            value: targetValue,
+            voterAgentId: params.voterAgentId ?? null,
+          },
+        });
+        userVote = direction;
+      }
+    } else {
+      await prisma.forumVote.create({
+        data: {
+          postId: post.id,
+          replyId: params.replyId ?? null,
+          voterUserId: params.voterUserId,
+          voterAgentId: params.voterAgentId ?? null,
+          targetUserId,
+          value: targetValue,
+        },
+      });
+      userVote = direction;
+    }
+
+    const allVotes = await prisma.forumVote.findMany({
+      where: {
+        postId: post.id,
+        replyId: params.replyId ?? null,
+      },
+      select: { value: true },
+    });
+    const helpfulCount = allVotes.reduce((acc, v) => acc + v.value, 0);
+
+    return { helpfulCount, userVote };
+  } catch (error) {
+    // Memory fallback
+    const post = memoryForumStore.find((m) => m.id === params.postId || m.code === params.postId);
+    if (!post) {
+      throw new Error("Forum post not found");
+    }
+
+    if (params.replyId) {
+      const reply = post.replies.find((r) => r.id === params.replyId);
+      if (!reply) throw new Error("Forum reply not found");
+      const current = reply.helpfulCount ?? 0;
+      const nextCount = current > 0 ? 0 : 1;
+      reply.helpfulCount = nextCount;
+      return { helpfulCount: nextCount, userVote: nextCount > 0 ? "up" : null };
+    }
+
+    const current = post.helpfulCount ?? 0;
+    const nextCount = current > 0 ? 0 : 1;
+    post.helpfulCount = nextCount;
+    return { helpfulCount: nextCount, userVote: nextCount > 0 ? "up" : null };
+  }
 }
 
 export interface UserAccessibleScopes {

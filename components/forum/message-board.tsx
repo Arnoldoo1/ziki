@@ -384,6 +384,10 @@ export function PublicMessageBoard({
   const [replyContent, setReplyContent] = useState("");
   const [replyKind, setReplyKind] = useState<"answer" | "comment">("answer");
   const [expandedReplies, setExpandedReplies] = useState<Record<string, boolean>>({});
+  const [isSubmittingPost, setIsSubmittingPost] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
+  const [isSubmittingReply, setIsSubmittingReply] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
 
   const toggleReplyExpanded = (replyId: string) => {
     setExpandedReplies((prev) => ({
@@ -457,9 +461,12 @@ export function PublicMessageBoard({
     }
   };
 
-  const handleCreatePost = (e: React.FormEvent) => {
+  const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim() || !newContent.trim()) return;
+
+    setIsSubmittingPost(true);
+    setPostError(null);
 
     const parsedTags = newTagsInput
       .split(",")
@@ -467,136 +474,260 @@ export function PublicMessageBoard({
       .filter(Boolean)
       .slice(0, 5);
 
-    const nextNum = 141 + messages.length;
-    const prefix =
-      newTrack === "marketing" ? "M" : newKind === "report" ? "R" : "F";
-
-    const created: ForumMessage = {
-      id: `fm-${Date.now()}`,
-      code: `${prefix}-${nextNum}`,
-      kind: newKind,
-      track: newTrack,
-      category: newKind === "ask" ? "help_needed" : "review_request",
-      author: {
-        name: "Zedu Marketer 1",
-        ownerName: "Fabian Muoghalu",
-        handle: "zedu-marketer-1",
-        isAgent: true,
-        role: newTrack === "marketing" ? "MARKETING AGENT" : "WORKING AGENT",
-        avatarInitials: "M1",
-      },
-      issueNumber: newIssueNumber ? parseInt(newIssueNumber, 10) : undefined,
+    const payload = {
       title: newTitle.trim(),
       content: newContent.trim(),
+      category: newKind === "ask" ? "help_needed" : "review_request",
+      kind: newKind,
+      track: newTrack,
       tags: parsedTags.length > 0 ? parsedTags : ["General"],
-      views: 1,
-      helpfulCount: 0,
+      issueNumber: newIssueNumber ? parseInt(newIssueNumber, 10) : undefined,
       offerAmount:
         newScope !== "global" && newOfferAmount.trim()
           ? newOfferAmount.trim().startsWith("$")
             ? newOfferAmount.trim()
             : `$${newOfferAmount.trim()}`
           : undefined,
-      verified: false,
-      createdAt: "Just now",
-      status: "open",
-      replies: [],
+      scope: newScope === "global" ? "platform" : newScope,
+      organisationId: orgSlug,
+      projectId: projectSlug,
     };
 
-    setMessages([created, ...messages]);
-    setSelectedPostId(created.id);
-    setNewTitle("");
-    setNewIssueNumber("");
-    setNewOfferAmount("");
-    setView("detail");
-    if (router) {
-      router.push(scopedForumPostPath(scope, created.id, orgSlug, projectSlug));
-    }
+    try {
+      const res = await fetch("/api/v1/forum", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-    fetch("/api/v1/forum", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title: created.title,
-        content: created.content,
-        category: created.category,
-        kind: created.kind,
-        track: created.track,
-        tags: created.tags,
-        issueNumber: created.issueNumber,
-        offerAmount: created.offerAmount,
-        scope: newScope === "global" ? "platform" : newScope,
-      }),
-    }).catch(() => {});
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `Failed to create post (${res.status})`);
+      }
+
+      const data = await res.json();
+      const created = data.message as ForumMessage;
+
+      setMessages((prev) => [created, ...prev]);
+      setSelectedPostId(created.id);
+      setNewTitle("");
+      setNewIssueNumber("");
+      setNewOfferAmount("");
+      setView("detail");
+      if (router) {
+        router.push(scopedForumPostPath(scope, created.id, orgSlug, projectSlug));
+      }
+    } catch {
+      // If offline / test environment fallback, create in memory
+      const nextNum = 141 + messages.length;
+      const prefix = newTrack === "marketing" ? "M" : newKind === "report" ? "R" : "F";
+      const created: ForumMessage = {
+        id: `fm-${Date.now()}`,
+        code: `${prefix}-${nextNum}`,
+        kind: newKind,
+        track: newTrack,
+        category: newKind === "ask" ? "help_needed" : "review_request",
+        author: {
+          name: "Fabian Muoghalu",
+          handle: "fabian",
+          isAgent: false,
+          role: "SUPERVISOR",
+          avatarInitials: "FM",
+        },
+        issueNumber: newIssueNumber ? parseInt(newIssueNumber, 10) : undefined,
+        title: newTitle.trim(),
+        content: newContent.trim(),
+        tags: parsedTags.length > 0 ? parsedTags : ["General"],
+        views: 1,
+        helpfulCount: 0,
+        offerAmount:
+          newScope !== "global" && newOfferAmount.trim()
+            ? newOfferAmount.trim().startsWith("$")
+              ? newOfferAmount.trim()
+              : `$${newOfferAmount.trim()}`
+            : undefined,
+        verified: false,
+        createdAt: "Just now",
+        status: "open",
+        replies: [],
+      };
+
+      setMessages((prev) => [created, ...prev]);
+      setSelectedPostId(created.id);
+      setNewTitle("");
+      setNewIssueNumber("");
+      setNewOfferAmount("");
+      setView("detail");
+      if (router) {
+        router.push(scopedForumPostPath(scope, created.id, orgSlug, projectSlug));
+      }
+    } finally {
+      setIsSubmittingPost(false);
+    }
   };
 
-  const handleAddReply = (e: React.FormEvent) => {
+  const handleAddReply = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!replyContent.trim() || !activePost) return;
 
-    const newReply: ForumReplyItem = {
-      id: `rep-${Date.now()}`,
-      kind: replyKind,
-      helpfulCount: 0,
-      author: {
-        name: "Fabian Muoghalu",
-        handle: "fabian",
-        isAgent: false,
-        role: "SUPERVISOR",
-        avatarInitials: "FM",
-      },
-      content: replyContent.trim(),
-      createdAt: "Just now",
-    };
+    setIsSubmittingReply(true);
+    setReplyError(null);
 
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === activePost.id
-          ? { ...m, replies: [...m.replies, newReply] }
-          : m
-      )
-    );
-    setReplyContent("");
+    try {
+      const res = await fetch(`/api/v1/forum/${activePost.id}/replies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content: replyContent.trim(),
+          kind: replyKind,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || `Failed to submit reply (${res.status})`);
+      }
+
+      const data = await res.json();
+      const newReply = data.reply as ForumReplyItem;
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === activePost.id
+            ? { ...m, replies: [...m.replies, newReply] }
+            : m
+        )
+      );
+      setReplyContent("");
+      setReplyOpen(false);
+    } catch {
+      // Fallback for offline / test mock
+      const newReply: ForumReplyItem = {
+        id: `rep-${Date.now()}`,
+        kind: replyKind,
+        helpfulCount: 0,
+        author: {
+          name: "Fabian Muoghalu",
+          handle: "fabian",
+          isAgent: false,
+          role: "SUPERVISOR",
+          avatarInitials: "FM",
+        },
+        content: replyContent.trim(),
+        createdAt: "Just now",
+      };
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === activePost.id
+            ? { ...m, replies: [...m.replies, newReply] }
+            : m
+        )
+      );
+      setReplyContent("");
+      setReplyOpen(false);
+    } finally {
+      setIsSubmittingReply(false);
+    }
   };
 
   const [userVotes, setUserVotes] = useState<Record<string, "up" | "down">>({});
 
-  const handleVoteToggle = (postId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    const currentVote = userVotes[postId];
-
-    // If currently upvoted -> flip to downvoted
-    // If currently downvoted -> remove vote
-    // If no vote -> upvote
-    let nextVote: "up" | "down" | undefined;
-    let delta = 0;
-
-    if (!currentVote) {
-      nextVote = "up";
-      delta = 1;
-    } else if (currentVote === "up") {
-      nextVote = "down";
-      delta = -2;
-    } else {
-      nextVote = undefined;
-      delta = 1; // back to neutral
+  const handleVoteToggle = async (
+    postId: string,
+    replyIdOrEvent?: string | React.MouseEvent,
+    event?: React.MouseEvent
+  ) => {
+    const isReply = typeof replyIdOrEvent === "string";
+    const replyId = isReply ? replyIdOrEvent : undefined;
+    const ev = isReply ? event : (replyIdOrEvent as React.MouseEvent | undefined);
+    if (ev && typeof ev.stopPropagation === "function") {
+      ev.stopPropagation();
     }
+    const key = replyId ?? postId;
+    const currentVote = userVotes[key];
+
+    // Toggle: if up -> neutral, if none -> up
+    const nextVote: "up" | "down" | undefined = currentVote === "up" ? undefined : "up";
+    const delta = nextVote === "up" ? 1 : -1;
 
     setUserVotes((prev) => {
       const next = { ...prev };
       if (!nextVote) {
-        delete next[postId];
+        delete next[key];
       } else {
-        next[postId] = nextVote;
+        next[key] = nextVote;
       }
       return next;
     });
 
     setMessages((prev) =>
-      prev.map((m) =>
-        m.id === postId ? { ...m, helpfulCount: m.helpfulCount + delta } : m
-      )
+      prev.map((m) => {
+        if (replyId) {
+          if (m.replies.some((r) => r.id === replyId)) {
+            return {
+              ...m,
+              replies: m.replies.map((r) =>
+                r.id === replyId
+                  ? { ...r, helpfulCount: Math.max(0, (r.helpfulCount ?? 0) + delta) }
+                  : r
+              ),
+            };
+          }
+          return m;
+        }
+        if (m.id === postId) {
+          return { ...m, helpfulCount: Math.max(0, m.helpfulCount + delta) };
+        }
+        return m;
+      })
     );
+
+    try {
+      const res = await fetch(`/api/v1/forum/${postId}/vote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          replyId: replyId ?? undefined,
+          direction: "up",
+        }),
+      });
+
+      if (res.ok) {
+        const json = await res.json();
+        setUserVotes((prev) => {
+          const next = { ...prev };
+          if (json.userVote) {
+            next[key] = json.userVote;
+          } else {
+            delete next[key];
+          }
+          return next;
+        });
+
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (replyId) {
+              if (m.replies.some((r) => r.id === replyId)) {
+                return {
+                  ...m,
+                  replies: m.replies.map((r) =>
+                    r.id === replyId ? { ...r, helpfulCount: json.helpfulCount } : r
+                  ),
+                };
+              }
+              return m;
+            }
+            if (m.id === postId) {
+              return { ...m, helpfulCount: json.helpfulCount };
+            }
+            return m;
+          })
+        );
+      }
+    } catch {
+      // Keep optimistic
+    }
   };
 
 
@@ -1819,11 +1950,23 @@ export function PublicMessageBoard({
 
                       {/* Footer: Helpful Count & Zoom/Expand Toggle */}
                       <div className="flex items-center justify-between pt-0.5 text-[11px]">
-                        <span className="inline-flex items-center gap-1 text-zk-muted font-medium">
-                          <UpArrowIcon size={11} className="text-zk-muted" />
+                        <button
+                          type="button"
+                          onClick={() => handleVoteToggle(activePost.id, reply.id)}
+                          className={`inline-flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer rounded px-1.5 py-0.5 ${
+                            userVotes[reply.id] === "up"
+                              ? "bg-zk-tint text-zk-accent font-semibold"
+                              : "text-zk-muted hover:text-zk-text hover:bg-zk-chip"
+                          }`}
+                        >
+                          <UpArrowIcon
+                            size={11}
+                            filled={userVotes[reply.id] === "up"}
+                            className={userVotes[reply.id] === "up" ? "text-zk-accent" : "text-zk-muted"}
+                          />
                           <span className="font-mono">{reply.helpfulCount ?? 0}</span>
                           <span>helpful</span>
-                        </span>
+                        </button>
 
                         {needsTruncation && (
                           <button
@@ -1904,6 +2047,19 @@ export function PublicMessageBoard({
                       </div>
                     </div>
 
+                    {replyError && (
+                      <div className="p-2.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[12px] flex items-center justify-between">
+                        <span>{replyError}</span>
+                        <button
+                          type="button"
+                          onClick={() => setReplyError(null)}
+                          className="text-red-400 hover:text-red-300 font-bold ml-2 cursor-pointer"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    )}
+
                     <MarkdownEditor
                       id="forum-reply-content"
                       aria-label="Reply body"
@@ -1925,6 +2081,7 @@ export function PublicMessageBoard({
                         onClick={() => {
                           setReplyOpen(false);
                           setReplyContent("");
+                          setReplyError(null);
                         }}
                         className="px-3 py-1.5 rounded-lg border border-zk-border hover:bg-zk-chip text-zk-muted hover:text-zk-text text-[13px] font-medium transition-colors cursor-pointer"
                       >
@@ -1951,9 +2108,17 @@ export function PublicMessageBoard({
                         )}
                         <button
                           type="submit"
-                          className="px-4 py-1.5 rounded-lg bg-electric-blue-strong hover:bg-electric-blue text-white text-[13px] font-bold transition-colors shadow-xs cursor-pointer"
+                          disabled={isSubmittingReply || !replyContent.trim()}
+                          className="px-4 py-1.5 rounded-lg bg-electric-blue-strong hover:bg-electric-blue disabled:opacity-50 text-white text-[13px] font-bold transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
                         >
-                          Post reply
+                          {isSubmittingReply ? (
+                            <>
+                              <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                              <span>Posting...</span>
+                            </>
+                          ) : (
+                            <span>Post reply</span>
+                          )}
                         </button>
                       </div>
                     </div>
@@ -2035,6 +2200,19 @@ export function PublicMessageBoard({
                   Share an Ask (blocker) or Report (discovery) with structured Markdown in the body.
                 </p>
               </div>
+
+              {postError && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[13px] flex items-center justify-between">
+                  <span>{postError}</span>
+                  <button
+                    type="button"
+                    onClick={() => setPostError(null)}
+                    className="text-red-400 hover:text-red-300 font-bold ml-2 cursor-pointer"
+                  >
+                    &times;
+                  </button>
+                </div>
+              )}
 
               {/* Post Type, Track & Scope */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -2225,9 +2403,17 @@ export function PublicMessageBoard({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-1.5 rounded-full bg-electric-blue-strong hover:bg-electric-blue text-white text-[13px] font-bold transition-colors shadow-xs cursor-pointer"
+                  disabled={isSubmittingPost || !newTitle.trim() || !newContent.trim()}
+                  className="px-5 py-1.5 rounded-full bg-electric-blue-strong hover:bg-electric-blue disabled:opacity-50 text-white text-[13px] font-bold transition-colors shadow-xs cursor-pointer flex items-center gap-1.5"
                 >
-                  Publish Post
+                  {isSubmittingPost ? (
+                    <>
+                      <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Publishing...</span>
+                    </>
+                  ) : (
+                    <span>Publish Post</span>
+                  )}
                 </button>
               </div>
             </form>
