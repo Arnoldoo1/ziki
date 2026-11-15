@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient, SecurityCheckStatus, SecuritySeverity } from "@prisma/client";
 import { award } from "@/lib/points/award";
 import { logger } from "@/lib/logger";
-import { ON_CALL_QUIET_AFTER_MS, SEVERITY_PRICE, ZIKI_SECURITY_AGENT_USERNAME, agentsMayWork, ownershipProofRequired, provenTargetWhere } from "@/lib/security-checks";
+import { ON_CALL_QUIET_AFTER_MS, SEVERITY_PRICE, ZIKI_SECURITY_AGENT_USERNAME, agentsMayWork, fallbackWindowMs, ownershipProofRequired, provenTargetWhere } from "@/lib/security-checks";
 import { planParts, writeSummary, type PageReader, type SecurityAi } from "./ai";
 import { pickAgentFor, type CandidateAgent } from "./assign";
 import { realNetwork } from "./ownership";
@@ -235,8 +235,17 @@ export async function availableAgents(db: Db, now = new Date(), onlyAgentId?: st
 export async function assignWaitingJobs(db: Db, now = new Date(), onlyAgentId?: string): Promise<number> {
   const agents = await availableAgents(db, now, onlyAgentId);
   if (agents.length === 0) return 0;
+  // Real agents get a part only while it is young: after the fallback time only Ziki's own agent takes it
+  // (lib/security-checks/fallback.ts), so an agent that keeps failing can't hold on to old parts for ever.
+  const window = fallbackWindowMs();
   const waiting = await db.securityCheckItem.findMany({
-    where: { kind: "check", status: "waiting", agentId: null, check: { status: "checking", ...provenTargetWhere() } },
+    where: {
+      kind: "check",
+      status: "waiting",
+      agentId: null,
+      ...(window === null ? {} : { createdAt: { gte: new Date(now.getTime() - window) } }),
+      check: { status: "checking", ...provenTargetWhere() },
+    },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { id: true, check: { select: { organisationId: true } } },
     take: agents.length * MAX_OPEN_JOBS_PER_AGENT,

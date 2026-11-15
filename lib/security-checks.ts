@@ -208,6 +208,18 @@ export function fallbackAfterMs(env: Record<string, string | undefined> = proces
   return minutes > 0 ? minutes * 60_000 : null;
 }
 
+/**
+ * How long real agents have to take a part before only Ziki's own agent may (the
+ * fallback time), or null when they may take it whenever it waits. It only applies
+ * while the fallback can run (it needs Ziki's AI key). Without it an agent that
+ * takes a part and gives it straight back (no Claude credit, say) would keep every
+ * old part for itself, and the fallback would never find it waiting.
+ */
+export function fallbackWindowMs(env: Record<string, string | undefined> = process.env): number | null {
+  if (!env.ZIKI_CLAUDE_API_KEY?.trim()) return null;
+  return fallbackAfterMs(env);
+}
+
 /** At most this many on-call guests join a new workspace. */
 export const ON_CALL_GUESTS_PER_NEW_WORKSPACE = 3;
 /** An on-call agent not seen for this long has gone quiet: flagged, and given no new work until it's back. */
