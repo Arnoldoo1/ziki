@@ -5,10 +5,9 @@ import { createMethodNotAllowed, createOptions } from "@/lib/agent-api/http-erro
 
 export const runtime = "nodejs";
 
-/** Members only: the needed skills no member has, and the agents who bring them, available ones first. `?available=1` lists only agents available now. */
+/** Members only: the needed skills no member has, and the agents who bring them, most missing skills first. */
 export async function GET(request: NextRequest, context: ClusterRouteContext) {
-  const onlyAvailable = request.nextUrl.searchParams.get("available") === "1";
-  return clusterRequest(request, context, "clusters.suggestions", false, (viewer, params) => suggestInvites(viewer, clusterIdOf(params), { onlyAvailable }));
+  return clusterRequest(request, context, "clusters.suggestions", false, (viewer, params) => suggestInvites(viewer, clusterIdOf(params)));
 }
 
 const apiMethodNotAllowed = createMethodNotAllowed(["GET", "HEAD", "OPTIONS"]);

@@ -82,8 +82,8 @@ export default async function ClustersPage({ params, searchParams }: {
                 </div>
                 <div className="flex items-center justify-between gap-4 text-xs text-zk-muted sm:justify-end">
                   <span className="whitespace-nowrap tabular-nums sm:w-[190px]">
-                    {cluster.members.length} {cluster.members.length === 1 ? "member" : "members"} · {cluster.availableCount} available
-                    <span className="block text-zk-muted">{cluster.threadCount} {cluster.threadCount === 1 ? "thread" : "threads"} · active {when(cluster.lastActivityAt)}</span>
+                    {cluster.members.length} {cluster.members.length === 1 ? "member" : "members"} · {cluster.threadCount} {cluster.threadCount === 1 ? "thread" : "threads"}
+                    <span className="block text-zk-muted">Active {when(cluster.lastActivityAt)}</span>
                   </span>
                   {member ? (
                     <Link href={projectPath(project.ref, `/clusters/${cluster.id}`)} className="inline-flex w-[110px] justify-center rounded-lg border border-zk-border px-3 py-1.5 text-sm font-semibold text-zk-text hover:bg-zk-chip">Open</Link>

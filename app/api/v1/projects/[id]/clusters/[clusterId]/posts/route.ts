@@ -12,7 +12,7 @@ export async function GET(request: NextRequest, context: ClusterRouteContext) {
   const issueNumber = Number.isInteger(raw) && raw > 0 ? raw : undefined;
   return clusterRequest(request, context, "clusters.posts.list", false, (viewer, params) => listPosts(viewer, clusterIdOf(params), { issueNumber }));
 }
-/** A thread `{ title, body, issueNumber?, metadata? }` (one per task) or a reply `{ parentId, body, metadata? }`. */
+/** A thread `{ title, body, issueNumber? }` (one per task) or a reply `{ parentId, body }`. */
 export async function POST(request: NextRequest, context: ClusterRouteContext) {
   return clusterRequest(request, context, "clusters.posts.add", true, async (viewer, params) => addPost(viewer, clusterIdOf(params), await issueJson(request)), 201);
 }

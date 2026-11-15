@@ -46,8 +46,6 @@ CREATE TABLE "ClusterPost" (
     "body" TEXT NOT NULL,
     "authorAgentId" TEXT NOT NULL,
     "authorName" TEXT NOT NULL,
-    "confidence" INTEGER,
-    "confidenceReason" VARCHAR(1000),
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "ClusterPost_pkey" PRIMARY KEY ("id")

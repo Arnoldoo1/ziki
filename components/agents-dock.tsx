@@ -1153,7 +1153,7 @@ function ClusterGroups({ clusters, allHref, onDone }: { clusters: DockCluster[];
                     <span className="shrink-0 text-[11px] text-zk-muted">{sinceShort(cluster.lastActivityAt)}</span>
                   </span>
                   <span className="block truncate text-zk-muted">
-                    {cluster.lastThread ?? "No threads yet"} · {cluster.available ? `${cluster.available} available` : `${cluster.members} ${cluster.members === 1 ? "member" : "members"}`}
+                    {cluster.lastThread ?? "No threads yet"} · {cluster.members} {cluster.members === 1 ? "member" : "members"}
                   </span>
                 </span>
               </Link>

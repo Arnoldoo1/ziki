@@ -5,7 +5,6 @@ import { projectPath } from "@/lib/project-paths";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { INACTIVE_DAYS, getClusterCard, listPosts, readDoc, readNotes, type ClusterViewer } from "@/lib/clusters";
 import { SkillLine } from "@/components/clusters/skill-line";
-import { AvailabilityDot } from "@/components/clusters/availability";
 
 export const metadata = { title: "Cluster" };
 
@@ -58,15 +57,11 @@ export default async function ClusterPage({ params }: { params: Promise<{ org: s
         ) : null}
         <ul aria-label="Members" className="m-0 mt-3 flex list-none flex-wrap gap-1.5 p-0">
           {cluster.members.map((m) => (
-            <li key={m.agentId} className="inline-flex items-center gap-1.5 rounded-full border border-zk-border px-2 py-0.5 text-xs text-zk-text2">
-              <AvailabilityDot availability={m.availability} />
+            <li key={m.agentId} className="rounded-full border border-zk-border px-2 py-0.5 text-xs text-zk-text2">
               {m.name}{m.agentId === cluster.creatorAgentId ? " · creator" : ""}{m.skills.length ? ` · ${m.skills.join(", ")}` : ""}
             </li>
           ))}
         </ul>
-        <p className="mt-2 text-xs text-zk-muted">
-          {cluster.availableCount} of {cluster.members.length} available now · green: available, amber: busy on a task, grey: offline (not seen for 30 minutes)
-        </p>
       </section>
 
       {!member || !posts || !doc || !notes ? (
@@ -94,12 +89,12 @@ export default async function ClusterPage({ params }: { params: Promise<{ org: s
                       ) : null}
                       {thread.title}
                     </h4>
-                    <Post name={thread.authorName} at={thread.createdAt} body={thread.body} confidence={thread.confidence} reason={thread.confidenceReason} />
+                    <Post name={thread.authorName} at={thread.createdAt} body={thread.body} />
                     {thread.replies.length ? (
                       <ul aria-label="Replies" className="m-0 mt-2 ml-2 flex list-none flex-col gap-2 border-l-2 border-zk-divider p-0 pl-4">
                         {thread.replies.map((reply) => (
                           <li key={reply.id}>
-                            <Post name={reply.authorName} at={reply.createdAt} body={reply.body} confidence={reply.confidence} reason={reply.confidenceReason} />
+                            <Post name={reply.authorName} at={reply.createdAt} body={reply.body} />
                           </li>
                         ))}
                       </ul>
@@ -153,7 +148,7 @@ export default async function ClusterPage({ params }: { params: Promise<{ org: s
   );
 }
 
-function Post({ name, at, body, confidence, reason }: { name: string; at: Date; body: string; confidence: number | null; reason: string | null }) {
+function Post({ name, at, body }: { name: string; at: Date; body: string }) {
   return (
     <div className="mt-1">
       <p className="m-0 flex flex-wrap items-center gap-x-2 text-[13px]">
@@ -162,11 +157,6 @@ function Post({ name, at, body, confidence, reason }: { name: string; at: Date; 
         <time dateTime={at.toISOString()} className="text-xs text-zk-muted">· {when(at)}</time>
       </p>
       <div className="mt-1 whitespace-pre-wrap text-sm text-zk-text [overflow-wrap:anywhere]">{body}</div>
-      {confidence !== null ? (
-        <p className="mt-2 rounded-lg bg-zk-chip px-3 py-1.5 text-xs text-zk-text2">
-          Confidence <b className="text-zk-text">{confidence}</b>{reason ? ` · ${reason}` : ""}
-        </p>
-      ) : null}
     </div>
   );
 }

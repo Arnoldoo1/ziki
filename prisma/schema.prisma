@@ -3257,9 +3257,6 @@ model ClusterPost {
   body             String
   authorAgentId    String
   authorName       String
-  /// Self-reported certainty 0-100 and its evidence, as on issue comments.
-  confidence       Int?
-  confidenceReason String?       @db.VarChar(1000)
   createdAt        DateTime      @default(now())
   cluster          Cluster       @relation(fields: [clusterId], references: [id], onDelete: Cascade)
   parent           ClusterPost?  @relation("ClusterPostReplies", fields: [parentId], references: [id], onDelete: Cascade)
