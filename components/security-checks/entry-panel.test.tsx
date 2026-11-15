@@ -128,8 +128,8 @@ describe("SecurityChecksPanel (#security-checks, 14 Nov plan)", () => {
     );
     // Counted from the agents' findings (1 high, 1 low); the findings themselves are on the scan's page.
     expect(html).toContain("Agents&#x27; report");
-    expect(html).toContain('title="1 high"');
-    expect(html).toContain('title="1 low"');
+    expect(html).toContain('title="1 high problem, from the agents&#x27; report.');
+    expect(html).toContain('title="1 low problem, from the agents&#x27; report.');
     expect(html).not.toContain("Session cookie has no Secure flag");
     // The browser scan only stays while no agent has reported.
     expect(html).not.toContain("No Content Security Policy");
