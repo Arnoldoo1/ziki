@@ -39,16 +39,12 @@ export function chatLeftOpen(): boolean {
 }
 
 /**
- * Open or close the kept chat. Closing only hides it (15 Nov call): the
- * conversation stays, and "Continue chat" brings it back.
+ * Open or close the kept chat. A site's conversation carries on from its
+ * scan's page ("Ask about <site>"), so the Assets page has no way back into a
+ * closed one (15 Nov, Tolu).
  */
 export function keepChatOpen(open: boolean) {
   kept.open = open;
-}
-
-/** Whether there's a conversation to go back to after the chat was closed. */
-export function chatHasConversation(): boolean {
-  return kept.turns.length > 0;
 }
 
 /** "+ Add asset" starts a fresh conversation; the last one is gone (each site's chat is still saved on its page). */
@@ -86,7 +82,7 @@ export function SecurityChat({
   onSeeProgress?: (checkId: string) => void;
   /** A scan just came in and is in the person's scans; its card can wait until "See progress". */
   onScanned?: (checkId: string) => void;
-  /** The X at the box's top right: hides the chat; the conversation stays for "Continue chat". */
+  /** The X at the box's top right: closes the chat. */
   onClose?: () => void;
 }) {
   const router = useRouter();

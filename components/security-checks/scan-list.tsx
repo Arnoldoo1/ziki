@@ -11,7 +11,7 @@ import { PaginationControls } from "@/components/pagination-controls";
 import { KindIcon } from "./entry-box";
 import "@/app/(app)/[org]/[project]/issues/_list/issues.css";
 import "@/components/security-finding.css";
-import { SecurityChat, chatHasConversation, chatLeftOpen, keepChatOpen, startNewChat } from "./security-chat";
+import { SecurityChat, chatLeftOpen, keepChatOpen, startNewChat } from "./security-chat";
 
 
 /** Rows on each page. */
@@ -54,7 +54,7 @@ function stageOf(check: Pick<WorkspaceCheckRow, "status" | "posted" | "moved">):
  * pages. The rows use Ziki's list table (as Ideas and Issues) and the layout
  * Intruder, Snyk and Detectify use for their assets; no sidebar.
  */
-export function ScanList({ checks, highlightId, show = "all", page = 1, onAdd, onContinue, adding, hideId }: { checks: WorkspaceCheckRow[]; highlightId?: string; show?: string; page?: number; onAdd?: () => void; onContinue?: () => void; adding?: React.ReactNode; hideId?: string | null }) {
+export function ScanList({ checks, highlightId, show = "all", page = 1, onAdd, adding, hideId }: { checks: WorkspaceCheckRow[]; highlightId?: string; show?: string; page?: number; onAdd?: () => void; adding?: React.ReactNode; hideId?: string | null }) {
   const filter: Filter = FILTERS.some(({ id }) => id === show) ? (show as Filter) : "all";
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -88,17 +88,6 @@ export function ScanList({ checks, highlightId, show = "all", page = 1, onAdd, o
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               Add asset
-            </button>
-          ) : null}
-          {/* Back into a closed chat, with its conversation (15 Nov call). */}
-          {onContinue ? (
-            <button
-              type="button"
-              onClick={onContinue}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zk-border bg-zk-surface px-3 text-sm font-semibold text-zk-text hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z" /></svg>
-              Continue chat
             </button>
           ) : null}
           {/* No visible title: the Assets tab above already says what this is. Kept for screen readers. */}
@@ -229,7 +218,7 @@ function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highl
         found.map(([severity, n]) => (
           <span
             key={severity}
-            title={`${n} ${severity}`}
+            title={`${n ? n : "No"} ${severity} ${n === 1 ? "problem" : "problems"}, from the ${agent ? "agents' report" : "quick scan"}. ${SOURCE_HINT[agent ? "agents" : "quick"]}`}
             className={`inline-flex h-6 min-w-7 items-center justify-center rounded-md px-1.5 text-xs font-bold tabular-nums security-severity security-severity--${severity} ${n ? "" : "opacity-30"}`}
           >
             <span className="sr-only">{severity}: </span>
@@ -256,7 +245,19 @@ function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highl
         <span className="issues-row-title text-zk-text">{check.value}</span>
         <span className="issues-row-meta flex items-center text-zk-muted">
           <span>{TARGET_KIND_LABEL[check.kind]}</span>
-          <span>{agent ? "Agents' report" : check.preview ? "Quick scan" : "Not scanned yet"}</span>
+          {/* Where the numbers come from (15 Nov call), said once: hover the label for what it means. */}
+          {agent || check.preview ? (
+            <span
+              title={SOURCE_HINT[agent ? "agents" : "quick"]}
+              // Above the row link's cover, so the hover reaches it; clicking still opens the scan.
+              className="relative z-10 cursor-help underline decoration-dotted underline-offset-2"
+            >
+              {agent ? "Agents' report" : "Quick scan"}
+              <span className="sr-only">. {SOURCE_HINT[agent ? "agents" : "quick"]}</span>
+            </span>
+          ) : (
+            <span>Not scanned yet</span>
+          )}
           {check.moved ? <span>{check.moved} moved to your app</span> : null}
           {/* On a phone the side columns are hidden (issues.css), so the date shows here, as Ideas and Issues do. */}
           <span className="md:hidden">
@@ -276,16 +277,15 @@ function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highl
         </span>
       ) : null}
       {/* Like Intruder and Detectify: four coloured counts in a fixed order (critical, high, medium, low), in the report's own severity colours (security-finding.css); an empty one is the same box, faded, as on Detectify. */}
-      {/* Where the numbers come from (15 Nov call): the quick scan's until the agents' report replaces them, said under the counts and on hover. */}
-      <span className="hidden w-48 shrink-0 flex-col gap-1 md:flex" title={found.length || nothing ? SOURCE_HINT[agent ? "agents" : "quick"] : undefined}>
-        <span className="flex items-center gap-1">{counts}</span>
-        {found.length || nothing ? (
-          <span className="text-[11px] leading-tight text-zk-muted">
-            {agent ? "From the agents' report" : "From the quick scan"}
-            <span className="sr-only">. {SOURCE_HINT[agent ? "agents" : "quick"]}</span>
-          </span>
-        ) : null}
-      </span>
+      {/* Above the row link's cover so each box's hover says what it counts and where it comes from; it opens the scan too (out of the tab order: the row link is the one stop). */}
+      <Link
+        href={reportHref}
+        tabIndex={-1}
+        title={nothing ? `No problems, from the ${agent ? "agents' report" : "quick scan"}. ${SOURCE_HINT[agent ? "agents" : "quick"]}` : undefined}
+        className="relative z-10 hidden w-48 shrink-0 items-center gap-1 md:flex"
+      >
+        {counts}
+      </Link>
       <span className="hidden w-28 shrink-0 text-xs text-zk-muted md:block">
         <LocalTime date={check.createdAt} />
       </span>
@@ -369,9 +369,6 @@ export function ScansArea({
   useEffect(() => {
     keepChatOpen(adding);
   }, [adding]);
-  // A closed chat keeps its conversation; "Continue chat" brings it back (15 Nov call).
-  // Read when the chat closes, so the button matches what is kept.
-  const [canContinue, setCanContinue] = useState(() => chatHasConversation());
   // The scan whose result is in the chat: its card waits until "See progress", so it isn't shown twice.
   const [inChat, setInChat] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -387,7 +384,6 @@ export function ScansArea({
       onClose={() => {
         setAdding(false);
         setInChat(null);
-        setCanContinue(chatHasConversation());
       }}
     />
   ) : null;
@@ -401,12 +397,10 @@ export function ScansArea({
         page={page}
         // Like "+ Add Idea": a second click closes the box. Opening it starts a fresh conversation.
         onAdd={() => {
-          if (adding) setCanContinue(chatHasConversation());
-          else startNewChat();
+          if (!adding) startNewChat();
           setAdding((open) => !open);
           setInChat(null);
         }}
-        onContinue={canContinue && !adding ? () => setAdding(true) : undefined}
         adding={chat}
         hideId={adding ? inChat : null}
       />
