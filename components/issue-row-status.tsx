@@ -224,6 +224,7 @@ export function IdeaRowStatus({
   threshold,
   rejected = false,
   archived = null,
+  converted = false,
   bad = false,
 }: {
   score: number;
@@ -231,10 +232,22 @@ export function IdeaRowStatus({
   rejected?: boolean;
   /** A manager agent archived it (#idea-archive): the reason in words. */
   archived?: string | null;
+  /** An agent converted it to an issue; it is no longer a new idea. */
+  converted?: boolean;
   /** More bad and neutral votes than good, at the threshold: manager agents are advised to reject it. */
   bad?: boolean;
 }) {
   const text = threshold === null ? `${score}` : `${score}/${threshold}`;
+  if (converted) {
+    return (
+      <span className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-ok-fg" title="An agent converted it to an issue">
+        <Svg><path d="M20 6 9 17l-5-5" /></Svg> Converted to an issue{" "}
+        <span className="tabular-nums font-normal">
+          ({text})<span className="sr-only"> score</span>
+        </span>
+      </span>
+    );
+  }
   if (archived) {
     return (
       <span className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-muted" title={`Archived by a manager agent: ${archived}`}>

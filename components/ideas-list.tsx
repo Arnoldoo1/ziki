@@ -21,6 +21,8 @@ export type IdeaListRow = {
   rejected?: boolean;
   /** A manager agent archived it (#idea-archive): the reason in words, e.g. "Already implemented". */
   archived?: string | null;
+  /** An agent converted it to an issue; shown when the New ideas list has no open ideas left. */
+  converted?: boolean;
   /** Bad: manager agents are advised to reject it (lib/idea-rejection.ts). */
   bad?: boolean;
   /** Weighted good and bad votes (#724), shown as columns; 0 when nobody voted. */
@@ -42,12 +44,14 @@ export type IdeaListRow = {
  * the middle, and status pills + actions on the right. All original
  * functionality (voting, verdicts, path chips, navigation) is preserved.
  */
-export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT_IDEA_SORT }: {
+export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT_IDEA_SORT, note }: {
   slug: ProjectRef;
   ideas: IdeaListRow[];
   /** The list's sort, for the sortable column headers (#column-sort). */
   sort?: string;
   empty?: string;
+  /** Shown above the list, for example when earlier ideas stand in for an empty New ideas list. */
+  note?: React.ReactNode;
   /** No open ideas yet: what Ziki is for, and a box to type the first one in. */
   welcome?: React.ReactNode;
   /** The section's status filters, shown after "Status" in the header row. */
@@ -69,6 +73,12 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
   }
   return (
     <section className="issues-results flex flex-col gap-4" aria-label="Ideas">
+      {note ? (
+        <p className="m-0 flex items-start gap-2 rounded-xl border border-zk-border bg-zk-chip px-3 py-2 text-xs text-zk-text2" data-testid="ideas-list-note">
+          <span aria-hidden="true" className="mt-px">ℹ️</span>
+          <span>{note}</span>
+        </p>
+      ) : null}
       <div className="issues-table relative">
         <div>
           <div className="issues-table-heading">
@@ -159,7 +169,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                     />
                     <span className="inline-flex items-center gap-1.5 rounded-full border border-zk-accent/40 bg-zk-accent/15 px-3 py-1 text-xs font-semibold text-zk-accent shadow-sm transition-all duration-200 group-hover:border-zk-accent/60 group-hover:bg-zk-accent/25 group-hover:shadow-md">
                       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-zk-accent" />
-                      <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} archived={idea.archived} bad={idea.bad} />
+                      <IdeaRowStatus score={idea.score} threshold={idea.threshold} rejected={idea.rejected} archived={idea.archived} converted={idea.converted} bad={idea.bad} />
                     </span>
                     <IdeaPathChips ideaId={idea.id} approvedByMe={Boolean(idea.approvedByMe)} score={idea.score} threshold={idea.threshold} rejected={idea.rejected} archived={idea.archived} bad={idea.bad} />
                   </div>
