@@ -56,7 +56,7 @@ export default async function ClustersPage({ params, searchParams }: {
   );
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-5">
+    <div className="mx-auto w-full max-w-6xl space-y-5 caret-transparent [&_input]:[caret-color:auto] [&_textarea]:[caret-color:auto]">
       <nav aria-label="Breadcrumb" className="flex min-w-0 items-center gap-2 text-sm text-zk-text2">
         <Link href={ideasPath(project.ref)} className="truncate hover:text-zk-text">{project.name}</Link>
         <span aria-hidden="true">›</span>
