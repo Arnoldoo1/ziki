@@ -17,7 +17,7 @@ export function PipelineSteps({ stages, label = "Stages" }: { stages: PipelineSt
     // One row whatever the number of stages (Your Work and Live come and go): a column each, about 133px wide.
     <nav
       aria-label={label}
-      className="grid w-full grid-cols-[repeat(var(--stages),minmax(0,1fr))] gap-x-2 max-sm:gap-x-0 max-sm:border-b max-sm:border-zk-border"
+      className="grid w-full grid-cols-[repeat(var(--stages),minmax(0,1fr))] gap-x-2 rounded-xl border border-zk-border bg-zk-surface p-2 max-sm:gap-x-0 max-sm:border-b max-sm:border-zk-border"
       style={{ "--stages": stages.length, maxWidth: stages.length * 140 } as React.CSSProperties}
     >
       {stages.map((stage) => (
