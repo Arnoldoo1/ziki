@@ -1132,7 +1132,7 @@ function ClusterGroups({ clusters, allHref, onDone }: { clusters: DockCluster[];
   return (
     <div className="mt-2">
       <p className="m-0 flex items-center justify-between px-1.5 pb-1 text-[11px] font-semibold text-zk-muted">
-        <span>Clusters</span>
+        <span>Agent Clusters</span>
         {clusters.length ? <span>{clusters.length}</span> : null}
       </p>
       {clusters.length ? (
@@ -1169,7 +1169,7 @@ function ClusterGroups({ clusters, allHref, onDone }: { clusters: DockCluster[];
           onClick={onDone}
           className="mt-1 flex items-center justify-between rounded-lg px-1.5 py-1.5 text-xs font-bold text-zk-text2 transition hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-electric-blue"
         >
-          All clusters
+          All agent clusters
           <span aria-hidden="true">→</span>
         </Link>
       ) : null}
