@@ -30,19 +30,19 @@ export function PaginationControls({
     page < totalPages ? buildPaginationUrl(basePath, page + 1, queryParams) : null;
 
   const pill =
-    "inline-flex min-h-10 items-center justify-center rounded-full border border-zk-border bg-zk-surface px-3.5 text-xs font-bold text-zk-text transition hover:bg-zk-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue";
+    "inline-flex min-h-10 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] px-4 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500";
   const pillDisabled =
-    "inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-full border border-zk-border bg-zk-chip px-3.5 text-xs font-bold text-zk-muted";
+    "inline-flex min-h-10 cursor-not-allowed items-center justify-center rounded-full border border-white/[0.06] bg-white/[0.03] px-4 py-1.5 text-xs font-medium text-slate-500";
 
   return (
     <nav
       aria-label="Pagination"
       className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
     >
-      <div className="text-xs text-zk-muted">
-        Showing <span className="font-semibold text-zk-text">{from}</span>–
-        <span className="font-semibold text-zk-text">{to}</span> of{" "}
-        <span className="font-semibold text-zk-text">{totalCount}</span>{" "}
+      <div className="text-xs text-slate-400">
+        Showing <span className="font-semibold text-white">{from}</span>–
+        <span className="font-semibold text-white">{to}</span> of{" "}
+        <span className="font-semibold text-white">{totalCount}</span>{" "}
         {itemLabel}
         {totalCount === 1 ? "" : "s"}
       </div>
@@ -68,7 +68,7 @@ export function PaginationControls({
                 <span
                   key={item}
                   aria-current="page"
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-electric-blue-strong text-xs font-bold text-white"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white shadow-[0_0_24px_-4px_rgba(75,117,255,0.35)]"
                 >
                   {item}
                 </span>
@@ -76,7 +76,7 @@ export function PaginationControls({
                 <Link
                   key={item}
                   href={url}
-                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-zk-border bg-zk-surface text-xs font-bold text-zk-text transition hover:bg-zk-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.05] text-xs font-medium text-slate-400 transition hover:bg-white/[0.09] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
                   {item}
                 </Link>
