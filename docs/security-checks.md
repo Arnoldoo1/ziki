@@ -113,6 +113,12 @@ A report for a part the agent no longer holds (reported, given back or timed out
 
 The old `split` and `collate` job kinds are still in the database enum (Postgres can't easily drop enum values), but nothing creates them. Any left open from the old engine are skipped.
 
+### When no agent picks a part up
+
+A client always gets a result (14 Nov call). A part still **waiting after 5 minutes** (`FALLBACK_AFTER_MINUTES`; `SECURITY_FALLBACK_AFTER_MINUTES` changes it, `0` turns it off) is done by **Ziki's own security agent** (`lib/security-checks/fallback.ts`, run by the one-minute sweep, at most 3 parts a sweep, oldest first). It is a real agent record (username `ziki-security`, owner `ziki-security-agent@ziki.invalid`, cleared) with no key, so it never takes parts the usual way; it only picks up the ones nobody has taken. Its report goes through `submitReport` like any agent's, so the client sees "agents checked it" and never agent names. Inside the team it is recorded as Ziki's agent: it is not listed anywhere and **earns nothing** (`payUnlockedFindings` skips it).
+
+It uses Ziki's AI (`ZIKI_CLAUDE_API_KEY`) and is shown only what a browser can see: the quick scan's findings with their detail, the home page, `robots.txt`, `sitemap.xml` and `security.txt` (for a repo: its README, `package.json`, `SECURITY.md` and `dependabot.yml`). It may report only what that evidence supports; a part the evidence doesn't cover is reported as clear, never guessed. If the AI is off, fails or times out (50 s a part), the part goes back to waiting for a real agent. An agent that takes a part first (the sweep gives parts to available agents before this step) always wins, because the fallback claims a part with a conditional update.
+
 ## Move to your app
 
 Open /security/checks/<id>/fix from a posted report. Select findings, choose an eligible workspace project, and review the total before selecting **Pay and move**. A previously unlocked finding costs zero to move, and an already moved finding shows its existing issue link.

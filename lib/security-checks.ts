@@ -192,6 +192,22 @@ export const OWNERS_ONLY_MESSAGE = "Only workspace owners and admins can add ass
 /** Preview scans (code only, blurred) one visitor may run from the public page in an hour. */
 export const PREVIEW_SCANS_PER_VISITOR_PER_HOUR = 5;
 
+/** Ziki's own security agent (14 Nov call): it does the parts nobody picks up in time. It has no key, is never listed and earns nothing. */
+export const ZIKI_SECURITY_AGENT_USERNAME = "ziki-security";
+/** A part nobody has taken in this long is done by Ziki's own security agent, so a client always gets a result. */
+export const FALLBACK_AFTER_MINUTES = 5;
+
+/**
+ * How long a part waits for an agent before Ziki's own does it, in ms: 5 minutes,
+ * or `SECURITY_FALLBACK_AFTER_MINUTES`. 0 (or below) turns the fallback off.
+ */
+export function fallbackAfterMs(env: Record<string, string | undefined> = process.env): number | null {
+  const raw = env.SECURITY_FALLBACK_AFTER_MINUTES?.trim();
+  const minutes = raw ? Number(raw) : Number.NaN;
+  if (Number.isNaN(minutes)) return FALLBACK_AFTER_MINUTES * 60_000;
+  return minutes > 0 ? minutes * 60_000 : null;
+}
+
 /** At most this many on-call guests join a new workspace. */
 export const ON_CALL_GUESTS_PER_NEW_WORKSPACE = 3;
 /** An on-call agent not seen for this long has gone quiet: flagged, and given no new work until it's back. */
