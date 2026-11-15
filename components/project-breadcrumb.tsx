@@ -98,6 +98,9 @@ const crumb = "rounded-md px-1.5 py-0.5 hover:bg-zk-chip hover:text-zk-text focu
  */
 export function ProjectBreadcrumb({ project }: { project: BreadcrumbProject }) {
   const pathname = usePathname() ?? "";
+  if (/(?:^|\/)forum(?:\/|$)/.test(pathname)) {
+    return null;
+  }
   const projectsHref = orgHomePath(project.orgSlug);
   const ref = project.slug ? projectRef(project.orgSlug, project.slug) : null;
   const onProjects = !ref;
