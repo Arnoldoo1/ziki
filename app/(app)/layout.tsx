@@ -6,7 +6,7 @@ import { requireUser } from "@/lib/auth-helpers";
 import { isLinkPreviewBot } from "@/lib/link-preview";
 import { isPublicAgentPath } from "@/lib/public-agent-paths";
 import { projectOverviewSegments } from "@/lib/project-slug";
-import { publicIntakeSegments } from "@/lib/public-project-paths";
+import { publicIntakeSegments, publicIssuesSegments } from "@/lib/public-project-paths";
 import { AppHeader } from "@/components/app-header";
 import { getUnreadCount } from "@/lib/lookups";
 import { MAIN_CONTENT_ID, SkipLink } from "@/components/skip-link";
@@ -63,7 +63,8 @@ export default async function AppLayout({
   // A guest on /security gets the public Ziki Security page, which brings its own header and footer.
   if (!session?.user && reqPath === "/security") return <>{children}</>;
   const intakeSegments = !session?.user ? publicIntakeSegments(reqPath) : null;
-  const overviewSegments = !session?.user ? projectOverviewSegments(reqPath) ?? intakeSegments : null;
+  const publicIssues = !session?.user ? publicIssuesSegments(reqPath) : null;
+  const overviewSegments = !session?.user ? projectOverviewSegments(reqPath) ?? intakeSegments ?? publicIssues : null;
   const overviewProject = overviewSegments
     ? await prisma.project.findFirst({
         where: {
