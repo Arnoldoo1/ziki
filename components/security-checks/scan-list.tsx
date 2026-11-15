@@ -11,7 +11,7 @@ import { PaginationControls } from "@/components/pagination-controls";
 import { KindIcon } from "./entry-box";
 import "@/app/(app)/[org]/[project]/issues/_list/issues.css";
 import "@/components/security-finding.css";
-import { SecurityChat, chatLeftOpen, keepChatOpen } from "./security-chat";
+import { SecurityChat, chatHasConversation, chatLeftOpen, keepChatOpen, startNewChat } from "./security-chat";
 
 
 /** Rows on each page. */
@@ -54,7 +54,7 @@ function stageOf(check: Pick<WorkspaceCheckRow, "status" | "posted" | "moved">):
  * pages. The rows use Ziki's list table (as Ideas and Issues) and the layout
  * Intruder, Snyk and Detectify use for their assets; no sidebar.
  */
-export function ScanList({ checks, highlightId, show = "all", page = 1, onAdd, adding, hideId }: { checks: WorkspaceCheckRow[]; highlightId?: string; show?: string; page?: number; onAdd?: () => void; adding?: React.ReactNode; hideId?: string | null }) {
+export function ScanList({ checks, highlightId, show = "all", page = 1, onAdd, onContinue, adding, hideId }: { checks: WorkspaceCheckRow[]; highlightId?: string; show?: string; page?: number; onAdd?: () => void; onContinue?: () => void; adding?: React.ReactNode; hideId?: string | null }) {
   const filter: Filter = FILTERS.some(({ id }) => id === show) ? (show as Filter) : "all";
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
@@ -88,6 +88,17 @@ export function ScanList({ checks, highlightId, show = "all", page = 1, onAdd, a
             >
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
               Add asset
+            </button>
+          ) : null}
+          {/* Back into a closed chat, with its conversation (15 Nov call). */}
+          {onContinue ? (
+            <button
+              type="button"
+              onClick={onContinue}
+              className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zk-border bg-zk-surface px-3 text-sm font-semibold text-zk-text hover:bg-zk-chip focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.4A8 8 0 1 1 21 12Z" /></svg>
+              Continue chat
             </button>
           ) : null}
           {/* No visible title: the Assets tab above already says what this is. Kept for screen readers. */}
@@ -185,6 +196,12 @@ function NoProblems() {
   );
 }
 
+/** What each source of the counts means, on hover and for screen readers (15 Nov call). */
+const SOURCE_HINT = {
+  quick: "What any browser can see. The agents check much more, and their report replaces these numbers when it's ready.",
+  agents: "Every finding from the agents' full check. This replaced the quick scan's numbers.",
+} as const;
+
 /**
  * One scan as a row, in Ziki's list table (issues.css, as on Ideas and Issues): the site
  * and what it is on the left, what was found as small coloured counts (as Intruder, Snyk and
@@ -259,7 +276,16 @@ function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highl
         </span>
       ) : null}
       {/* Like Intruder and Detectify: four coloured counts in a fixed order (critical, high, medium, low), in the report's own severity colours (security-finding.css); an empty one is the same box, faded, as on Detectify. */}
-      <span className="hidden w-48 shrink-0 items-center gap-1 md:flex">{counts}</span>
+      {/* Where the numbers come from (15 Nov call): the quick scan's until the agents' report replaces them, said under the counts and on hover. */}
+      <span className="hidden w-48 shrink-0 flex-col gap-1 md:flex" title={found.length || nothing ? SOURCE_HINT[agent ? "agents" : "quick"] : undefined}>
+        <span className="flex items-center gap-1">{counts}</span>
+        {found.length || nothing ? (
+          <span className="text-[11px] leading-tight text-zk-muted">
+            {agent ? "From the agents' report" : "From the quick scan"}
+            <span className="sr-only">. {SOURCE_HINT[agent ? "agents" : "quick"]}</span>
+          </span>
+        ) : null}
+      </span>
       <span className="hidden w-28 shrink-0 text-xs text-zk-muted md:block">
         <LocalTime date={check.createdAt} />
       </span>
@@ -343,6 +369,9 @@ export function ScansArea({
   useEffect(() => {
     keepChatOpen(adding);
   }, [adding]);
+  // A closed chat keeps its conversation; "Continue chat" brings it back (15 Nov call).
+  // Read when the chat closes, so the button matches what is kept.
+  const [canContinue, setCanContinue] = useState(() => chatHasConversation());
   // The scan whose result is in the chat: its card waits until "See progress", so it isn't shown twice.
   const [inChat, setInChat] = useState<string | null>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -358,6 +387,7 @@ export function ScansArea({
       onClose={() => {
         setAdding(false);
         setInChat(null);
+        setCanContinue(chatHasConversation());
       }}
     />
   ) : null;
@@ -369,11 +399,14 @@ export function ScansArea({
         highlightId={highlightId}
         show={show}
         page={page}
-        // Like "+ Add Idea": a second click closes the box.
+        // Like "+ Add Idea": a second click closes the box. Opening it starts a fresh conversation.
         onAdd={() => {
+          if (adding) setCanContinue(chatHasConversation());
+          else startNewChat();
           setAdding((open) => !open);
           setInChat(null);
         }}
+        onContinue={canContinue && !adding ? () => setAdding(true) : undefined}
         adding={chat}
         hideId={adding ? inChat : null}
       />

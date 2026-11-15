@@ -17,7 +17,7 @@ import {
   askSecurityAssistant,
   type AssistantTurn,
 } from "@/lib/security-checks/assistant";
-import { loadSiteChat, saveSiteMessage, SITE_CHAT_MESSAGE_MAX, siteChatScan, siteContextNote } from "@/lib/security-checks/site-chat";
+import { loadSiteChat, saveSiteMessage, scansContextNote, SITE_CHAT_MESSAGE_MAX, siteChatScan, siteContextNote } from "@/lib/security-checks/site-chat";
 
 /**
  * Ziki's security chat, signed in (#security-checks, plan part C3). A plain
@@ -136,7 +136,8 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
   const limit = checkRateLimit(`security-assistant:${user.id}`, ASSISTANT_RATE_LIMIT);
   if (!limit.allowed) return { kind: "error", error: RATE_LIMIT_MESSAGE };
 
-  const answer = await askSecurityAssistant(turns);
+  // Follow-ups about their own scans ("what's happening with my site?"): what's known about them, read here.
+  const answer = await askSecurityAssistant(turns, await scansContextNote(access.organisationId, user.id));
   if (!answer) return { kind: "reply", reply: ASK_FOR_ADDRESS };
   if (answer.target) {
     const picked = parseSecurityTarget(answer.target);
