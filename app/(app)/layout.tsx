@@ -75,7 +75,7 @@ export default async function AppLayout({
           // the shell doesn't tell outsiders which private projects exist.
           visibility: "public",
           archivedAt: null,
-          ...(intakeSegments?.kind === "report" ? { acceptsGuestIdeas: true } : {}),
+          ...(intakeSegments?.kind === "report" || intakeSegments?.kind === "contribute" ? { acceptsGuestIdeas: true } : {}),
           organisation: { slug: overviewSegments.orgSlug, archivedAt: null },
         },
         select: { id: true },
