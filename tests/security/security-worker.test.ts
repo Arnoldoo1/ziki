@@ -1,5 +1,24 @@
+import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { ALLOWED_TOOLS, checkPrompt, cleanResults, extractJson, installPlan, quoteForCmd, restAfterFailures, tick } from "../../scripts/security-worker.mjs";
+import {
+  ALLOWED_TOOLS,
+  acquireLock,
+  checkPrompt,
+  claudeProblem,
+  cleanClaudeEnv,
+  cleanResults,
+  extractJson,
+  friendlyClaudeFailure,
+  installPlan,
+  looksLikeApiBilling,
+  quoteForCmd,
+  readinessFromLog,
+  restAfterFailures,
+  setup,
+  tick,
+} from "../../scripts/security-worker.mjs";
 
 /** A fake context for the worker: a canned fetch and a log to read. */
 function fakeCtx(replies: Array<{ status: number; body: unknown }>) {
@@ -127,5 +146,121 @@ describe("the laptop security worker (#security-checks)", () => {
     expect(linux.files[0]!.content).toContain(`ExecStart="/usr/bin/node" "${script}" run`);
     expect(linux.files[0]!.content).toContain("WantedBy=default.target");
     expect(linux.undoFiles).toEqual([linux.files[0]!.path]);
+  });
+
+  it("starts Claude Code without the settings a Claude session leaves behind, but keeps the person's own API key", () => {
+    const clean = cleanClaudeEnv({ CLAUDECODE: "1", CLAUDE_CODE_ENTRYPOINT: "x", CLAUDE_AGENT_SDK_VERSION: "1", ANTHROPIC_BASE_URL: "http://proxy", ANTHROPIC_API_KEY: "sk-own", PATH: "/bin" } as never);
+    expect(clean).toEqual({ ANTHROPIC_API_KEY: "sk-own", PATH: "/bin" } as never);
+  });
+
+  it("tells a signed-out Claude Code from a usage limit, and says what to do", () => {
+    expect(claudeProblem("OAuth session expired")).toBe("not_signed_in");
+    expect(claudeProblem("You've hit your usage limit")).toBe("usage_limit");
+    expect(claudeProblem("boom")).toBe("other");
+    expect(friendlyClaudeFailure("Failed to authenticate")).toContain("security-worker.mjs setup");
+  });
+
+  it("runs only one copy per agent, and takes over a lock left by a process that is gone", () => {
+    const file = path.join(mkdtempSync(path.join(os.tmpdir(), "ziki-lock-")), "agent.json.lock");
+    expect(acquireLock(file, { pid: 11 })).toBe(true);
+    expect(acquireLock(file, { pid: 22, alive: () => true })).toBe(false);
+    expect(acquireLock(file, { pid: 22, alive: () => false })).toBe(true);
+  });
+
+  it("reads the worker's last log line in plain words", () => {
+    expect(readinessFromLog([])).toBeNull();
+    expect(readinessFromLog(["online; no parts right now"])).toContain("online");
+    expect(readinessFromLog(["online", "owner isn't on call and cleared"])).toContain("aren't on call");
+    expect(readinessFromLog(["Claude Code isn't signed in"])).toContain("run setup again");
+    expect(looksLikeApiBilling("console")).toBe(true);
+    expect(looksLikeApiBilling("claude.ai")).toBe(false);
+  });
+
+  describe("setup", () => {
+    const base = () => {
+      const out: string[] = [];
+      const ctx = { out: (line: string) => out.push(line), sleep: vi.fn(async () => {}), log: () => {} } as never;
+      const dir = mkdtempSync(path.join(os.tmpdir(), "ziki-setup-"));
+      const configFile = path.join(dir, "agent.json");
+      const deps = {
+        claudeVersion: vi.fn(async () => true),
+        claudeAuth: vi.fn(async () => ({ loggedIn: true, authMethod: "claude.ai" })),
+        claudeLogin: vi.fn(async () => {}),
+        pair: vi.fn(async (_c: unknown, o: { configFile: string }) => {
+          writeFileSync(o.configFile, JSON.stringify({ url: "https://ziki.test", apiKey: "k", name: "Ada" }));
+          return { url: "https://ziki.test", apiKey: "k", name: "Ada" };
+        }),
+        install: vi.fn(async () => {}),
+        readLog: vi.fn(async () => ["online; no parts right now"]),
+      };
+      return { out, ctx, configFile, deps };
+    };
+
+    it("does everything for a fresh laptop: pairs, installs, and says it is ready", async () => {
+      const { ctx, deps, configFile, out } = base();
+      const result = await setup(ctx, { deps: deps as never, configFile, name: "Ada" } as never);
+      expect(result).toMatchObject({ ok: true, step: "done" });
+      expect(deps.pair).toHaveBeenCalledOnce();
+      expect(deps.install).toHaveBeenCalledOnce();
+      expect(out.join("\n")).toContain("online and waiting");
+    });
+
+    it("does not pair again when an agent is already saved", async () => {
+      const { ctx, deps, configFile } = base();
+      writeFileSync(configFile, JSON.stringify({ url: "https://ziki.test", apiKey: "k", name: "Ada" }));
+      await setup(ctx, { deps: deps as never, configFile });
+      expect(deps.pair).not.toHaveBeenCalled();
+      expect(existsSync(configFile)).toBe(true);
+    });
+
+    it("stops with a plain message when Claude Code is missing", async () => {
+      const { ctx, deps, configFile, out } = base();
+      deps.claudeVersion.mockResolvedValue(false);
+      expect(await setup(ctx, { deps: deps as never, configFile })).toMatchObject({ ok: false, step: "claude_install" });
+      expect(deps.install).not.toHaveBeenCalled();
+      expect(out.join("\n")).toContain("isn't installed");
+    });
+
+    it("opens the sign-in when signed out, and stops if it did not finish", async () => {
+      const { ctx, deps, configFile } = base();
+      deps.claudeAuth.mockResolvedValue({ loggedIn: false, authMethod: "" });
+      expect(await setup(ctx, { deps: deps as never, configFile })).toMatchObject({ ok: false, step: "claude_signin" });
+      expect(deps.claudeLogin).toHaveBeenCalledOnce();
+      expect(deps.pair).not.toHaveBeenCalled();
+    });
+  });
+
+  it("retries a dropped connection quietly when asking for work", async () => {
+    let calls = 0;
+    const logs: string[] = [];
+    const ctx = {
+      fetch: vi.fn(async () => {
+        if (++calls < 3) throw new TypeError("fetch failed");
+        return new Response(JSON.stringify({ jobs: [] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }),
+      sleep: vi.fn(async () => {}),
+      now: () => 1,
+      log: (line: string) => logs.push(line),
+    };
+    await tick(ctx as never, config, { failures: 0, lastNote: "" }, { runClaude: vi.fn() });
+    expect(calls).toBe(3);
+    expect(logs.join(" ")).not.toContain("Network error");
+  });
+});
+
+describe("the setup card on My agents (#security-checks)", () => {
+  it("shows the one setup command only to someone who is on call and cleared", async () => {
+    vi.resetModules();
+    const findUnique = vi.fn();
+    vi.doMock("@/lib/prisma", () => ({ prisma: { user: { findUnique } } }));
+    const { OnCallSetup, WORKER_SETUP_COMMAND } = await import("../../components/on-call-setup");
+    const text = (node: unknown) => JSON.stringify(node);
+    findUnique.mockResolvedValueOnce({ onCallAt: new Date(), securityClearedAt: new Date() });
+    expect(text(await OnCallSetup({ userId: "u1" }))).toContain(WORKER_SETUP_COMMAND);
+    findUnique.mockResolvedValueOnce({ onCallAt: new Date(), securityClearedAt: null });
+    expect(await OnCallSetup({ userId: "u1" })).toBeNull();
+    findUnique.mockResolvedValueOnce({ onCallAt: null, securityClearedAt: null });
+    expect(await OnCallSetup({ userId: "u1" })).toBeNull();
+    expect(WORKER_SETUP_COMMAND).toBe("node scripts/security-worker.mjs setup");
   });
 });

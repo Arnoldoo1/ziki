@@ -8,7 +8,7 @@ vi.mock("@/lib/security-checks/engine", async (importOriginal) => ({
   postFinishedReports: mocks.post,
 }));
 
-import { FALLBACK_AFTER_MINUTES, ZIKI_SECURITY_AGENT_USERNAME, fallbackAfterMs } from "@/lib/security-checks";
+import { FALLBACK_AFTER_MINUTES, ZIKI_SECURITY_AGENT_USERNAME, fallbackAfterMs, fallbackWindowMs } from "@/lib/security-checks";
 import type { SecurityAi } from "@/lib/security-checks/ai";
 import { FALLBACK_PARTS_PER_SWEEP, ensureZikiSecurityAgent, fallbackPrompt, gatherEvidence, sweepFallback } from "@/lib/security-checks/fallback";
 
@@ -61,6 +61,15 @@ describe("the fallback when no agent picks a part up (#security-checks, 14 Nov c
     expect(fallbackAfterMs({ SECURITY_FALLBACK_AFTER_MINUTES: "0" })).toBeNull();
     // Something that isn't a number never switches it off by accident.
     expect(fallbackAfterMs({ SECURITY_FALLBACK_AFTER_MINUTES: "soon" })).toBe(5 * 60_000);
+  });
+
+  it("limits real agents to young parts only while the fallback can actually run", () => {
+    expect(fallbackWindowMs({ ZIKI_CLAUDE_API_KEY: "key" })).toBe(5 * 60_000);
+    expect(fallbackWindowMs({ ZIKI_CLAUDE_API_KEY: "key", SECURITY_FALLBACK_AFTER_MINUTES: "10" })).toBe(10 * 60_000);
+    // No AI key, or switched off: agents may take any waiting part, so nothing stalls.
+    expect(fallbackWindowMs({})).toBeNull();
+    expect(fallbackWindowMs({ ZIKI_CLAUDE_API_KEY: "  " })).toBeNull();
+    expect(fallbackWindowMs({ ZIKI_CLAUDE_API_KEY: "key", SECURITY_FALLBACK_AFTER_MINUTES: "0" })).toBeNull();
   });
 
   it("does nothing when it is off or Ziki's AI isn't set up, and touches nothing", async () => {

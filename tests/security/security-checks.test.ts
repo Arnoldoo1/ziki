@@ -224,15 +224,14 @@ describe("what a client sees of a check (12 and 14 Nov plans, part S)", () => {
     expect(db.securityCheckResult.findMany).not.toHaveBeenCalled();
   });
 
-  it("before the report is posted: progress only, no quick scan and no result read at all; the PDF goes back to the check", async () => {
+  it("before the report is posted: progress and the quick scan, no result read at all; the PDF goes back to the check", async () => {
     db.securityCheck.findFirst.mockResolvedValue(check(null, { previewSummary: QUICK_SCAN }));
 
     const report = await loadCheckReport("check1", "org1", "owner");
 
     expect(db.securityCheckResult.findMany).not.toHaveBeenCalled();
-    // The quick scan stays on the scan's card; the check page shows only the agents' progress.
-    expect(report).toMatchObject({ posted: false });
-    expect(report).not.toHaveProperty("quickScan");
+    // The quick scan from when it was added shows first on the scan's page, until the agents' report replaces it.
+    expect(report).toMatchObject({ posted: false, quickScan: { total: 1, rows: [{ title: "No HSTS header" }] } });
     expect(report).not.toHaveProperty("findings");
     expect(report).not.toHaveProperty("summary");
     // A skipped part counts as finished (3 of 5).
@@ -310,6 +309,21 @@ describe("what a client sees of a check (12 and 14 Nov plans, part S)", () => {
     db.securityCheck.findFirst.mockResolvedValue(null);
     expect((await downloadReportPdf(new Request("http://localhost/x"), params)).status).toBe(404);
     expect(renderReportPdf).not.toHaveBeenCalled();
+  });
+
+  it("PDF: when the PDF can't be made, the cause goes to the server log and the person gets a plain message, not an empty 500", async () => {
+    const params = { params: Promise.resolve({ id: "check1" }) };
+    db.securityCheck.findFirst.mockResolvedValue(check());
+    results([row("crit", "critical", 1)]);
+    renderReportPdf.mockRejectedValue(new Error("font file missing"));
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const response = await downloadReportPdf(new Request("http://localhost/x"), params);
+
+    expect(response.status).toBe(500);
+    expect(await response.text()).toContain("couldn't make the PDF");
+    expect(logged.mock.calls.join(" ")).toContain("font file missing");
+    logged.mockRestore();
   });
 
   it("PDF: prints ₦ and Yoruba in the site's font (Inter), embedded, not Helvetica", async () => {
