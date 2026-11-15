@@ -105,7 +105,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                       <span className={`font-mono text-xs font-extrabold tracking-tight ${
                         idea.score > 0 ? "text-emerald-600" : idea.score < 0 ? "text-rose-600" : "text-zk-text"
                       }`}>
-                        {idea.score > 0 ? `+${idea.score}` : idea.score}
+                        {idea.score > 0 ? `+${idea.score}` : idea.score < 0 ? `${Math.abs(idea.score)}` : idea.score}
                       </span>
                       <span className={`text-[9px] font-bold uppercase leading-none ${
                         idea.score > 0 ? "text-emerald-600" : idea.score < 0 ? "text-rose-600" : "text-zk-muted"
