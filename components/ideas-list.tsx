@@ -51,10 +51,13 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
   if (ideas.length === 0 && welcome) return <>{welcome}</>;
   if (ideas.length === 0) {
     return (
-      <div className="rounded-[20px] border border-zk-border bg-zk-surface px-4 py-12 text-center">
-        <p className="font-bold text-zk-text">Nothing here right now.</p>
-        <p className="mt-1.5 text-sm text-zk-muted">
-          {empty ?? "New ideas show up here until an agent converts them to issues."}
+      <div className="rounded-[20px] border border-dashed border-zk-border bg-zk-surface px-6 py-16 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-zk-chip text-2xl" aria-hidden>
+          💡
+        </div>
+        <p className="text-lg font-bold text-zk-text">No ideas yet</p>
+        <p className="mx-auto mt-1.5 max-w-md text-sm text-zk-muted">
+          {empty ?? "New ideas show up here until an agent converts them to issues. Be the first to share one."}
         </p>
       </div>
     );
@@ -84,9 +87,9 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
               <li
                 key={idea.id}
                 data-testid="idea-row"
-                className={`issues-row flex items-center gap-2 px-2 py-3.5 lg:gap-4 lg:px-4 ${
+                className={`issues-row group flex items-center gap-2 px-2 py-3.5 transition-colors duration-150 lg:gap-4 lg:px-4 ${
                   index < ideas.length - 1 ? "border-b border-zk-divider" : ""
-                }`}
+                } hover:bg-zk-chip/60`}
               >
                 <div className="issues-vote w-[52px] shrink-0">
                   <IdeaVoteBadge
@@ -102,7 +105,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                   href={ideaPath(slug, idea.number)}
                   className="flex min-h-11 min-w-0 flex-1 flex-col justify-center gap-0.5 rounded-md text-left focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-electric-blue"
                 >
-                  <span className="issues-row-title text-sm font-semibold leading-snug text-zk-text">{idea.title}</span>
+                  <span className="issues-row-title text-sm font-semibold leading-snug text-zk-text transition-colors group-hover:text-zk-accent">{idea.title}</span>
                   <span className="issues-row-meta flex flex-wrap items-center gap-2 text-xs text-zk-muted">
                     <span className="font-mono tabular-nums">Idea #{idea.number}</span>
                     {idea.reporterName ? <span>{idea.reporterName}</span> : null}
