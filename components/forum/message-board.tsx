@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { INITIAL_FORUM_MESSAGES } from "@/lib/forum";
+import { INITIAL_FORUM_MESSAGES } from "@/lib/forum-types";
 import { Badge } from "@/components/ui/badge";
 import { RichText } from "@/components/rich-text";
 import { MarkdownEditor } from "@/components/markdown-editor";
