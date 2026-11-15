@@ -103,7 +103,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                           : "border-zk-border bg-zk-chip shadow-none dark:border-white/[0.08] dark:bg-white/[0.05]"
                     }`}>
                       <span className={`font-mono text-xs font-extrabold tracking-tight ${
-                        idea.score > 0 ? "text-emerald-400" : idea.score < 0 ? "text-rose-400" : "text-zk-text dark:text-white"
+                        idea.score > 0 ? "text-emerald-600 dark:text-emerald-400" : idea.score < 0 ? "text-rose-600 dark:text-rose-400" : "text-zk-text dark:text-white"
                       }`}>
                         {idea.score > 0 ? `+${idea.score}` : idea.score}
                       </span>
@@ -115,7 +115,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                     </div>
                     <div className="min-w-0 flex-1 space-y-1.5">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 font-mono text-[11px] font-bold text-blue-400">
+                        <span className="rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-0.5 font-mono text-[11px] font-bold text-blue-600 dark:text-blue-400">
                           #{idea.number}
                         </span>
                         <Link
@@ -128,7 +128,7 @@ export function IdeasList({ slug, ideas, empty, welcome, filters, sort = DEFAULT
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zk-muted dark:text-slate-400">
                         {idea.reporterName ? (
                           <span className="flex items-center space-x-1.5">
-                            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500/40 text-[9px] font-bold text-indigo-300">
+                            <span className="flex h-4 w-4 items-center justify-center rounded-full bg-indigo-500/20 text-[9px] font-bold text-indigo-700 dark:bg-indigo-500/40 dark:text-indigo-300">
                               {idea.reporterName.charAt(0).toUpperCase()}
                             </span>
                             <span className="font-medium text-zk-text dark:text-slate-300">{idea.reporterName}</span>
