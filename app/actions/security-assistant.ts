@@ -107,7 +107,7 @@ export async function removeScan(checkId: string): Promise<{ ok: true } | { ok: 
   if (!access.organisationId) return { ok: false, error: NO_WORKSPACE };
   if (!access.admin) return { ok: false, error: OWNERS_ONLY_MESSAGE };
   const removed = typeof checkId === "string" && (await removeOwnScan(access.organisationId, user.id, checkId));
-  if (!removed) return { ok: false, error: "This one can't be removed: its report is ready, and reports stay." };
+  if (!removed) return { ok: false, error: "This scan is already removed." };
   revalidatePath("/security");
   return { ok: true };
 }
