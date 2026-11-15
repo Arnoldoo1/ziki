@@ -186,8 +186,46 @@ describe("reporting a part", () => {
     const db = fakeDb();
     db.securityCheckItem.findUnique.mockResolvedValue(heldItem());
     db.securityCheckItem.updateMany.mockResolvedValue({ count: 1 });
-    expect(await submitReport(asDb(db), "agentA", "item1", found, now)).toEqual({ checkId: "check1", results: 1 });
+    expect(await submitReport(asDb(db), "agentA", "item1", found, now)).toEqual({ checkId: "check1", results: 1, addedParts: 0 });
     expect(db.securityCheckResult.createMany.mock.calls[0][0].data[0]).toMatchObject({ checkId: "check1", itemId: "item1", severity: "high", priceCoins: 3 });
+  });
+
+  it("saves the extra parts an agent asks for with its report: new titles only, a few per report, none past the check's ceiling", async () => {
+    const asked = [
+      { title: "Admin path /wp-admin", instructions: "Seen linked from the footer: check what it shows signed out." },
+      { title: "login form: rate limits", instructions: "Already a part of this check, so this one is dropped." },
+      { title: "Public API docs page", instructions: "Found at /docs: look for internal endpoints listed." },
+      { title: "Old staging subdomain", instructions: "staging.example.com answers: check what it exposes." },
+      { title: "One too many", instructions: "Past the three allowed per report, so it is not saved." },
+    ];
+    const db = fakeDb();
+    db.securityCheckItem.findUnique.mockResolvedValue(heldItem());
+    db.securityCheckItem.updateMany.mockResolvedValue({ count: 1 });
+    db.securityCheckItem.findMany.mockResolvedValue([{ title: "Login form: rate limits" }, { title: "Cookies" }]);
+
+    const out = await submitReport(asDb(db), "agentA", "item1", found, now, asked);
+
+    expect(out).toEqual({ checkId: "check1", results: 1, addedParts: 3 });
+    const saved = db.securityCheckItem.createMany.mock.calls[0][0].data;
+    expect(saved.map((part: { title: string }) => part.title)).toEqual(["Admin path /wp-admin", "Public API docs page", "Old staging subdomain"]);
+    expect(saved[0]).toMatchObject({ checkId: "check1", kind: "check" });
+
+    // A check already at its ceiling takes none.
+    const full = fakeDb();
+    full.securityCheckItem.findUnique.mockResolvedValue(heldItem());
+    full.securityCheckItem.updateMany.mockResolvedValue({ count: 1 });
+    full.securityCheckItem.findMany.mockResolvedValue(Array.from({ length: 40 }, (_, i) => ({ title: "Part " + i })));
+    expect((await submitReport(asDb(full), "agentA", "item1", [], now, asked)).addedParts).toBe(0);
+    expect(full.securityCheckItem.createMany).not.toHaveBeenCalled();
+  });
+
+  it("adds no parts when the part is no longer the agent's (a late report adds nothing)", async () => {
+    const db = fakeDb();
+    db.securityCheckItem.findUnique.mockResolvedValue(heldItem({ status: "waiting" }));
+    await expect(
+      submitReport(asDb(db), "agentA", "item1", found, now, [{ title: "Extra part", instructions: "Look at the extra path I saw." }]),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(db.securityCheckItem.createMany).not.toHaveBeenCalled();
   });
 
   it("refuses a late report after the part was taken back", async () => {
@@ -209,7 +247,7 @@ describe("reporting a part", () => {
     const db = fakeDb();
     db.securityCheckItem.findUnique.mockResolvedValue(heldItem({ check: { status: "checking", target: { verifiedAt: null } } }));
     db.securityCheckItem.updateMany.mockResolvedValue({ count: 1 });
-    expect(await submitReport(asDb(db), "agentA", "item1", found, now)).toEqual({ checkId: "check1", results: 1 });
+    expect(await submitReport(asDb(db), "agentA", "item1", found, now)).toEqual({ checkId: "check1", results: 1, addedParts: 0 });
   });
 
   it("serves no old split or collate jobs", async () => {

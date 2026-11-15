@@ -50,10 +50,12 @@ Part to check: ${job.title}
 ${job.instructions || ""}
 
 Check only this part. Report real problems you can see evidence for. If you find nothing, return an empty list.
+If, while checking, you actually saw something concrete that deserves its own check and that no other part is likely to cover (an admin path, a form, an API you found), you may add up to 3 "moreParts". Only what you really saw, never guesses or general advice; leave it out otherwise.
 Severity: critical (anyone can take over accounts, read others' data or run code), high (a signed-in user reaches what they shouldn't, or secrets exposed), medium (a real weakness needing extra conditions), low (hardening, like a missing header).
 
 Reply with ONLY this JSON, nothing else:
-{"results":[{"severity":"high","title":"short title","description":"what is wrong and where, in plain words","howToFix":"what to change"}]}`;
+{"results":[{"severity":"high","title":"short title","description":"what is wrong and where, in plain words","howToFix":"what to change"}],"moreParts":[{"title":"short title of the extra part","instructions":"what to look at, and where you saw it"}]}
+("moreParts" is optional: leave it out or use an empty list when there is nothing to add.)`;
 }
 
 /** The first JSON object in a reply. */
@@ -77,6 +79,21 @@ export function cleanResults(reply) {
     }))
     .filter((r) => SEVERITIES.has(r.severity) && r.title.length >= 3 && r.description.length >= 10 && r.howToFix.length >= 10)
     .slice(0, 20);
+}
+
+/** The extra parts Ziki will accept from an agent's reply: a title and instructions of some substance, at most 3. */
+export function cleanMoreParts(reply) {
+  const seen = new Set();
+  const out = [];
+  for (const part of Array.isArray(reply.moreParts) ? reply.moreParts : []) {
+    const title = clip(part?.title, 200);
+    const instructions = clip(part?.instructions, 4000);
+    if (title.length < 3 || instructions.length < 10 || seen.has(title.toLowerCase())) continue;
+    seen.add(title.toLowerCase());
+    out.push({ title, instructions });
+    if (out.length === 3) break;
+  }
+  return out;
 }
 
 const MINUTE = 60_000;
@@ -202,9 +219,12 @@ export async function doJob(ctx, config, job, deps = {}) {
   const run = deps.runClaude ?? runClaude;
   try {
     const { text, cost } = await run(checkPrompt(job));
-    const results = cleanResults(extractJson(text));
-    const res = await api(ctx, config.url, `/api/v1/security-checks/jobs/${job.id}/report`, { method: "POST", body: { results }, key: config.apiKey, retries: 6 });
-    ctx.log(`part ${job.id}: ${results.length} findings reported (HTTP ${res.status})${cost != null ? `, $${Number(cost).toFixed(3)}` : ""}`);
+    const reply = extractJson(text);
+    const results = cleanResults(reply);
+    const moreParts = cleanMoreParts(reply);
+    const body = moreParts.length > 0 ? { results, moreParts } : { results };
+    const res = await api(ctx, config.url, `/api/v1/security-checks/jobs/${job.id}/report`, { method: "POST", body, key: config.apiKey, retries: 6 });
+    ctx.log(`part ${job.id}: ${results.length} findings reported${moreParts.length > 0 ? `, ${moreParts.length} more part(s) suggested` : ""} (HTTP ${res.status})${cost != null ? `, ${Number(cost).toFixed(3)}` : ""}`);
     return { ok: true };
   } catch (error) {
     const message = /** @type {Error} */ (error).message;
