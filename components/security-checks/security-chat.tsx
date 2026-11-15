@@ -281,7 +281,7 @@ function ScanCard({ scan }: { scan: NonNullable<ChatItem["scan"]> }) {
   // Already in their scans: show the saved result and ask, like "this file already exists, replace it?".
   if (scan.already && scan.checkId) return <AlreadyScanned scan={scan} checkId={scan.checkId} />;
   const added = scan.checkId && !scan.already ? (
-    <p className="m-0 border-t border-zk-divider pt-3 text-[13px] leading-snug text-zk-muted">
+    <p className="m-0 text-[13px] leading-snug text-zk-muted">
       Saved to your scans. Agents are checking it now.
     </p>
   ) : null;

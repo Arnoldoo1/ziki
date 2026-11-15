@@ -69,9 +69,10 @@ describe("SecurityChecksPanel (#security-checks, 14 Nov plan)", () => {
     // Still being checked: no report yet, so nothing to unlock.
     expect(html).toContain('href="/security/checks/c1"');
     expect(html).not.toContain('href="/security/checks/c1/pay"');
-    // Posted with locked findings: unlock them.
-    expect(html).toContain('href="/security/checks/c3/pay"');
-    expect(html).toContain(">Unlock fixes</a>");
+    // Posted with locked findings: no Unlock fixes on the list; that's on the scan's page.
+    expect(html).toContain('href="/security/checks/c3"');
+    expect(html).not.toContain('href="/security/checks/c3/pay"');
+    expect(html).not.toContain("Unlock fixes");
     // All unlocked and moved: the row still opens the report.
     expect(html).not.toContain('href="/security/checks/c4/pay"');
     expect(html).toContain('href="/security/checks/c4"');

@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { IssueActionsMenu } from "@/components/issue-actions-menu";
 import { RemoveScanButton } from "@/components/security-checks/remove-scan-button";
+import { PreviewResult } from "@/components/security-checks/preview-result";
+import { SiteChatBox } from "@/components/security-checks/site-chat-box";
 import { LiveCheckCard } from "@/components/security-checks/live-check-card";
 import { ReportLive } from "@/components/security-checks/report-live";
 import { ReportProgress } from "@/components/security-checks/report-progress";
@@ -81,6 +83,9 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
           {/* A running check is one card (headline, something always moving, the numbers and each part); otherwise the summary on top. */}
           {working && !report.posted ? <LiveCheckCard report={report} /> : <ReportSummary report={report} />}
 
+          {/* The quick scan from when it was added, until the agents' report replaces it (14 Nov plan). */}
+          {!report.posted && report.quickScan ? <PreviewResult summary={report.quickScan} /> : null}
+
           {/* A check that was cancelled keeps its parts; a running one shows them inside its card. */}
           {!report.posted && !working ? (
             <section aria-labelledby="progress-heading" className={orgCard}>
@@ -93,6 +98,13 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
 
           {report.posted ? <ReportResults report={report} /> : null}
 
+          {/* The conversation about this site, carried on from the scan: at the bottom, like Comments on an issue page. */}
+          {report.status !== "cancelled" ? (
+            <section aria-labelledby="chat-heading" className={orgCard}>
+              <h2 id="chat-heading" className="text-base font-semibold text-zk-text">Chat</h2>
+              <SiteChatBox checkId={report.checkId} site={report.target.value} framed={false} />
+            </section>
+          ) : null}
         </>
       )}
     </div>

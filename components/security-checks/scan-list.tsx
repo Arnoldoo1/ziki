@@ -13,8 +13,6 @@ import "@/app/(app)/[org]/[project]/issues/_list/issues.css";
 import "@/components/security-finding.css";
 import { SecurityChat } from "./security-chat";
 
-const ROW_PRIMARY =
-  "inline-flex h-8 shrink-0 items-center rounded-full bg-electric-blue-strong px-3 text-xs font-bold text-white transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue";
 
 /** Rows on each page. */
 const PAGE = 10;
@@ -182,14 +180,12 @@ function NoProblems() {
 /**
  * One scan as a row, in Ziki's list table (issues.css, as on Ideas and Issues): the site
  * and what it is on the left, what was found as small coloured counts (as Intruder, Snyk and
- * Detectify list their assets), when it was added, then its status and next step on the right
- * (as Ideas puts Approve).
+ * Detectify list their assets), when it was added, then its status. Opening it is the row; fixes
+ * are unlocked and moved from the scan's page.
  */
 function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highlighted: boolean; last: boolean }) {
   const stage = stageOf(check);
   const reportHref = `/security/checks/${check.id}`;
-  const payHref = `/security/checks/${check.id}/pay`;
-  const canUnlock = check.posted && check.unlocked < check.findings;
   const agent = check.agentReport;
   const severities = ["critical", "high", "medium", "low"] as const;
   const found = agent
@@ -240,10 +236,6 @@ function ScanRow({ check, highlighted, last }: { check: WorkspaceCheckRow; highl
           {stage === "scanning" ? <span aria-hidden="true" className="h-1.5 w-1.5 animate-pulse rounded-full bg-current" /> : null}
           {STAGE[stage].label}
         </span>
-        {/* Only an action gets a button (like Approve on Ideas); opening the scan is the row itself. */}
-        {canUnlock ? (
-          <Link href={payHref} className={`${ROW_PRIMARY} relative z-10`}>Unlock fixes</Link>
-        ) : null}
       </span>
     </li>
   );

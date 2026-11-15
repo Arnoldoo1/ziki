@@ -13,7 +13,7 @@ const MESSAGE_MAX = 600;
  * a refresh or on another device. Just the messages and the box; loads when the
  * result opens.
  */
-export function SiteChatBox({ checkId, site }: { checkId: string; site: string }) {
+export function SiteChatBox({ checkId, site, framed = true }: { checkId: string; site: string; framed?: boolean }) {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -57,7 +57,7 @@ export function SiteChatBox({ checkId, site }: { checkId: string; site: string }
   }
 
   return (
-    <section aria-label={`Chat about ${site}`} className="mt-3 flex flex-col gap-2 rounded-2xl border border-zk-border bg-zk-surface p-3 sm:p-4">
+    <section aria-label={`Chat about ${site}`} className={`mt-3 flex flex-col gap-2 ${framed ? "rounded-2xl border border-zk-border bg-zk-surface p-3 sm:p-4" : ""}`}>
       {messages && messages.length ? (
         <ol ref={log} className="m-0 flex max-h-80 list-none flex-col gap-2 overflow-y-auto p-0">
           {messages.map((message) => (
