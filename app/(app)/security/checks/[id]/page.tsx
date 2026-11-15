@@ -56,10 +56,10 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
           <li aria-current="page" className="truncate px-1.5">{report.target.value}</li>
         </ol>
       </nav>
-      {/* Remove sits here, like Delete issue on an issue page: only before the report is posted (reports never go away). */}
-      {!report.posted && report.status !== "cancelled" ? (
+      {/* Remove sits here, like Delete issue on an issue page, for any scan that isn't removed yet. */}
+      {report.status !== "cancelled" ? (
         <IssueActionsMenu>
-          <RemoveScanButton checkId={report.checkId} site={report.target.value} />
+          <RemoveScanButton checkId={report.checkId} site={report.target.value} posted={report.posted} />
         </IssueActionsMenu>
       ) : null}
       </div>

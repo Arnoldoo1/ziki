@@ -174,12 +174,12 @@ describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
     expect((await talkToSecurityAssistant(say("settle.ng"))).kind).toBe("error");
   });
 
-  it("removes one of your scans only while its report isn't posted", async () => {
+  it("removes one of your scans, finished or not", async () => {
     mocks.removeOwnScan.mockResolvedValue(true);
     expect(await removeScan("c1")).toEqual({ ok: true });
     expect(mocks.removeOwnScan).toHaveBeenCalledWith("org1", "u1", "c1");
     mocks.removeOwnScan.mockResolvedValue(false);
-    expect(await removeScan("c-posted")).toMatchObject({ ok: false, error: expect.stringContaining("reports stay") });
+    expect(await removeScan("c-gone")).toMatchObject({ ok: false, error: expect.stringContaining("already removed") });
   });
 
   it("Replace: scans a site already in your scans again and saves the new result over the old one", async () => {

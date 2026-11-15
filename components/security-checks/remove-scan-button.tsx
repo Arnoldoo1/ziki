@@ -8,11 +8,12 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 
 /**
- * Remove a scan before its report is posted, from the "More actions" menu on
- * the scan's own page: the same place, button and confirm as Delete issue
- * (components/delete-issue-button.tsx). Reports never go away.
+ * Remove a scan, finished or not, from the "More actions" menu on the scan's
+ * own page: the same place, button and confirm as Delete issue
+ * (components/delete-issue-button.tsx). A finished one's confirm says the
+ * report goes with it.
  */
-export function RemoveScanButton({ checkId, site }: { checkId: string; site: string }) {
+export function RemoveScanButton({ checkId, site, posted = false }: { checkId: string; site: string; posted?: boolean }) {
   const router = useRouter();
   const confirm = useConfirm();
   const toast = useToast();
@@ -29,7 +30,9 @@ export function RemoveScanButton({ checkId, site }: { checkId: string; site: str
         onClick={async () => {
           const confirmed = await confirm({
             title: `Remove ${site}?`,
-            body: "Agents stop checking it, and it leaves your scans.",
+            body: posted
+              ? "Its report goes too, and it leaves your scans. Anything you moved to your app stays there."
+              : "Agents stop checking it, and it leaves your scans.",
             confirmLabel: "Remove scan",
             tone: "danger",
           });
