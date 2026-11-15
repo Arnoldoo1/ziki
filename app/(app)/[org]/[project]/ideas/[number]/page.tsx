@@ -45,7 +45,7 @@ function legacyComments(value: unknown): LegacyComment[] {
 const STATUS_CHIP: Record<string, { label: string; className: string }> = {
   open: { label: "Idea", className: "bg-zk-tint text-zk-accent" },
   accepted: { label: "Idea accepted", className: "bg-zk-ok-bg text-zk-ok-fg" },
-  bad: { label: "Reject advised", className: "bg-zk-bad-bg text-zk-bad-fg" },
+  bad: { label: "Idea rejected", className: "bg-zk-bad-bg text-zk-bad-fg" },
   converted: { label: "Converted to an issue", className: "bg-zk-ok-bg text-zk-ok-fg" },
   rejected: { label: "Idea rejected", className: "bg-zk-bad-bg text-zk-bad-fg" },
   archived: { label: "Archived", className: "bg-zk-chip text-zk-text2" },
