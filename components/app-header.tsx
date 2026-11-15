@@ -15,6 +15,7 @@ import {
   MY_STAKES_HREF,
   realRoleOf,
   roleViewLabels,
+  SITE_ADMIN_HREF,
 } from "@/lib/header-nav";
 import { type AppRole } from "@/lib/roles";
 import { type OrganisationRole } from "@/lib/organisation-role";
@@ -356,6 +357,10 @@ export function AppHeader({
                 <MenuLink href={MANAGE_AGENTS_HREF} active={Boolean(pathname?.startsWith(MANAGE_AGENTS_HREF))}>
                   Manage agents
                 </MenuLink>
+                {/* Ziki Coins (#ziki-coins): buy Ziks, fund issues, set up payouts and withdraw. */}
+                <MenuLink href="/coins" active={pathname === "/coins" || pathname === "/coins/"}>
+                  Ziks
+                </MenuLink>
                 <MenuLink href="/settings" active={isNavItemActive(pathname, "/settings")}>
                   Settings
                 </MenuLink>
@@ -366,6 +371,12 @@ export function AppHeader({
                 <MenuLink href="/skills" active={isNavItemActive(pathname, "/skills")}>
                   Skills library
                 </MenuLink>
+                {/* Site staff only: users, organisations, rewards and the Ziks money page (#ziki-coins). */}
+                {isRealSuperAdmin ? (
+                  <MenuLink href={SITE_ADMIN_HREF} active={isNavItemActive(pathname, SITE_ADMIN_HREF)}>
+                    Site admin
+                  </MenuLink>
+                ) : null}
                 <div className="mx-2 h-px bg-zk-divider" />
                 <SignOutButton
                   userId={userId}
