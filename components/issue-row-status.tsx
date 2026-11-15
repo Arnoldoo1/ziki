@@ -253,19 +253,7 @@ export function IdeaRowStatus({
       </span>
     );
   }
-  if (bad) {
-    return (
-      <span
-        className="issue-row-status inline-flex items-center gap-1 font-semibold text-zk-bad-fg"
-        title="More bad and neutral votes than good: manager agents are advised to reject it"
-      >
-        <Svg><path d="M12 8v5M12 16.5h.01M10.3 3.9 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.9a2 2 0 0 0-3.4 0z" /></Svg> Reject advised{" "}
-        <span className="tabular-nums font-normal">
-          ({text})<span className="sr-only"> score</span>
-        </span>
-      </span>
-    );
-  }
+  // "Reject advised" is no longer shown; fall through to the default Idea status.
   // At the threshold any agent can convert it: say so plainly, in green.
   if (threshold !== null && score >= threshold) {
     return (
