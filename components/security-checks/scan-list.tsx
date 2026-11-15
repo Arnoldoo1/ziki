@@ -179,7 +179,9 @@ function ScanCard({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
   const reportHref = `/security/checks/${check.id}`;
   const payHref = `/security/checks/${check.id}/pay`;
   const canUnlock = check.posted && check.unlocked < check.findings;
-  const quick = check.preview;
+  // Once the agents have posted their report, their result replaces the quick scan: it only stays while no agent has reported.
+  const agent = check.agentReport;
+  const quick = agent ? null : check.preview;
   const counts = quick ? (["critical", "high", "medium", "low"] as const).filter((severity) => quick.counts[severity] > 0) : [];
 
   const status = check.posted
@@ -243,6 +245,50 @@ function ScanCard({ check, highlighted }: { check: WorkspaceCheckRow; highlighte
           <div className="px-2 pb-2 sm:px-3 sm:pb-3">
             <PreviewResult summary={quick} />
             {/* The saved chat about this site, under its result (14 Nov call). */}
+            {resultOpen ? <SiteChatBox checkId={check.id} site={check.value} /> : null}
+          </div>
+        </details>
+      ) : null}
+
+      {/* The agents' result: the same findings the report lists, worst first, with what is still locked. */}
+      {agent ? (
+        <details className="group mx-4 rounded-xl bg-zk-bg" onToggle={(event) => setResultOpen(event.currentTarget.open)}>
+          <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-[13px] text-zk-text2 [&::-webkit-details-marker]:hidden">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-zk-muted">Agents&apos; result</span>
+            {agent.findings.length ? (
+              (["critical", "high", "medium", "low"] as const)
+                .filter((severity) => agent.findings.some((finding) => finding.severity === severity))
+                .map((severity) => (
+                  <span key={severity} className="inline-flex items-center gap-1.5">
+                    <span aria-hidden="true" className={`h-2 w-2 rounded-full ${SEVERITY_DOT[severity]}`} />
+                    <span className="font-semibold tabular-nums text-zk-text">{agent.findings.filter((finding) => finding.severity === severity).length}</span> {severity}
+                  </span>
+                ))
+            ) : (
+              <span className="text-zk-ok-fg">✓ Nothing found</span>
+            )}
+            <span className="ml-auto inline-flex items-center gap-1 font-semibold text-zk-accent">
+              <span className="group-open:hidden">See result</span>
+              <span className="hidden group-open:inline">Hide result</span>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className="transition group-open:rotate-180"><path d="M6 9l6 6 6-6" /></svg>
+            </span>
+          </summary>
+          <div className="space-y-3 px-3 pb-3">
+            {agent.summary ? <p className="m-0 text-[13px] leading-relaxed text-zk-text2">{agent.summary}</p> : null}
+            {agent.findings.length ? (
+              <ul className="m-0 divide-y divide-zk-divider rounded-xl border border-zk-border bg-zk-surface p-0">
+                {agent.findings.map((finding) => (
+                  <li key={finding.id} className="flex list-none items-center gap-2.5 px-3 py-2 text-[13px]">
+                    <span aria-hidden="true" className={`h-2 w-2 shrink-0 rounded-full ${SEVERITY_DOT[finding.severity]}`} />
+                    <span className="min-w-0 flex-1 break-words text-zk-text">
+                      <span className="sr-only">{finding.severity}: </span>
+                      {finding.title}
+                    </span>
+                    <span className="shrink-0 text-xs text-zk-muted">{finding.moved ? "Moved to your app" : finding.unlocked ? "Unlocked" : "Locked"}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
             {resultOpen ? <SiteChatBox checkId={check.id} site={check.value} /> : null}
           </div>
         </details>

@@ -1,9 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { LiveCheckCard } from "@/components/security-checks/live-check-card";
 import { ReportLive } from "@/components/security-checks/report-live";
 import { ReportProgress } from "@/components/security-checks/report-progress";
-import { PreviewResult } from "@/components/security-checks/preview-result";
 import { ReportResults } from "@/components/security-checks/report-results";
 import { ReportSummary } from "@/components/security-checks/report-summary";
 import { requireUser } from "@/lib/auth-helpers";
@@ -14,12 +14,6 @@ import { loadCheckReport } from "@/lib/security-checks/report";
 import { orgCard } from "../../../[org]/[project]/org/org-ui";
 
 export const metadata = { title: "Security check" };
-
-/** What each step tells the client while there are no parts to list yet. */
-const WAITING_NOTE: Partial<Record<keyof typeof CHECK_STATUS_LABEL, string>> = {
-  queued: "Ziki will start planning the checks in a moment.",
-  splitting: "Ziki is looking at it and planning the checks.",
-};
 
 /**
  * One security check (12 and 14 Nov plans, part S): live progress and the
@@ -74,31 +68,15 @@ export default async function SecurityCheckPage({ params }: { params: Promise<{ 
         </section>
       ) : (
         <>
-          <ReportSummary report={report} />
+          {/* A running check is one card (headline, something always moving, the numbers and each part); otherwise the summary on top. */}
+          {working && !report.posted ? <LiveCheckCard report={report} /> : <ReportSummary report={report} />}
 
-          {/* The quick scan's short titles while the agents check: never findings, so nothing here is sold. */}
-          {!report.posted && report.quickScan ? (
-            <section aria-labelledby="quick-scan-heading" className="flex flex-col gap-3">
-              <h2 id="quick-scan-heading" className="px-0.5 text-base font-semibold text-zk-text">Quick scan</h2>
-              <PreviewResult summary={report.quickScan} />
-            </section>
-          ) : null}
-
-          {/* Progress, until Ziki has summed up every part and posted the report. */}
-          {!report.posted ? (
+          {/* A check that was cancelled keeps its parts; a running one shows them inside its card. */}
+          {!report.posted && !working ? (
             <section aria-labelledby="progress-heading" className={orgCard}>
               <h2 id="progress-heading" className="text-base font-semibold text-zk-text">Progress</h2>
               <div className="mt-3">
-                {report.parts.length ? (
-                  <>
-                    <ReportProgress progress={report.progress} parts={report.parts} />
-                    {working && report.progress.done === report.progress.total ? (
-                      <p className="mt-3 text-sm text-zk-text2">Every part is checked. Ziki is writing your report.</p>
-                    ) : null}
-                  </>
-                ) : (
-                  <p className="text-sm text-zk-text2">{WAITING_NOTE[report.status] ?? "No parts to check yet."}</p>
-                )}
+                {report.parts.length ? <ReportProgress progress={report.progress} parts={report.parts} /> : <p className="text-sm text-zk-text2">No parts were checked.</p>}
               </div>
             </section>
           ) : null}
