@@ -88,15 +88,17 @@ describe("SecurityChecksPanel (#security-checks, 14 Nov plan)", () => {
     expect(html).not.toContain("/pay");
   });
 
-  it("keeps each scan's quick result one click away, with what the browser saw as titles and no prices", () => {
+  it("shows each scan's quick result as counts only: its full result is on See progress, not repeated on the card", () => {
     const html = renderToStaticMarkup(
       <SecurityChecksPanel checks={[row({ preview: quick }), row({ id: "c2", targetId: "t2", value: "shop.ng", preview: quick })]} />,
     );
-    expect(html).toContain("No Content Security Policy");
-    // Closed until clicked.
-    expect(html).not.toContain("<details open");
-    expect(html).toContain("See result");
+    expect(html).toContain("Quick scan");
+    expect(html).not.toContain("No Content Security Policy");
+    expect(html).not.toContain("See result");
+    expect(html).not.toContain("<details");
     expect(html).not.toContain("coin");
+    // No delete on the list: like an issue, that belongs on the scan's own page.
+    expect(html).not.toContain('aria-label="Remove');
   });
 
   it("replaces the quick scan with the agents' result once their report is posted", () => {
