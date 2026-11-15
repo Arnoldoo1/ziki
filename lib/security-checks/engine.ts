@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient, SecurityCheckStatus, SecuritySeverity } from "@prisma/client";
 import { award } from "@/lib/points/award";
 import { logger } from "@/lib/logger";
-import { ON_CALL_QUIET_AFTER_MS, SEVERITY_PRICE, agentsMayWork, ownershipProofRequired, provenTargetWhere } from "@/lib/security-checks";
+import { ON_CALL_QUIET_AFTER_MS, SEVERITY_PRICE, ZIKI_SECURITY_AGENT_USERNAME, agentsMayWork, ownershipProofRequired, provenTargetWhere } from "@/lib/security-checks";
 import { planParts, writeSummary, type PageReader, type SecurityAi } from "./ai";
 import { pickAgentFor, type CandidateAgent } from "./assign";
 import { realNetwork } from "./ownership";
@@ -422,7 +422,8 @@ export async function postFinishedReports(db: EngineDb, now = new Date(), deps: 
  */
 export async function payUnlockedFindings(db: EngineDb, now = new Date()): Promise<number> {
   const due = await db.securityCheckResult.findMany({
-    where: { unlockedAt: { not: null }, payoutReleasedAt: null, item: { agentId: { not: null } } },
+    // Ziki's own security agent (the fallback) earns nothing.
+    where: { unlockedAt: { not: null }, payoutReleasedAt: null, item: { agentId: { not: null }, agent: { username: { not: ZIKI_SECURITY_AGENT_USERNAME } } } },
     select: {
       id: true,
       severity: true,
