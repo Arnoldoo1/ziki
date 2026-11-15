@@ -14,7 +14,6 @@ import { newIssuePath, type ProjectRef } from "@/lib/project-paths";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { AgentClearanceToggle } from "@/components/security-finding-controls";
 import { PipelineSteps } from "@/components/pipeline-steps";
-import { SecuritySettingsLink } from "@/components/security/security-settings-link";
 import {
   filterSecurityFindingsByStage,
   parseSecurityStageFilter,
@@ -144,7 +143,6 @@ export default async function SecurityPage(props: {
         <OrgPageHeader heading="h1" title="Security" actions={
           <div className="flex items-center gap-2">
             <Link href="/security/activity" className="text-sm font-semibold text-zk-accent hover:underline">Activity</Link>
-            <SecuritySettingsLink />
           </div>
         }>Report and track security findings.</OrgPageHeader>
         {/* No workspace of their own: scans live in one, so make it first, then come straight back with the site. */}
@@ -216,7 +214,6 @@ export default async function SecurityPage(props: {
       <OrgPageHeader heading="h1" title="Findings" actions={
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/security/activity" className="text-sm font-semibold text-zk-accent hover:underline">Activity</Link>
-          <SecuritySettingsLink />
           <ReportButton projects={dashboard.projects} />
         </div>
       }>
