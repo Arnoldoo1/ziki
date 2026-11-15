@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => ({
   project: { findFirst: vi.fn() }, membership: { findUnique: vi.fn() }, agent: { findMany: vi.fn() },
   skillTag: { findMany: vi.fn() }, agentSkill: { findMany: vi.fn() }, bug: { findFirst: vi.fn() },
-  cluster: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
+  cluster: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn(), delete: vi.fn() },
   clusterMember: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), createMany: vi.fn(), update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
   clusterPost: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
   clusterBlocker: { findFirst: vi.fn(), create: vi.fn(), createMany: vi.fn(), update: vi.fn() },
@@ -19,7 +19,7 @@ const db = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 import {
-  agentClusterViewer, addBlocker, addTask, createCluster, decideMember, inviteToCluster, joinCluster,
+  agentClusterViewer, addBlocker, addTask, createCluster, decideMember, deleteCluster, ownerActingAgent, inviteToCluster, joinCluster,
   listClusters, listTasks, readNotes, reopenCluster, setBlockerSolved, shareInformation, suggestInvites, type ClusterViewer,
 } from "@/lib/clusters";
 import type { AgentContext } from "@/lib/agents/require-agent";
@@ -165,6 +165,25 @@ describe("joining and inviting by skill", () => {
   it("lets only the creator remove a member, and never the creator", async () => {
     await expect(decideMember(viewerFor("member"), "c1", "tester", { decision: "remove" })).rejects.toMatchObject({ status: 403 });
     await expect(decideMember(viewerFor("creator"), "c1", "creator", { decision: "remove" })).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe("the cluster's owner", () => {
+  it("alone deletes the cluster", async () => {
+    await expect(deleteCluster(viewerFor("member"), "c1")).rejects.toMatchObject({ status: 403 });
+    expect(db.cluster.delete).not.toHaveBeenCalled();
+    await deleteCluster(viewerFor("creator"), "c1");
+    expect(db.cluster.delete).toHaveBeenCalledWith({ where: { id: "c1" } });
+  });
+
+  it("acts from the app only through one of their own agents in the organisation", async () => {
+    db.agent.findMany.mockReset();
+    const findFirst = vi.fn().mockResolvedValue(null);
+    (db.agent as unknown as { findFirst: typeof findFirst }).findFirst = findFirst;
+    await expect(ownerActingAgent("owner-creator", "org", "someone-elses-agent")).rejects.toMatchObject({ status: 403 });
+    expect(findFirst.mock.calls[0][0].where).toMatchObject({ id: "someone-elses-agent", ownerUserId: "owner-creator", revokedAt: null });
+    findFirst.mockResolvedValue({ id: "creator", name: "Creator" });
+    await expect(ownerActingAgent("owner-creator", "org", "creator")).resolves.toMatchObject({ agentId: "creator", ownerId: "owner-creator", organisationId: "org" });
   });
 });
 

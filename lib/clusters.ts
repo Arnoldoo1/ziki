@@ -28,7 +28,9 @@ import { activeIn } from "@/lib/agents/active-in";
  *   organisation and starts at most `MAX_NEW_CLUSTERS_PER_DAY` a day.
  * - A cluster with no tasks, shared information or blocker changes for `INACTIVE_DAYS` is archived: hidden
  *   from the list and read-only until a member reopens it.
- * - Only agents write. People read their own agents' clusters in the app.
+ * - Only agents act. People work a cluster from the app through one of their own
+ *   agents (`ownerActingAgent`), under the same rules; the cluster's owner is the
+ *   owner of its creator agent, who alone removes members and deletes it.
  */
 
 export const MAX_OPEN_CLUSTERS = 3;
@@ -580,4 +582,36 @@ export async function dockClusters(userId: string, organisationId: string, take 
     href: `/${encodeURIComponent(row.project.organisation.slug)}/${encodeURIComponent(row.project.slug)}/clusters/${row.id}`,
     lastTask: row.posts[0]?.title ?? null,
   }));
+}
+
+/** The cluster's creator deletes it, with everything inside it. */
+export async function deleteCluster(viewer: ClusterViewer, clusterId: string) {
+  const agent = agentOf(viewer);
+  const cluster = await requireMember(viewer, clusterId);
+  if (cluster.creatorAgentId !== agent.agentId) throw new IssueApiError(403, "Only the cluster's creator deletes it.");
+  await prisma.cluster.delete({ where: { id: clusterId } });
+  return { deleted: true };
+}
+
+/** A person's agents in an organisation, with their skill slugs, for acting in clusters from the app. */
+export async function ownAgentsIn(userId: string, organisationId: string) {
+  const agents = await prisma.agent.findMany({
+    where: { ownerUserId: userId, ...activeIn(organisationId), revokedAt: null },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, name: true, skills: { where: { tag: { organisationId } }, select: { tag: { select: { slug: true } } } } },
+  });
+  return agents.map((a) => ({ id: a.id, name: a.name, skills: a.skills.map((s) => s.tag.slug) }));
+}
+
+/**
+ * The context a person's agent acts with when its owner works a cluster from the
+ * app: the same rules as its key, since every rule here reads the agent.
+ */
+export async function ownerActingAgent(userId: string, organisationId: string, agentId: string): Promise<AgentContext> {
+  const agent = await prisma.agent.findFirst({
+    where: { id: agentId, ownerUserId: userId, ...activeIn(organisationId), revokedAt: null },
+    select: { id: true, name: true },
+  });
+  if (!agent) throw new IssueApiError(403, "Choose one of your own agents in this organisation.");
+  return { agentId: agent.id, name: agent.name, ownerId: userId, organisationId, level: "working", keyId: "app", burst: false };
 }

@@ -3,7 +3,13 @@ import { notFound } from "next/navigation";
 import { requireProject } from "@/lib/project-route";
 import { ideasPath, projectPath } from "@/lib/project-paths";
 import { SkillLine } from "@/components/clusters/skill-line";
-import { INACTIVE_DAYS, MAX_NEW_CLUSTERS_PER_DAY, MAX_OPEN_CLUSTERS, listClusters } from "@/lib/clusters";
+import { prisma } from "@/lib/prisma";
+import { INACTIVE_DAYS, MAX_NEW_CLUSTERS_PER_DAY, MAX_OPEN_CLUSTERS, listClusters, ownAgentsIn } from "@/lib/clusters";
+import { createClusterAction, joinClusterAction, leaveClusterAction } from "./actions";
+
+const INPUT = "w-full rounded-lg border border-zk-border bg-zk-surface px-3 py-2 text-sm text-zk-text placeholder:text-zk-muted focus:border-zk-accent focus:outline-none";
+const BUTTON = "inline-flex items-center justify-center rounded-lg border border-zk-border px-3 py-1.5 text-sm font-semibold text-zk-text hover:bg-zk-chip";
+const PRIMARY = "inline-flex items-center justify-center rounded-lg bg-zk-accent px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90";
 
 export const metadata = { title: "Agent clusters" };
 
@@ -13,21 +19,41 @@ function when(date: Date) {
 
 /**
  * `/<org>/<project>/clusters` (#agent-clusters): every cluster on the project as a
- * public row, with the skills it needs and still lacks. Agents create and work in
- * clusters through the API; people see which ones exist and, for clusters their
- * own agents belong to, open them. `?archived=1` adds archived clusters.
+ * public row, with the skills it needs and still lacks. People create clusters,
+ * accept invites and join through one of their own agents, as the agents do with
+ * their keys. `?archived=1` adds archived clusters; `?error=` shows why an action failed.
  */
 export default async function ClustersPage({ params, searchParams }: {
   params: Promise<{ org: string; project: string }>;
-  searchParams: Promise<{ archived?: string }>;
+  searchParams: Promise<{ archived?: string; error?: string }>;
 }) {
   const { org, project: slugParam } = await params;
-  const showArchived = (await searchParams).archived === "1";
+  const query = await searchParams;
+  const showArchived = query.archived === "1";
   const { user, organisationId, project, isOrgMember, isProjectMember } = await requireProject(org, slugParam);
   if (!isOrgMember && !isProjectMember && user.role !== "super_admin") notFound();
   const { items } = await listClusters({ organisationId, projectId: project.id, userId: user.id }, { includeArchived: showArchived });
   const mine = items.filter((c) => c.myStatus === "active").length;
   const listPath = projectPath(project.ref, "/clusters");
+  const [myAgents, tags, invites] = await Promise.all([
+    ownAgentsIn(user.id, organisationId),
+    prisma.skillTag.findMany({ where: { organisationId }, orderBy: { name: "asc" }, select: { slug: true, name: true } }),
+    prisma.clusterMember.findMany({
+      where: { clusterId: { in: items.map((c) => c.id) }, status: "invited", agent: { ownerUserId: user.id } },
+      select: { clusterId: true, agentId: true },
+    }),
+  ]);
+  const invitedAgent = new Map(invites.map((row) => [row.clusterId, row.agentId]));
+  // The agent that would join: the first of yours with one of the cluster's needed skills.
+  const joiner = (needed: string[]) => myAgents.find((agent) => agent.skills.some((slug) => needed.includes(slug)));
+  const hidden = (agentId: string, clusterId?: string) => (
+    <>
+      <input type="hidden" name="projectId" value={project.id} />
+      <input type="hidden" name="agentId" value={agentId} />
+      <input type="hidden" name="back" value={listPath} />
+      {clusterId ? <input type="hidden" name="clusterId" value={clusterId} /> : null}
+    </>
+  );
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-5">
@@ -54,6 +80,46 @@ export default async function ClustersPage({ params, searchParams }: {
           </Link>
         </p>
       </section>
+
+      {query.error ? (
+        <p role="alert" className="rounded-xl border border-zk-bad-bd bg-zk-bad-bg px-4 py-3 text-sm text-zk-bad-fg">{query.error}</p>
+      ) : null}
+
+      {myAgents.length ? (
+        <details className="rounded-[20px] border border-zk-border bg-zk-surface px-5 py-4 sm:px-7">
+          <summary className="cursor-pointer text-sm font-bold text-zk-accent">+ New cluster</summary>
+          <form action={createClusterAction} className="mt-4 grid gap-3">
+            <input type="hidden" name="projectId" value={project.id} />
+            <input type="hidden" name="back" value={listPath} />
+            <label className="grid gap-1 text-sm font-semibold text-zk-text2">
+              Name
+              <input name="name" required minLength={3} maxLength={80} placeholder="For example: Payments hardening" className={INPUT} />
+            </label>
+            <label className="grid gap-1 text-sm font-semibold text-zk-text2">
+              What is it for?
+              <textarea name="purpose" required minLength={10} maxLength={500} rows={2} placeholder="One or two sentences. Everyone in the project can read this." className={INPUT} />
+            </label>
+            <fieldset className="grid gap-1">
+              <legend className="text-sm font-semibold text-zk-text2">Skills it needs (pick at least one)</legend>
+              <div className="flex max-h-40 flex-wrap gap-1.5 overflow-y-auto rounded-lg border border-zk-border p-2">
+                {tags.map((tag) => (
+                  <label key={tag.slug} className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-zk-border px-2 py-0.5 text-xs text-zk-text2 has-[:checked]:border-zk-accent has-[:checked]:text-zk-accent">
+                    <input type="checkbox" name="skills" value={tag.slug} className="h-3 w-3" />
+                    {tag.name}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <label className="grid gap-1 text-sm font-semibold text-zk-text2">
+              Your agent that leads it (the cluster&apos;s owner)
+              <select name="agentId" className={INPUT}>
+                {myAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+              </select>
+            </label>
+            <div><button type="submit" className={PRIMARY}>Create cluster</button></div>
+          </form>
+        </details>
+      ) : null}
 
       {items.length ? (
         // One list, one row per cluster, like the issue list: name and purpose on the left, who and what on the right.
@@ -86,7 +152,17 @@ export default async function ClustersPage({ params, searchParams }: {
                     <span className="block text-zk-muted">Active {when(cluster.lastActivityAt)}</span>
                   </span>
                   {member ? (
-                    <Link href={projectPath(project.ref, `/clusters/${cluster.id}`)} className="inline-flex w-[110px] justify-center rounded-lg border border-zk-border px-3 py-1.5 text-sm font-semibold text-zk-text hover:bg-zk-chip">Open</Link>
+                    <Link href={projectPath(project.ref, `/clusters/${cluster.id}`)} className={`${BUTTON} w-[110px]`}>Open</Link>
+                  ) : invitedAgent.has(cluster.id) ? (
+                    <span className="flex w-[180px] justify-end gap-1.5">
+                      <form action={joinClusterAction}>{hidden(invitedAgent.get(cluster.id) ?? "", cluster.id)}<button type="submit" className={PRIMARY}>Accept</button></form>
+                      <form action={leaveClusterAction}>{hidden(invitedAgent.get(cluster.id) ?? "", cluster.id)}<button type="submit" className={BUTTON}>Decline</button></form>
+                    </span>
+                  ) : joiner(cluster.neededSkills) && !cluster.archived ? (
+                    <form action={joinClusterAction} className="w-[110px]">
+                      {hidden(joiner(cluster.neededSkills)?.id ?? "", cluster.id)}
+                      <button type="submit" className={`${BUTTON} w-full`} title={`Join as ${joiner(cluster.neededSkills)?.name}`}>Join</button>
+                    </form>
                   ) : (
                     <span className="inline-flex w-[110px] items-center justify-center gap-1 whitespace-nowrap"><LockIcon /> Members only</span>
                   )}
