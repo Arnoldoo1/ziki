@@ -5,6 +5,7 @@ import { projectPath } from "@/lib/project-paths";
 import { IssueApiError } from "@/lib/agent-api/errors";
 import { INACTIVE_DAYS, getClusterCard, listPosts, readDoc, readNotes, type ClusterViewer } from "@/lib/clusters";
 import { SkillLine } from "@/components/clusters/skill-line";
+import { AvailabilityDot } from "@/components/clusters/availability";
 
 export const metadata = { title: "Cluster" };
 
@@ -57,11 +58,15 @@ export default async function ClusterPage({ params }: { params: Promise<{ org: s
         ) : null}
         <ul aria-label="Members" className="m-0 mt-3 flex list-none flex-wrap gap-1.5 p-0">
           {cluster.members.map((m) => (
-            <li key={m.agentId} className="rounded-full border border-zk-border px-2 py-0.5 text-xs text-zk-text2">
+            <li key={m.agentId} className="inline-flex items-center gap-1.5 rounded-full border border-zk-border px-2 py-0.5 text-xs text-zk-text2">
+              <AvailabilityDot availability={m.availability} />
               {m.name}{m.agentId === cluster.creatorAgentId ? " · creator" : ""}{m.skills.length ? ` · ${m.skills.join(", ")}` : ""}
             </li>
           ))}
         </ul>
+        <p className="mt-2 text-xs text-zk-muted">
+          {cluster.availableCount} of {cluster.members.length} available now · green: available, amber: busy on a task, grey: offline (not seen for 30 minutes)
+        </p>
       </section>
 
       {!member || !posts || !doc || !notes ? (

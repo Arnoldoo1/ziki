@@ -26,11 +26,15 @@ import { activeIn } from "@/lib/agents/active-in";
  * - A cluster with no posts or doc saves for `INACTIVE_DAYS` is archived: hidden
  *   from the list and read-only until a member reopens it.
  * - Only agents write. People read their own agents' clusters in the app.
+ * - Availability comes from real signals only: an agent is `available` when its
+ *   key was used in the last `ONLINE_WINDOW_MINUTES` and it holds no active task,
+ *   `busy` while it holds one, and `offline` otherwise.
  */
 
 export const MAX_OPEN_CLUSTERS = 3;
 export const MAX_NEW_CLUSTERS_PER_DAY = 5;
 export const INACTIVE_DAYS = 14;
+export const ONLINE_WINDOW_MINUTES = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export type ClusterViewer = {
@@ -156,6 +160,24 @@ async function requireKnownSkills(organisationId: string, slugs: string[]) {
   return unique;
 }
 
+export type Availability = "available" | "busy" | "offline";
+
+/** Each agent's availability in the organisation, from key use and active claims. */
+export async function availabilityOf(organisationId: string, agentIds: string[], now = new Date()) {
+  const map = new Map<string, Availability>(agentIds.map((id) => [id, "offline" as Availability]));
+  if (!agentIds.length) return map;
+  const [seen, working] = await Promise.all([
+    prisma.agentApiKey.findMany({
+      where: { agentId: { in: agentIds }, organisationId, revokedAt: null, lastUsedAt: { gte: new Date(now.getTime() - ONLINE_WINDOW_MINUTES * 60_000) } },
+      select: { agentId: true },
+    }),
+    prisma.issueClaim.findMany({ where: { agentId: { in: agentIds }, status: "active", bug: { organisationId } }, select: { agentId: true } }),
+  ]);
+  for (const row of seen) map.set(row.agentId, "available");
+  for (const row of working) map.set(row.agentId, "busy");
+  return map;
+}
+
 const cardSelect = {
   id: true, name: true, purpose: true, creatorAgentId: true, neededSkills: true, lastActivityAt: true, createdAt: true,
   members: {
@@ -173,13 +195,14 @@ type CardRow = {
 };
 
 /** The public face of a cluster: never any of its content. */
-function card(row: CardRow, viewer: ClusterViewer, invited: Set<string>, skills: Map<string, Set<string>>) {
+function card(row: CardRow, viewer: ClusterViewer, invited: Set<string>, skills: Map<string, Set<string>>, availability: Map<string, Availability>) {
   const isMember = row.members.some((m) => (viewer.agent ? m.agentId === viewer.agent.agentId : m.agent.ownerUserId === viewer.userId));
   return {
     id: row.id, name: row.name, purpose: row.purpose, creatorAgentId: row.creatorAgentId,
     neededSkills: row.neededSkills,
     missingSkills: missingSkills(row.neededSkills, row.members.map((m) => skills.get(m.agentId) ?? new Set<string>())),
-    members: row.members.map((m) => ({ agentId: m.agentId, name: m.agent.name, joinedAt: m.joinedAt, skills: [...(skills.get(m.agentId) ?? [])] })),
+    members: row.members.map((m) => ({ agentId: m.agentId, name: m.agent.name, joinedAt: m.joinedAt, skills: [...(skills.get(m.agentId) ?? [])], availability: availability.get(m.agentId) ?? "offline" })),
+    availableCount: row.members.filter((m) => availability.get(m.agentId) === "available").length,
     threadCount: row._count.posts,
     archived: isArchived(row),
     lastActivityAt: row.lastActivityAt, createdAt: row.createdAt,
@@ -201,11 +224,13 @@ async function myInvites(viewer: ClusterViewer, clusterIds: string[]) {
 }
 
 async function cards(viewer: ClusterViewer, rows: CardRow[]) {
-  const [invited, skills] = await Promise.all([
+  const memberIds = [...new Set(rows.flatMap((r) => r.members.map((m) => m.agentId)))];
+  const [invited, skills, availability] = await Promise.all([
     myInvites(viewer, rows.map((r) => r.id)),
-    skillsOf(viewer.organisationId, [...new Set(rows.flatMap((r) => r.members.map((m) => m.agentId)))]),
+    skillsOf(viewer.organisationId, memberIds),
+    availabilityOf(viewer.organisationId, memberIds),
   ]);
-  return rows.map((row) => card(row, viewer, invited, skills));
+  return rows.map((row) => card(row, viewer, invited, skills, availability));
 }
 
 /** The project's clusters as public cards, most recently active first. Archived ones only when asked. */
@@ -324,8 +349,8 @@ export async function inviteToCluster(viewer: ClusterViewer, clusterId: string, 
   return { invited: fresh, alreadyThere: ids.filter((id) => known.has(id)) };
 }
 
-/** Agents worth inviting: active in the organisation, outside the cluster, with the most missing skills first. */
-export async function suggestInvites(viewer: ClusterViewer, clusterId: string) {
+/** Agents worth inviting: active in the organisation, outside the cluster, available ones first, then the most missing skills. `onlyAvailable` keeps just the available ones. */
+export async function suggestInvites(viewer: ClusterViewer, clusterId: string, options: { onlyAvailable?: boolean } = {}) {
   const cluster = await requireMember(viewer, clusterId);
   const members = await activeMemberIds(clusterId);
   const missing = missingSkills(cluster.neededSkills, (await skillsOf(viewer.organisationId, members)).values());
@@ -340,9 +365,12 @@ export async function suggestInvites(viewer: ClusterViewer, clusterId: string) {
     take: 100,
     select: { id: true, name: true, skills: { where: { tag: { organisationId: viewer.organisationId } }, select: { tag: { select: { slug: true } } } } },
   });
+  const availability = await availabilityOf(viewer.organisationId, candidates.map((a) => a.id));
+  const order: Record<Availability, number> = { available: 0, busy: 1, offline: 2 };
   const items = candidates
-    .map((a) => ({ agentId: a.id, name: a.name, brings: missing.filter((slug) => a.skills.some((s) => s.tag.slug === slug)) }))
-    .sort((a, b) => b.brings.length - a.brings.length || a.name.localeCompare(b.name))
+    .map((a) => ({ agentId: a.id, name: a.name, brings: missing.filter((slug) => a.skills.some((s) => s.tag.slug === slug)), availability: availability.get(a.id) ?? ("offline" as Availability) }))
+    .filter((a) => !options.onlyAvailable || a.availability === "available")
+    .sort((a, b) => order[a.availability] - order[b.availability] || b.brings.length - a.brings.length || a.name.localeCompare(b.name))
     .slice(0, 20);
   return { missingSkills: missing, items };
 }
@@ -511,7 +539,7 @@ export async function listPending(viewer: ClusterViewer, clusterId: string) {
 }
 
 /** A cluster as the Agents panel lists it, like a group chat: newest activity first (#agent-clusters). */
-export type DockCluster = { id: string; name: string; href: string; members: number; lastActivityAt: string; lastThread: string | null };
+export type DockCluster = { id: string; name: string; href: string; members: number; available: number; lastActivityAt: string; lastThread: string | null };
 
 /**
  * The open clusters a person's agents belong to in an organisation, for the Agents
@@ -528,12 +556,14 @@ export async function dockClusters(userId: string, organisationId: string, take 
     select: {
       id: true, name: true, lastActivityAt: true,
       project: { select: { slug: true, organisation: { select: { slug: true } } } },
-      _count: { select: { members: { where: { status: "active" } } } },
+      members: { where: { status: "active" }, select: { agentId: true } },
       posts: { where: { parentId: null }, orderBy: { createdAt: "desc" }, take: 1, select: { title: true } },
     },
   });
+  const availability = await availabilityOf(organisationId, [...new Set(rows.flatMap((row) => row.members.map((m) => m.agentId)))]);
   return rows.map((row) => ({
-    id: row.id, name: row.name, members: row._count.members, lastActivityAt: row.lastActivityAt.toISOString(),
+    id: row.id, name: row.name, members: row.members.length,
+    available: row.members.filter((m) => availability.get(m.agentId) === "available").length, lastActivityAt: row.lastActivityAt.toISOString(),
     href: `/${encodeURIComponent(row.project.organisation.slug)}/${encodeURIComponent(row.project.slug)}/clusters/${row.id}`,
     lastThread: row.posts[0]?.title ?? null,
   }));

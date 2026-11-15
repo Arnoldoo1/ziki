@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const db = vi.hoisted(() => ({
   project: { findFirst: vi.fn() }, membership: { findUnique: vi.fn() }, agent: { findMany: vi.fn() },
   skillTag: { findMany: vi.fn() }, agentSkill: { findMany: vi.fn() }, bug: { findFirst: vi.fn() },
+  agentApiKey: { findMany: vi.fn() }, issueClaim: { findMany: vi.fn() },
   cluster: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn(), update: vi.fn(), updateMany: vi.fn(), count: vi.fn() },
   clusterMember: { findFirst: vi.fn(), findMany: vi.fn(), findUnique: vi.fn(), create: vi.fn(), createMany: vi.fn(), update: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
   clusterPost: { findFirst: vi.fn(), findMany: vi.fn(), create: vi.fn() },
@@ -19,7 +20,7 @@ const db = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
 import {
-  agentClusterViewer, addPost, createCluster, decideMember, inviteToCluster, joinCluster,
+  agentClusterViewer, addPost, availabilityOf, createCluster, decideMember, inviteToCluster, joinCluster,
   listClusters, listPosts, readDoc, readNotes, reopenCluster, saveDoc, suggestInvites, type ClusterViewer,
 } from "@/lib/clusters";
 import type { AgentContext } from "@/lib/agents/require-agent";
@@ -46,6 +47,8 @@ beforeEach(() => {
   db.skillTag.findMany.mockImplementation(async ({ where }) => (where.slug.in as string[]).filter((s) => ["security", "testing", "ux"].includes(s)).map((slug) => ({ slug })));
   db.agent.findMany.mockImplementation(async ({ where }) => (where.id?.in ?? []).map((id: string) => ({ id })));
   db.cluster.count.mockResolvedValue(0);
+  db.agentApiKey.findMany.mockResolvedValue([]);
+  db.issueClaim.findMany.mockResolvedValue([]);
 });
 
 describe("cluster access", () => {
@@ -159,12 +162,38 @@ describe("joining and inviting by skill", () => {
     db.cluster.findFirst.mockResolvedValue({ ...cluster, neededSkills: ["security", "testing", "ux"] });
     db.clusterMember.findMany.mockImplementation(async ({ where }) => (where.status === "active" ? [{ agentId: "creator" }, { agentId: "member" }] : [{ agentId: "creator" }, { agentId: "member" }]));
     db.agent.findMany.mockResolvedValue([{ id: "designer", name: "Designer", skills: [{ tag: { slug: "ux" } }] }]);
-    await expect(suggestInvites(viewerFor("member"), "c1")).resolves.toEqual({ missingSkills: ["ux"], items: [{ agentId: "designer", name: "Designer", brings: ["ux"] }] });
+    await expect(suggestInvites(viewerFor("member"), "c1")).resolves.toEqual({ missingSkills: ["ux"], items: [{ agentId: "designer", name: "Designer", brings: ["ux"], availability: "offline" }] });
+  });
+
+  it("puts available agents first, and can list only them", async () => {
+    db.cluster.findFirst.mockResolvedValue({ ...cluster, neededSkills: ["security", "testing", "ux"] });
+    db.clusterMember.findMany.mockImplementation(async ({ where }) => (where.status === "active" ? [{ agentId: "creator" }, { agentId: "member" }] : [{ agentId: "creator" }, { agentId: "member" }]));
+    db.agent.findMany.mockResolvedValue([
+      { id: "a-off", name: "Asleep", skills: [{ tag: { slug: "ux" } }] },
+      { id: "b-on", name: "Awake", skills: [{ tag: { slug: "ux" } }] },
+    ]);
+    db.agentApiKey.findMany.mockResolvedValue([{ agentId: "b-on" }]);
+    const all = await suggestInvites(viewerFor("member"), "c1");
+    expect(all.items.map((i) => [i.agentId, i.availability])).toEqual([["b-on", "available"], ["a-off", "offline"]]);
+    const now = await suggestInvites(viewerFor("member"), "c1", { onlyAvailable: true });
+    expect(now.items.map((i) => i.agentId)).toEqual(["b-on"]);
   });
 
   it("lets only the creator remove a member, and never the creator", async () => {
     await expect(decideMember(viewerFor("member"), "c1", "tester", { decision: "remove" })).rejects.toMatchObject({ status: 403 });
     await expect(decideMember(viewerFor("creator"), "c1", "creator", { decision: "remove" })).rejects.toMatchObject({ status: 409 });
+  });
+});
+
+describe("availability", () => {
+  it("is available when seen in the last 30 minutes, busy with an active task, offline otherwise", async () => {
+    db.agentApiKey.findMany.mockResolvedValue([{ agentId: "seen" }, { agentId: "working" }]);
+    db.issueClaim.findMany.mockResolvedValue([{ agentId: "working" }]);
+    const now = new Date("2026-11-15T12:00:00Z");
+    const map = await availabilityOf("org", ["seen", "working", "gone"], now);
+    expect(Object.fromEntries(map)).toEqual({ seen: "available", working: "busy", gone: "offline" });
+    expect(db.agentApiKey.findMany.mock.calls[0][0].where).toMatchObject({ organisationId: "org", revokedAt: null, lastUsedAt: { gte: new Date("2026-11-15T11:30:00Z") } });
+    expect(db.issueClaim.findMany.mock.calls[0][0].where).toMatchObject({ status: "active", bug: { organisationId: "org" } });
   });
 });
 
