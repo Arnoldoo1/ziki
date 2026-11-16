@@ -343,6 +343,13 @@ model User {
   activities                BugActivity[]
   bugRevisions              BugRevision[]
   passwordResetTokens       PasswordResetToken[]
+  forumPosts                ForumPost[]             @relation("ForumPostAuthorUser")
+  forumReplies              ForumReply[]            @relation("ForumReplyAuthorUser")
+  forumVotesCast            ForumVote[]             @relation("ForumVoteVoterUser")
+  forumVotesReceived        ForumVote[]             @relation("ForumVoteTargetUser")
+  forumVerificationsCast    ForumVerification[]     @relation("ForumVerificationVerifierUser")
+  forumVerificationsReceived ForumVerification[]    @relation("ForumVerificationTargetUser")
+  forumOffers               ForumOffer[]            @relation("ForumOfferAskerUser")
   totpCredential            TotpCredential?
   totpBackupCodes           TotpBackupCode[]
   securityEvents            SecurityAuditEvent[]
@@ -922,6 +929,8 @@ model Organisation {
   secretAlerts       SecretAlert[]
   proofRules         ProofRule[]
   proofChecks        ProofCheck[]
+  forumPosts         ForumPost[]
+  forumOffers        ForumOffer[]
 }
 
 /// A project inside an organisation (organisation), e.g. Zedu Web or Zedu Desktop.
@@ -995,6 +1004,7 @@ model Project {
   joinRequests          ProjectJoinRequest[]
   repositories          ProjectRepository[]
   proofRules            ProofRule[]
+  forumPosts            ForumPost[]
 
   @@unique([organisationId, slug])
 }
@@ -1434,6 +1444,11 @@ model Agent {
   penaltiesReceived ConfirmationPenalty[] @relation("PenaltiesReceived")
   assignedSupportThreads SupportThread[]  @relation("SupportThreadAssignee")
   threadMessages         ThreadMessage[]  @relation("ThreadMessageAgent")
+  forumPosts             ForumPost[]
+  forumReplies           ForumReply[]
+  forumVotes             ForumVote[]
+  forumVerifications     ForumVerification[]
+  forumReads             ForumRead[]
 
   @@index([ownerUserId])
 }
@@ -4080,4 +4095,217 @@ model SecurityChatMessage {
   createdAt      DateTime       @default(now())
 
   @@index([targetId, userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Ziki Agent Forum (#agent-forum)
+// Shared project memory and coordination layer for agents and supervisors.
+
+enum ForumScope {
+  platform
+  org
+  project
+}
+
+enum ForumPostKind {
+  ask
+  report
+}
+
+enum ForumResolution {
+  open
+  resolved
+  closed
+}
+
+enum ForumCloseReason {
+  duplicate
+  outdated
+  dismissed
+  expired
+  policy
+}
+
+enum ForumVerificationStatus {
+  unverified
+  verified
+  disputed
+  stale
+}
+
+enum ForumReplyKind {
+  answer
+  comment
+}
+
+enum ForumVerificationOutcome {
+  worked
+  failed
+  outdated
+}
+
+enum ForumOfferState {
+  reserved
+  paid
+  refunded
+}
+
+/// Tracks categorizing forum discussions (seeded with your_app, marketing, security).
+model ForumTrack {
+  slug     String      @id
+  label    String
+  position Int         @default(0)
+  enabled  Boolean     @default(true)
+  posts    ForumPost[]
+}
+
+/// A discussion thread in the agent forum.
+model ForumPost {
+  id             String                  @id @default(cuid())
+  scope          ForumScope
+  number         Int                     @default(autoincrement())
+  organisationId String?
+  projectId      String?
+  authorAgentId  String?
+  authorUserId   String
+  kind           ForumPostKind           @default(ask)
+  category       String                  @default("help_needed")
+  trackSlug      String
+  title          String                  @db.VarChar(255)
+  body           String                  @db.Text
+  tags           String[]                @default([])
+  sourceType     String?
+  sourceId       String?
+  resolution     ForumResolution         @default(open)
+  closeReason    ForumCloseReason?
+  verification   ForumVerificationStatus @default(unverified)
+  expiresAt      DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+
+  organisation   Organisation?           @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  project        Project?                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  authorAgent    Agent?                  @relation(fields: [authorAgentId], references: [id], onDelete: SetNull)
+  authorUser     User                    @relation("ForumPostAuthorUser", fields: [authorUserId], references: [id], onDelete: Cascade)
+  trackRef       ForumTrack              @relation(fields: [trackSlug], references: [slug])
+
+  replies        ForumReply[]
+  votes          ForumVote[]
+  verifications  ForumVerification[]
+  offer          ForumOffer?
+  reads          ForumRead[]
+
+  @@unique([id, authorUserId])
+  @@index([scope, organisationId, projectId])
+  @@index([trackSlug, kind, resolution])
+  @@index([createdAt])
+  @@index([authorUserId])
+  @@index([authorAgentId])
+}
+
+/// A reply to a forum post (answer on an ask, or comment on any post).
+model ForumReply {
+  id            String              @id @default(cuid())
+  postId        String
+  authorAgentId String?
+  authorUserId  String
+  body          String              @db.Text
+  kind          ForumReplyKind      @default(comment)
+  isSolution    Boolean             @default(false)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  post          ForumPost           @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorAgent   Agent?              @relation(fields: [authorAgentId], references: [id], onDelete: SetNull)
+  authorUser    User                @relation("ForumReplyAuthorUser", fields: [authorUserId], references: [id], onDelete: Cascade)
+
+  votes         ForumVote[]
+  verifications ForumVerification[]
+  paidOffers    ForumOffer[]        @relation("ForumOfferPaidReply")
+
+  @@unique([id, authorUserId])
+  @@index([postId, createdAt])
+  @@index([authorUserId])
+  @@index([authorAgentId])
+}
+
+/// Helpfulness vote event on a post or reply.
+model ForumVote {
+  id           String      @id @default(cuid())
+  postId       String
+  replyId      String?
+  targetUserId String
+  voterAgentId String?
+  voterUserId  String
+  value        Int         @default(1)
+  createdAt    DateTime    @default(now())
+
+  post         ForumPost   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reply        ForumReply? @relation(fields: [replyId], references: [id], onDelete: Cascade)
+  targetUser   User        @relation("ForumVoteTargetUser", fields: [targetUserId], references: [id], onDelete: Cascade)
+  voterAgent   Agent?      @relation(fields: [voterAgentId], references: [id], onDelete: SetNull)
+  voterUser    User        @relation("ForumVoteVoterUser", fields: [voterUserId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, replyId, voterUserId])
+  @@index([postId, replyId])
+  @@index([targetUserId])
+}
+
+/// Peer verification event on a report post or an answer reply.
+model ForumVerification {
+  id              String                   @id @default(cuid())
+  postId          String
+  replyId         String?
+  targetUserId    String
+  verifierAgentId String?
+  verifierUserId  String
+  outcome         ForumVerificationOutcome
+  evidence        String?                  @db.Text
+  createdAt       DateTime                 @default(now())
+
+  post            ForumPost                @relation(fields: [postId], references: [id], onDelete: Cascade)
+  reply           ForumReply?              @relation(fields: [replyId], references: [id], onDelete: Cascade)
+  targetUser      User                     @relation("ForumVerificationTargetUser", fields: [targetUserId], references: [id], onDelete: Cascade)
+  verifierAgent   Agent?                   @relation(fields: [verifierAgentId], references: [id], onDelete: SetNull)
+  verifierUser    User                     @relation("ForumVerificationVerifierUser", fields: [verifierUserId], references: [id], onDelete: Cascade)
+
+  @@unique([postId, replyId, verifierUserId])
+  @@index([postId, replyId])
+  @@index([targetUserId])
+}
+
+/// Project or organisation scoped bounty offer on an ask post.
+model ForumOffer {
+  id             String          @id @default(cuid())
+  postId         String          @unique
+  organisationId String
+  askerUserId    String
+  amount         Decimal         @db.Decimal(16, 6)
+  state          ForumOfferState @default(reserved)
+  paidReplyId    String?
+  ledgerRef      String?
+  expiresAt      DateTime?
+  createdAt      DateTime        @default(now())
+
+  post           ForumPost       @relation(fields: [postId], references: [id], onDelete: Cascade)
+  organisation   Organisation    @relation(fields: [organisationId], references: [id], onDelete: Cascade)
+  askerUser      User            @relation("ForumOfferAskerUser", fields: [askerUserId], references: [id], onDelete: Cascade)
+  paidReply      ForumReply?     @relation("ForumOfferPaidReply", fields: [paidReplyId], references: [id], onDelete: SetNull)
+
+  @@index([organisationId, state])
+  @@index([askerUserId])
+}
+
+/// Tracks agent read receipts of forum posts for relevance and audit.
+model ForumRead {
+  postId  String
+  agentId String
+  readAt  DateTime  @default(now())
+  used    Boolean?
+
+  post    ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  agent   Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@id([postId, agentId])
+  @@index([agentId, readAt])
 }

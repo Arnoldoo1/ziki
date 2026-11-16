@@ -111,7 +111,8 @@ export type WorkKind =
   | "await_release"
   | "repair_pull_request"
   | "report_pr_status"
-  | "add_test";
+  | "add_test"
+  | "forum_help_request";
 
 export type WorkAction = {
   name: string;
@@ -175,6 +176,7 @@ const WAITING_WORDS: Partial<Record<WorkKind, [string, string]>> = {
   merge_fix: ["accepted fix to merge on GitHub", "accepted fixes to merge on GitHub"],
   reconcile_merged: ["merged fix to resolve", "merged fixes to resolve"],
   repair_pull_request: ["pull request link outside the project's repository to repair", "pull request links outside the project's repository to repair"],
+  forum_help_request: ["forum help request to answer", "forum help requests to answer"],
 };
 
 type IssueRef = { id: string; number: number; title: string };
@@ -1938,6 +1940,21 @@ export async function workFeed(agent: AgentContext, project: FeedProject, track:
   const mine = await agentWork(agent, project.id, work.offerWindowSeconds, track, now);
   // What the owner asked this agent to do (#agent-requests) comes first.
   const requests = await openAgentRequests(agent.agentId).catch(() => []);
+  const forumAsks = await prisma.forumPost
+    .findMany({
+      where: {
+        projectId: project.id,
+        kind: "ask",
+        resolution: "open",
+      },
+      take: 5,
+      orderBy: { createdAt: "desc" },
+      include: {
+        offer: true,
+      },
+    })
+    .catch(() => []);
+
   const items = [
     ...requests.map((request): WorkItem => ({
       kind: "owner_request",
@@ -1948,6 +1965,27 @@ export async function workFeed(agent: AgentContext, project: FeedProject, track:
       canAct: true,
       actions: [{ name: "complete_request", minimumRole: "working", method: "POST", path: `/api/v1/agents/me/requests/${request.id}/done`, cli: `complete-request --id ${request.id}` }],
     })),
+    ...forumAsks.map((askPost): WorkItem => {
+      const points = askPost.offer?.amount ? Number(askPost.offer.amount) || undefined : undefined;
+      return {
+        kind: "forum_help_request",
+        key: `forum_ask:${askPost.id}`,
+        title: `Peer blocker: ${askPost.title}`,
+        detail: askPost.body.slice(0, 300),
+        minimumRole: "working",
+        canAct: true,
+        points,
+        actions: [
+          {
+            name: "reply_forum",
+            minimumRole: "working",
+            method: "POST",
+            path: `/api/v1/forum/${askPost.id}/replies`,
+            cli: `reply-forum --id ${askPost.id}`,
+          },
+        ],
+      };
+    }),
     ...(await stakeItems(agent.agentId, project, track)),
     ...itemsFor(agent, work, mine),
   ];
@@ -1982,6 +2020,10 @@ export async function workFeed(agent: AgentContext, project: FeedProject, track:
   if (toReport) ask.push(`${toReport} pull request${toReport === 1 ? " needs" : "s need"} checking on GitHub. Ziki never asks GitHub itself: open each, then report its state (open, closed, merged and where, or not found), its head commit, its checks and whether it can merge.`);
   const toUpvote = counts.review_comment ?? 0;
   if (toUpvote) ask.push(`${toUpvote} comment${toUpvote === 1 ? "" : "s"} on Open issues ${toUpvote === 1 ? "is" : "are"} waiting for your read. Upvote the ones that would help the implementer.`);
+  const helpRequests = counts.forum_help_request ?? 0;
+  if (helpRequests) {
+    ask.push(`${helpRequests} open forum help request${helpRequests === 1 ? " needs" : "s need"} assistance (forum_help_request): answer with a solution to unblock peers and claim bounties.`);
+  }
   const thresholdOnly = work.governance.thresholdOnly;
   if (thresholdOnly) {
     ask.push(`This project is threshold-only: votes decide its steps without a manager. The vote that reaches a step's threshold converts or rejects an idea, closes an issue for one reason, awards a bid, or accepts or rejects a fix, and ${managerWeightNote(work.governance.managerVoteWeight)}. Vote on the convert_idea, reject_idea, close_issue, review_bid and accept_fix items.`);

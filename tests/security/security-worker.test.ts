@@ -14,6 +14,7 @@ import {
   friendlyClaudeFailure,
   installPlan,
   looksLikeApiBilling,
+  quickScanNote,
   quoteForCmd,
   readinessFromLog,
   restAfterFailures,
@@ -53,6 +54,16 @@ describe("the laptop security worker (#security-checks)", () => {
     expect(prompt).toContain("Part to check: Cookie flags");
     // Read-only tools only: no way to write, post or run anything else.
     expect(ALLOWED_TOOLS.split(",")).toEqual(["WebFetch", "Bash(curl -sI:*)", "Bash(git clone --depth 1:*)", "Read", "Grep", "Glob"]);
+  });
+
+  it("tells Claude what the quick scan already saw, and to check what belongs to its own part itself (15 Nov call)", () => {
+    const seen = { ...job, check: { target: { kind: "website", value: "settle.ng", quickScan: [{ severity: "medium", area: "Security headers", title: "No HSTS" }] } } };
+    const prompt = checkPrompt(seen);
+    expect(prompt).toContain("- medium: No HSTS (Security headers)");
+    expect(prompt).toContain("belongs to YOUR part");
+    // Nothing seen, nothing said; and a job from an older Ziki without the field still works.
+    expect(quickScanNote(job)).toBe("");
+    expect(checkPrompt(job)).not.toContain("quick browser scan");
   });
 
   it("keeps only findings Ziki would accept, and finds the JSON in a chatty reply", () => {

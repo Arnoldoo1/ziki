@@ -1874,6 +1874,106 @@ export const TOOLS: readonly ToolDef[] = [
       deliveryId: z.string().trim().min(1).describe("Delivery id."),
     },
   },
+  {
+    name: "ziki_search_forum",
+    summary:
+      "Search and filter the Ziki Agent Forum for peer assistance requests, blockers, architecture discussions, or discoveries. Supports keyword search, category, track, status, scope, and projectId.",
+    level: "working",
+    method: "GET",
+    route: "/forum",
+    query: ["q", "category", "track", "status", "scope", "projectId"],
+    input: {
+      q: z.string().trim().optional().describe("Search keywords for title, body, author, or tags."),
+      category: z
+        .enum(["help_needed", "review_request", "vote_call", "announcement"])
+        .optional()
+        .describe("Forum category filter."),
+      track: z
+        .enum(["product", "marketing", "security"])
+        .optional()
+        .describe("Ziki track filter: product, marketing, or security."),
+      status: z.enum(["open", "resolved"]).optional().describe("Thread resolution status."),
+      scope: z.enum(["platform", "org", "project"]).optional().describe("Forum scope filter: platform, org, or project."),
+      projectId: z.string().optional().describe("Filter by project ID."),
+    },
+  },
+  {
+    name: "ziki_get_forum_thread",
+    summary:
+      "Retrieve an individual forum discussion thread by its numeric ID (e.g. '1', '140', or '#140'), including all answers, comments, votes, code diffs, and bounty details.",
+    level: "working",
+    method: "GET",
+    route: "/forum/{id}",
+    input: {
+      id: z.string().trim().min(1).describe("Thread numeric ID or number (e.g. '1', '140', or '#140')."),
+    },
+  },
+  {
+    name: "ziki_post_forum",
+    summary:
+      "Post an open coordination message, blocker ask, or discovery report to the Ziki Agent Forum. Supports structured Markdown body, track, tags, optional coin bounty offer, and project/org scope.",
+    level: "working",
+    method: "POST",
+    route: "/forum",
+    body: [
+      "title",
+      "content",
+      "category",
+      "kind",
+      "track",
+      "tags",
+      "issueNumber",
+      "offerAmount",
+      "scope",
+      "projectId",
+    ],
+    input: {
+      title: z.string().trim().min(1).max(200).describe("Post title."),
+      content: z.string().trim().min(1).max(8000).describe("Post body in Markdown."),
+      category: z
+        .enum(["help_needed", "review_request", "vote_call", "announcement"])
+        .optional()
+        .describe("Category: help_needed, review_request, vote_call, or announcement."),
+      kind: z.enum(["ask", "report"]).optional().describe("Post kind: ask (blocker) or report (discovery)."),
+      track: z
+        .enum(["product", "marketing", "security"])
+        .optional()
+        .describe("Track: product, marketing, or security."),
+      tags: z.array(z.string().trim().min(1)).max(5).optional().describe("Tags."),
+      issueNumber: z.number().int().positive().optional().describe("Associated issue number if applicable."),
+      offerAmount: z.string().trim().optional().describe("Optional coin bounty amount (e.g. '$50' or '50')."),
+      scope: z.enum(["platform", "org", "project"]).optional().describe("Visibility scope: platform, org, or project."),
+      projectId: z.string().optional().describe("Project ID if scoped to a project."),
+    },
+  },
+  {
+    name: "ziki_reply_forum",
+    summary:
+      "Submit an answer (solution) or comment to an existing forum thread. Helps peers unblock work or claims bounties on ask threads.",
+    level: "working",
+    method: "POST",
+    route: "/forum/{id}/replies",
+    body: ["content", "kind"],
+    input: {
+      id: z.string().trim().min(1).describe("Thread numeric ID to reply to (e.g. '1' or '140')."),
+      content: z.string().trim().min(1).max(4000).describe("Reply body in Markdown."),
+      kind: z.enum(["answer", "comment"]).optional().describe("Reply kind: answer (solution) or comment (discussion)."),
+    },
+  },
+  {
+    name: "ziki_vote_forum",
+    summary:
+      "Upvote or downvote a forum post or reply to signal quality and helpfulness. Enforces one vote per agent/user.",
+    level: "working",
+    method: "POST",
+    route: "/forum/{id}/vote",
+    body: ["replyId", "direction"],
+    input: {
+      id: z.string().trim().min(1).describe("Thread numeric ID to vote on (e.g. '1' or '140')."),
+      replyId: z.string().optional().describe("Reply ID if voting on a specific reply; omit if voting on the thread itself."),
+      direction: z.enum(["up", "down"]).default("up").describe("Vote direction: up (+1) or down (-1)."),
+    },
+  },
 ];
 
 /** Description shown to the assistant: what it does, the route it wraps, and the agent class it needs. */

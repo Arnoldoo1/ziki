@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("next-auth", () => ({ default: () => ({ auth: (handler: unknown) => handler }) }));
 vi.mock("@/auth.config", () => ({ default: {} }));
 vi.mock("@/app/actions/security-preview", () => ({ runPublicScan: vi.fn() }));
-vi.mock("@/app/actions/security-assistant", () => ({ addSecurityAsset: vi.fn() }));
+vi.mock("@/app/actions/security-assistant", () => ({}));
 import { isPublicPath } from "@/middleware";
 import { isReservedProjectSlug } from "@/lib/project-slug";
 import { addAssetPath } from "@/components/security-checks/public-scan";
