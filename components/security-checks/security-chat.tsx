@@ -114,6 +114,8 @@ export function SecurityChat({
   const [pending, startTransition] = useTransition();
   /** A site was sent: think first, like the Ideas chat, then show the scan's progress. */
   const [thinking, setThinking] = useState(false);
+  /** Sending something the person has already seen scanned (from the public page): no waiting lines. */
+  const [quiet, setQuiet] = useState(false);
   const thinkTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (thinkTimer.current) clearTimeout(thinkTimer.current);
@@ -177,7 +179,7 @@ export function SecurityChat({
     sendText(value);
   }
 
-  function sendText(raw: string) {
+  function sendText(raw: string, instant = false) {
     const words = raw.trim();
     if (!words || pending) return;
     // About the scanned site (anything that isn't a new address): it goes to that
@@ -190,16 +192,21 @@ export function SecurityChat({
     setTurns(next);
     setText("");
     setError(null);
-    setThinking(true);
-    if (thinkTimer.current) clearTimeout(thinkTimer.current);
-    thinkTimer.current = setTimeout(() => setThinking(false), THINK_MS);
+    // Brought from the public page, the person has just watched this scan: show its result straight away,
+    // with no thinking lines or Scanning bar (the server still has that result, so it comes back at once).
+    setQuiet(instant);
+    if (!instant) {
+      setThinking(true);
+      if (thinkTimer.current) clearTimeout(thinkTimer.current);
+      thinkTimer.current = setTimeout(() => setThinking(false), THINK_MS);
+    }
     const started = Date.now();
     startTransition(async () => {
       try {
         // Only the words go to the server, never a scan card.
         const answer = await talkToSecurityAssistant(next.map(({ role, text }) => ({ role, text })));
         // A fresh scan waits for the thinking lines and the Scanning bar to finish, like the public page.
-        if (answer.kind === "scan" && !answer.already && answer.summary) {
+        if (!instant && answer.kind === "scan" && !answer.already && answer.summary) {
           const left = THINK_MS + SCAN_BAR_MS - (Date.now() - started);
           if (left > 0) await new Promise((done) => setTimeout(done, left));
         }
@@ -256,7 +263,7 @@ export function SecurityChat({
   useEffect(() => {
     if (!startWith || kept.started === startWith) return;
     kept.started = startWith;
-    sendText(startWith);
+    sendText(startWith, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [startWith]);
   const lastUser = [...turns].reverse().find((turn) => turn.role === "user")?.text ?? "";
@@ -264,7 +271,7 @@ export function SecurityChat({
   // The scan the latest answer is about, once it's in the person's scans: "See progress" shows it in the list.
   const finishedCheckId = focus?.checkId ?? null;
   // Only while the answer is still coming: not while the list below refreshes after it.
-  const waiting = pending && turns.at(-1)?.role === "user";
+  const waiting = pending && turns.at(-1)?.role === "user" && !quiet;
   // A question about the scanned site is being answered.
   const threadWaiting = pending && thread.at(-1)?.role === "user";
   const scanning = waiting && !thinking && lastTarget?.ok === true;
