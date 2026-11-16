@@ -36,8 +36,11 @@ import { prisma } from "@/lib/prisma";
 export type ChatAnswer =
   | { kind: "reply"; reply: string }
   | { kind: "go"; reply: string; href: string }
-  /** The quick scan of a site, already added to the person's scans (`checkId`) unless it couldn't be reached. `summary` is null when the scan couldn't run. */
-  | { kind: "scan"; reply: string; target: string; summary: PreviewSummary | null; note: string | null; checkId: string | null; already?: boolean }
+  /**
+   * The quick scan of a site, already added to the person's scans (`checkId`) unless it couldn't be reached. `summary` is null when the scan couldn't run.
+   * `finished` is true when the agents' report is already posted (a site scanned before), so the chat offers "See results".
+   */
+  | { kind: "scan"; reply: string; target: string; summary: PreviewSummary | null; note: string | null; checkId: string | null; already?: boolean; finished?: boolean }
   | { kind: "error"; error: string };
 
 /**
@@ -61,8 +64,8 @@ export async function replaceScan(checkId: string): Promise<{ ok: true; summary:
   return { ok: true, summary };
 }
 
-/** A site's saved chat, as the card shows it. */
-export type SiteChatAnswer = { ok: true; messages: { id: string; role: "user" | "assistant"; text: string }[] } | { ok: false; error: string };
+/** A site's saved chat, as the card shows it, and whether its agents' report is posted ("See results" rather than "See progress"). */
+export type SiteChatAnswer = { ok: true; messages: { id: string; role: "user" | "assistant"; text: string }[]; finished: boolean } | { ok: false; error: string };
 
 /** The saved chat under one of your scans (#security-checks): loaded when its result opens. */
 export async function siteChat(checkId: string): Promise<SiteChatAnswer> {
@@ -73,7 +76,7 @@ export async function siteChat(checkId: string): Promise<SiteChatAnswer> {
   const scan = typeof checkId === "string" ? await siteChatScan(access.organisationId, user.id, checkId) : null;
   if (!scan) return { ok: false, error: "That scan isn't in your scans." };
   const messages = await loadSiteChat(access.organisationId, user.id, scan.targetId);
-  return { ok: true, messages: messages.map(({ id, role, text }) => ({ id, role, text })) };
+  return { ok: true, messages: messages.map(({ id, role, text }) => ({ id, role, text })), finished: scan.report.posted };
 }
 
 /**
@@ -100,7 +103,7 @@ export async function askSite(checkId: string, question: string): Promise<SiteCh
     "I can't answer just now. Try again in a moment, or open the report for the agents' findings.";
   await saveSiteMessage(organisationId, user.id, scan.targetId, "assistant", reply);
   const messages = await loadSiteChat(organisationId, user.id, scan.targetId);
-  return { ok: true, messages: messages.map(({ id, role, text: said }) => ({ id, role, text: said })) };
+  return { ok: true, messages: messages.map(({ id, role, text: said }) => ({ id, role, text: said })), finished: scan.report.posted };
 }
 
 /** Remove a scan from the person's list, only while its report isn't posted. */
@@ -169,6 +172,7 @@ async function scanAndAdd(organisationId: string, userId: string, target: Parsed
       note: `${target.value} is already in your scans. This is its saved result. Replace it with a new scan?`,
       checkId: scanned.checkId,
       already: true,
+      finished: scanned.finished,
     };
   }
   const result = await previewScan(address, { visitor: `user:${userId}` });
