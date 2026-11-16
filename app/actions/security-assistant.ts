@@ -147,19 +147,6 @@ export async function talkToSecurityAssistant(history: AssistantTurn[]): Promise
   return { kind: "reply", reply: answer.reply };
 }
 
-/** Add a site to the person's scans from outside the chat (the public page, signed in): scan, add, then back to Security. */
-export async function addSecurityAsset(link: string): Promise<ChatAnswer> {
-  const user = await requireUser();
-  const access = await currentOrganisationAccess(user.id, user.role);
-  if (!access.organisationId) return { kind: "error", error: NO_WORKSPACE };
-  if (!access.admin) return { kind: "error", error: OWNERS_ONLY_MESSAGE };
-  const parsed = parseSecurityTarget(typeof link === "string" ? link : "");
-  if (!parsed.ok) return { kind: "error", error: parsed.error };
-  const answer = await scanAndAdd(access.organisationId, user.id, parsed.target, "");
-  if (answer.kind !== "scan" || !answer.checkId) return answer;
-  return { kind: "go", reply: "", href: `/security?check=${encodeURIComponent(answer.checkId)}` };
-}
-
 /**
  * Every asset (a website, a server or a public repo) gets the quick scan, and
  * is added to the person's scans straight away, so the full check starts. A
@@ -196,13 +183,16 @@ async function scanAndAdd(organisationId: string, userId: string, target: Parsed
   return { kind: "scan", reply, target: address, summary, note: result.ok ? null : result.reason, checkId: added.checkId };
 }
 
-/** Save the chat that led to a scan, and the reply with what the quick scan found, as the start of that site's chat. */
+/**
+ * Save the chat that led to a scan, and the reply with what the quick scan found, as the start of that site's chat.
+ * The agents' report later replaces the quick scan's numbers, so the saved line says when it was true.
+ */
 async function keepConversation(organisationId: string, userId: string, targetId: string, conversation: AssistantTurn[], reply: string, summary: PreviewSummary | null) {
   if (!conversation.length) return;
   const counts = summary
     ? (["critical", "high", "medium", "low"] as const).filter((s) => summary.counts[s]).map((s) => `${summary.counts[s]} ${s}`).join(", ")
     : "";
-  const found = summary ? (summary.total ? ` The quick scan found ${summary.total} ${summary.total === 1 ? "problem" : "problems"} (${counts}).` : " The quick scan found nothing.") : "";
+  const found = summary ? (summary.total ? ` When you added it, the quick scan found ${summary.total} ${summary.total === 1 ? "problem" : "problems"} (${counts}).` : " When you added it, the quick scan found nothing.") : "";
   for (const turn of conversation) await saveSiteMessage(organisationId, userId, targetId, turn.role, turn.text);
   const said = `${reply}${found}`.trim();
   if (said) await saveSiteMessage(organisationId, userId, targetId, "assistant", said);

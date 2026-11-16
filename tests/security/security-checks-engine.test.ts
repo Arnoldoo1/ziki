@@ -11,6 +11,7 @@ import {
   JOB_TIMEOUT_MINUTES,
   SecurityJobError,
   assignWaitingJobs,
+  listAgentJobs,
   findingSourceKey,
   payUnlockedFindings,
   postReportIfComplete,
@@ -226,6 +227,32 @@ describe("reporting a part", () => {
       submitReport(asDb(db), "agentA", "item1", found, now, [{ title: "Extra part", instructions: "Look at the extra path I saw." }]),
     ).rejects.toMatchObject({ status: 409 });
     expect(db.securityCheckItem.createMany).not.toHaveBeenCalled();
+  });
+
+  it("shows an agent what the quick scan already saw on the site with each part, titles only", async () => {
+    const db = fakeDb();
+    db.agent.findMany.mockResolvedValue([]);
+    db.securityCheckItem.findMany.mockResolvedValue([
+      {
+        id: "item1",
+        title: "Cookies",
+        instructions: "Look at Set-Cookie.",
+        assignedAt: now,
+        check: {
+          id: "check1",
+          target: {
+            kind: "website",
+            value: "settle.ng",
+            previewSummary: { rows: [{ severity: "medium", label: "Security headers", title: "No HSTS", price: 2, area: "headers" }] },
+          },
+        },
+      },
+    ]);
+
+    const [job] = await listAgentJobs(asDb(db), "agentA", now);
+
+    expect(job!.check).toEqual({ id: "check1", target: { kind: "website", value: "settle.ng", quickScan: [{ severity: "medium", area: "Security headers", title: "No HSTS" }] } });
+    expect(JSON.stringify(job)).not.toContain("previewSummary");
   });
 
   it("refuses a late report after the part was taken back", async () => {

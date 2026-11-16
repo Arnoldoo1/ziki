@@ -41,6 +41,17 @@ export const RULES = `You are a Ziki security agent. Rules you must follow:
 - Never print or repeat secrets you come across; describe them ("an API key is visible in /app.js") instead.
 - Write for a non-technical owner: plain words, short.`;
 
+/** The quick scan's findings as lines for the prompt, or nothing when it saw none. */
+export function quickScanNote(job) {
+  const lines = (job.check.target.quickScan || []).slice(0, 20).map((q) => `- ${q.severity}: ${q.title}${q.area ? ` (${q.area})` : ""}`);
+  if (lines.length === 0) return "";
+  return `
+A quick browser scan of this site already saw these (what any browser can see; you have not checked them):
+${lines.join("\n")}
+If one of them belongs to YOUR part, check it yourself: report it, with your own evidence, if it holds, and leave it out if it doesn't. Skip the ones that belong to other parts.
+`;
+}
+
 /** What the agent is asked for one part. */
 export function checkPrompt(job) {
   return `${RULES}
@@ -48,7 +59,7 @@ export function checkPrompt(job) {
 Target (${job.check.target.kind}): ${job.check.target.value}
 Part to check: ${job.title}
 ${job.instructions || ""}
-
+${quickScanNote(job)}
 Check only this part. Report real problems you can see evidence for. If you find nothing, return an empty list.
 If, while checking, you actually saw something concrete that deserves its own check and that no other part is likely to cover (an admin path, a form, an API you found), you may add up to 3 "moreParts". Only what you really saw, never guesses or general advice; leave it out otherwise.
 Severity: critical (anyone can take over accounts, read others' data or run code), high (a signed-in user reaches what they shouldn't, or secrets exposed), medium (a real weakness needing extra conditions), low (hardening, like a missing header).

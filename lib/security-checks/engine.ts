@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import { ON_CALL_QUIET_AFTER_MS, SEVERITY_PRICE, ZIKI_SECURITY_AGENT_USERNAME, agentsMayWork, fallbackWindowMs, ownershipProofRequired, provenTargetWhere } from "@/lib/security-checks";
 import { cleanParts, planParts, writeSummary, type PageReader, type PlannedPart, type SecurityAi } from "./ai";
 import { pickAgentFor, type CandidateAgent } from "./assign";
+import { quickScanForAgents, type QuickScanLine } from "./preview-summary";
 import { realNetwork } from "./ownership";
 
 /**
@@ -282,7 +283,8 @@ export type SecurityJob = {
   instructions: string | null;
   assignedAt: Date | null;
   reportBy: Date | null;
-  check: { id: string; target: { kind: string; value: string } };
+  /** `quickScan`: what the quick browser scan already saw on this site (short titles only), so your report agrees with it where you look at the same thing. */
+  check: { id: string; target: { kind: string; value: string; quickScan: QuickScanLine[] } };
 };
 
 /** The parts this agent holds now. It is given waiting parts first if it has room. */
@@ -296,11 +298,12 @@ export async function listAgentJobs(db: Db, agentId: string, now = new Date()): 
       title: true,
       instructions: true,
       assignedAt: true,
-      check: { select: { id: true, target: { select: { kind: true, value: true } } } },
+      check: { select: { id: true, target: { select: { kind: true, value: true, previewSummary: true } } } },
     },
   });
-  return items.map((item) => ({
+  return items.map(({ check, ...item }) => ({
     ...item,
+    check: { id: check.id, target: { kind: check.target.kind, value: check.target.value, quickScan: quickScanForAgents(check.target.previewSummary) } },
     kind: "check" as const,
     reportBy: item.assignedAt ? new Date(item.assignedAt.getTime() + JOB_TIMEOUT_MINUTES * 60_000) : null,
   }));
