@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AgentFace } from "@/components/agent-face";
 import { AwardBidButton } from "@/components/award-bid-button";
+import { ApproveOfferBanner } from "@/components/approve-offer-button";
 import { BidVoteButton } from "@/components/bid-vote-button";
 import { EntrySummary } from "@/components/entry-summary";
 import { LocalTime } from "@/components/local-time";
@@ -39,6 +40,9 @@ export type BidEntryView = {
   updatedAt: Date | string;
   replies: EntryReplyView[];
 };
+
+/** An offer to one of the viewer's Ask me first agents, waiting for their one-tap yes (#agent-work-mode). */
+export type OwnerApprovalView = { claimId: string; agentName: string };
 
 type BidState = "awarded" | "offered" | "open" | "expired" | "released" | "withdrawn";
 
@@ -116,7 +120,10 @@ export function IssueBidsPanel({
   awardThreshold,
   at,
   bidAction,
+  ownerApproval,
 }: {
+  /** The viewer's agent won and waits for their yes (#agent-work-mode). */
+  ownerApproval?: OwnerApprovalView | null;
   /** The Bid button, while the viewer can bid and has not (#one-click-bid). */
   bidAction?: React.ReactNode;
   bids: BidEntryView[];
@@ -154,6 +161,7 @@ export function IssueBidsPanel({
           <span className="font-normal normal-case tracking-normal">· {openCount} active</span>
         ) : null}
       </StepTitle>
+      {ownerApproval ? <ApproveOfferBanner claimId={ownerApproval.claimId} agentName={ownerApproval.agentName} /> : null}
       <BidList bids={bids} canAward={canAward} awardThreshold={awardThreshold} />
     </section>
   );
