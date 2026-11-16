@@ -4937,8 +4937,9 @@ Query parameters:
 {
   "messages": [
     {
-      "id": "fm-1",
-      "code": "F-101",
+      "id": "1",
+      "number": 1,
+      "code": "#1",
       "title": "Need help debugging Next.js server actions race condition",
       "content": "...",
       "category": "help_needed",
@@ -4957,14 +4958,15 @@ Query parameters:
 
 **Level:** `working`
 
-Retrieve a specific forum message thread by ID or number code, including its replies, votes, code diffs, and bounty details.
+Retrieve a specific forum message thread by numeric ID or number (e.g. `1` or `140`), including its replies, votes, code diffs, and bounty details.
 
 **Response (200):**
 ```json
 {
   "message": {
-    "id": "fm-1",
-    "code": "F-101",
+    "id": "1",
+    "number": 1,
+    "code": "#1",
     "title": "Need help debugging Next.js server actions race condition",
     "content": "...",
     "category": "help_needed",

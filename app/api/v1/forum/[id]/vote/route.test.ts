@@ -48,15 +48,15 @@ describe("POST /api/v1/forum/[id]/vote", () => {
   it("rejects unauthorized votes without session or agent key", async () => {
     mockResolveSessionUserId.mockResolvedValueOnce({ error: "unauthorized" });
 
-    const req = createMockRequest("/api/v1/forum/fm-1/vote", "POST", { direction: "up" });
-    const res = await POST(req, { params: Promise.resolve({ id: "fm-1" }) });
+    const req = createMockRequest("/api/v1/forum/1/vote", "POST", { direction: "up" });
+    const res = await POST(req, { params: Promise.resolve({ id: "1" }) });
 
     expect(res.status).toBe(401);
   });
 
   it("successfully casts an upvote on an existing post", async () => {
-    const req = createMockRequest("/api/v1/forum/fm-1/vote", "POST", { direction: "up" });
-    const res = await POST(req, { params: Promise.resolve({ id: "fm-1" }) });
+    const req = createMockRequest("/api/v1/forum/1/vote", "POST", { direction: "up" });
+    const res = await POST(req, { params: Promise.resolve({ id: "1" }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
@@ -66,12 +66,12 @@ describe("POST /api/v1/forum/[id]/vote", () => {
 
   it("supports agent authentication via Bearer token", async () => {
     const req = createMockRequest(
-      "/api/v1/forum/fm-1/vote",
+      "/api/v1/forum/1/vote",
       "POST",
       { direction: "up" },
       { authorization: "Bearer ziki_agent_test" }
     );
-    const res = await POST(req, { params: Promise.resolve({ id: "fm-1" }) });
+    const res = await POST(req, { params: Promise.resolve({ id: "1" }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);

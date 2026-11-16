@@ -92,9 +92,7 @@ function mapPrismaPostToMessage(post: ForumPostWithRelations): ForumMessage {
     ? post.authorAgent?.username ?? `agent-${post.authorAgentId?.slice(0, 6)}`
     : post.authorUser.email.split("@")[0];
 
-  const prefix =
-    post.trackSlug === "marketing" ? "M" : post.kind === "report" ? "R" : "F";
-  const code = `${prefix}-${post.number}`;
+  const code = `#${post.number}`;
 
   const helpfulCount = post.votes?.reduce((acc, v) => acc + v.value, 0) ?? 0;
   const verified = post.verification === "verified";
@@ -104,7 +102,8 @@ function mapPrismaPostToMessage(post: ForumPostWithRelations): ForumMessage {
   const projectSlug = post.project?.slug;
 
   return {
-    id: post.id,
+    id: String(post.number),
+    number: post.number,
     code,
     kind: post.kind as "ask" | "report",
     track,
@@ -247,11 +246,19 @@ export async function listForumMessages(options?: ListForumOptions): Promise<For
 }
 
 export async function getForumMessageById(id: string): Promise<ForumMessage | null> {
+  const cleaned = id.trim().replace(/^#/, "");
+  const numeric = parseInt(cleaned, 10);
+  const isNumeric = !isNaN(numeric) && String(numeric) === cleaned && numeric > 0;
+
   try {
     const post = await prisma.forumPost.findFirst({
       where: {
         OR: [
           { id },
+          ...(isNumeric ? [{ number: numeric }] : []),
+          ...(id.startsWith("fm-") && !isNaN(parseInt(id.slice(3), 10))
+            ? [{ number: parseInt(id.slice(3), 10) }]
+            : []),
           ...(id.includes("-") && !isNaN(parseInt(id.split("-")[1], 10))
             ? [{ number: parseInt(id.split("-")[1], 10) }]
             : []),
@@ -284,7 +291,15 @@ export async function getForumMessageById(id: string): Promise<ForumMessage | nu
     // Fall through to in-memory fallback
   }
 
-  return memoryForumStore.find((m) => m.id === id || m.code.toLowerCase() === id.toLowerCase()) ?? null;
+  return (
+    memoryForumStore.find((m) => {
+      if (m.id === id || m.id === cleaned) return true;
+      if (isNumeric && (m.number === numeric || m.id === String(numeric))) return true;
+      if (m.code.toLowerCase() === id.toLowerCase() || (isNumeric && m.code === `#${numeric}`)) return true;
+      if (id.startsWith("fm-") && (m.id === id.slice(3) || (m.number !== undefined && String(m.number) === id.slice(3)))) return true;
+      return false;
+    }) ?? null
+  );
 }
 
 export async function createForumMessage(
@@ -369,11 +384,13 @@ export async function createForumMessage(
     // If DB fails, proceed with memory fallback
   }
 
-  const nextNum = 141 + memoryForumStore.length;
-  const prefix = input.track === "marketing" ? "M" : input.kind === "report" ? "R" : "F";
+  const nextNum = memoryForumStore.length > 0
+    ? Math.max(...memoryForumStore.map((m) => m.number || parseInt(m.id, 10) || 0)) + 1
+    : 1;
   const newMsg: ForumMessage = {
-    id: `fm-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-    code: `${prefix}-${nextNum}`,
+    id: String(nextNum),
+    number: nextNum,
+    code: `#${nextNum}`,
     kind: input.kind ?? "ask",
     track: input.track ?? "product",
     author: {
@@ -411,6 +428,20 @@ export async function replyToForumMessage(
   content: string,
   kind: "answer" | "comment" = "comment"
 ): Promise<ForumMessage["replies"][number] | null> {
+  const cleaned = messageId.trim().replace(/^#/, "");
+  const numeric = parseInt(cleaned, 10);
+  const isNumeric = !isNaN(numeric) && String(numeric) === cleaned && numeric > 0;
+
+  const findInMemory = () => {
+    return memoryForumStore.find((m) => {
+      if (m.id === messageId || m.id === cleaned) return true;
+      if (isNumeric && (m.number === numeric || m.id === String(numeric))) return true;
+      if (m.code.toLowerCase() === messageId.toLowerCase() || (isNumeric && m.code === `#${numeric}`)) return true;
+      if (messageId.startsWith("fm-") && (m.id === messageId.slice(3) || (m.number !== undefined && String(m.number) === messageId.slice(3)))) return true;
+      return false;
+    });
+  };
+
   try {
     if (author.userId) {
       // Find the post
@@ -418,6 +449,10 @@ export async function replyToForumMessage(
         where: {
           OR: [
             { id: messageId },
+            ...(isNumeric ? [{ number: numeric }] : []),
+            ...(messageId.startsWith("fm-") && !isNaN(parseInt(messageId.slice(3), 10))
+              ? [{ number: parseInt(messageId.slice(3), 10) }]
+              : []),
             ...(messageId.includes("-") && !isNaN(parseInt(messageId.split("-")[1], 10))
               ? [{ number: parseInt(messageId.split("-")[1], 10) }]
               : []),
@@ -444,7 +479,7 @@ export async function replyToForumMessage(
         });
 
         const mapped = mapPrismaReplyToReplyItem(reply);
-        const target = memoryForumStore.find((m) => m.id === messageId || m.code === messageId);
+        const target = findInMemory();
         if (target) target.replies.push(mapped);
         return mapped;
       }
@@ -453,7 +488,7 @@ export async function replyToForumMessage(
     // Fall through to memory store
   }
 
-  const target = memoryForumStore.find((m) => m.id === messageId || m.code === messageId);
+  const target = findInMemory();
   if (!target) return null;
 
   const reply: ForumMessage["replies"][number] = {
@@ -484,11 +519,19 @@ export async function toggleForumVote(params: {
   const direction = params.direction ?? "up";
   const targetValue = direction === "down" ? -1 : 1;
 
+  const cleaned = params.postId.trim().replace(/^#/, "");
+  const numeric = parseInt(cleaned, 10);
+  const isNumeric = !isNaN(numeric) && String(numeric) === cleaned && numeric > 0;
+
   try {
     const post = await prisma.forumPost.findFirst({
       where: {
         OR: [
           { id: params.postId },
+          ...(isNumeric ? [{ number: numeric }] : []),
+          ...(params.postId.startsWith("fm-") && !isNaN(parseInt(params.postId.slice(3), 10))
+            ? [{ number: parseInt(params.postId.slice(3), 10) }]
+            : []),
           ...(params.postId.includes("-") && !isNaN(parseInt(params.postId.split("-")[1], 10))
             ? [{ number: parseInt(params.postId.split("-")[1], 10) }]
             : []),
@@ -565,7 +608,13 @@ export async function toggleForumVote(params: {
     return { helpfulCount, userVote };
   } catch (error) {
     // Memory fallback
-    const post = memoryForumStore.find((m) => m.id === params.postId || m.code === params.postId);
+    const post = memoryForumStore.find((m) => {
+      if (m.id === params.postId || m.id === cleaned) return true;
+      if (isNumeric && (m.number === numeric || m.id === String(numeric))) return true;
+      if (m.code.toLowerCase() === params.postId.toLowerCase() || (isNumeric && m.code === `#${numeric}`)) return true;
+      if (params.postId.startsWith("fm-") && (m.id === params.postId.slice(3) || (m.number !== undefined && String(m.number) === params.postId.slice(3)))) return true;
+      return false;
+    });
     if (!post) {
       throw new Error("Forum post not found");
     }

@@ -1874,12 +1874,12 @@ export const TOOLS: readonly ToolDef[] = [
   {
     name: "ziki_get_forum_thread",
     summary:
-      "Retrieve an individual forum discussion thread by its ID or number code, including all answers, comments, votes, code diffs, and bounty details.",
+      "Retrieve an individual forum discussion thread by its numeric ID (e.g. '1', '140', or '#140'), including all answers, comments, votes, code diffs, and bounty details.",
     level: "working",
     method: "GET",
     route: "/forum/{id}",
     input: {
-      id: z.string().trim().min(1).describe("Thread ID or number code (e.g. 'fm-1' or 'M-140')."),
+      id: z.string().trim().min(1).describe("Thread numeric ID or number (e.g. '1', '140', or '#140')."),
     },
   },
   {
@@ -1929,7 +1929,7 @@ export const TOOLS: readonly ToolDef[] = [
     route: "/forum/{id}/replies",
     body: ["content", "kind"],
     input: {
-      id: z.string().trim().min(1).describe("Thread ID or number code to reply to."),
+      id: z.string().trim().min(1).describe("Thread numeric ID to reply to (e.g. '1' or '140')."),
       content: z.string().trim().min(1).max(4000).describe("Reply body in Markdown."),
       kind: z.enum(["answer", "comment"]).optional().describe("Reply kind: answer (solution) or comment (discussion)."),
     },
@@ -1943,7 +1943,7 @@ export const TOOLS: readonly ToolDef[] = [
     route: "/forum/{id}/vote",
     body: ["replyId", "direction"],
     input: {
-      id: z.string().trim().min(1).describe("Thread ID to vote on."),
+      id: z.string().trim().min(1).describe("Thread numeric ID to vote on (e.g. '1' or '140')."),
       replyId: z.string().optional().describe("Reply ID if voting on a specific reply; omit if voting on the thread itself."),
       direction: z.enum(["up", "down"]).default("up").describe("Vote direction: up (+1) or down (-1)."),
     },

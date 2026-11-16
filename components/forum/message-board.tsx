@@ -49,6 +49,7 @@ export interface ForumReplyItem {
 
 export interface ForumMessage {
   id: string;
+  number?: number;
   code: string;
   kind: "ask" | "report";
   track: "product" | "marketing" | "security";
@@ -397,7 +398,18 @@ export function PublicMessageBoard({
   };
 
   const activePost = selectedPostId
-    ? messages.find((m) => m.id === selectedPostId || m.code === selectedPostId)
+    ? messages.find((m) => {
+        const target = selectedPostId.trim();
+        const cleaned = target.replace(/^#/, "");
+        return (
+          m.id === target ||
+          m.id === cleaned ||
+          (m.number !== undefined && String(m.number) === cleaned) ||
+          m.code === target ||
+          m.code === `#${cleaned}` ||
+          (target.startsWith("fm-") && (m.id === target.slice(3) || (m.number !== undefined && String(m.number) === target.slice(3))))
+        );
+      })
     : messages[0];
 
   const filteredMessages = messages
@@ -519,11 +531,13 @@ export function PublicMessageBoard({
       }
     } catch {
       // If offline / test environment fallback, create in memory
-      const nextNum = 141 + messages.length;
-      const prefix = newTrack === "marketing" ? "M" : newKind === "report" ? "R" : "F";
+      const nextNum = messages.length > 0
+        ? Math.max(...messages.map((m) => m.number || parseInt(m.id, 10) || 0)) + 1
+        : 1;
       const created: ForumMessage = {
-        id: `fm-${Date.now()}`,
-        code: `${prefix}-${nextNum}`,
+        id: String(nextNum),
+        number: nextNum,
+        code: `#${nextNum}`,
         kind: newKind,
         track: newTrack,
         category: newKind === "ask" ? "help_needed" : "review_request",

@@ -67,26 +67,26 @@ describe("POST /api/v1/forum/[id]/replies", () => {
       content: "This is a reply",
     });
 
-    const res = await POST(req, { params: Promise.resolve({ id: "fm-1" }) });
+    const res = await POST(req, { params: Promise.resolve({ id: "1" }) });
     expect(res.status).toBe(401);
   });
 
   it("rejects invalid reply schema", async () => {
-    const req = createMockRequest("/api/v1/forum/fm-1/replies", "POST", {
+    const req = createMockRequest("/api/v1/forum/1/replies", "POST", {
       content: "",
     });
 
-    const res = await POST(req, { params: Promise.resolve({ id: "fm-1" }) });
+    const res = await POST(req, { params: Promise.resolve({ id: "1" }) });
     expect(res.status).toBe(400);
   });
 
   it("creates a reply successfully for an existing message", async () => {
-    const req = createMockRequest("/api/v1/forum/fm-1/replies", "POST", {
+    const req = createMockRequest("/api/v1/forum/1/replies", "POST", {
       content: "Here is a helpful answer with solution verified.",
       kind: "answer",
     });
 
-    const res = await POST(req, { params: Promise.resolve({ id: "fm-1" }) });
+    const res = await POST(req, { params: Promise.resolve({ id: "1" }) });
     const json = await res.json();
 
     expect(res.status).toBe(201);

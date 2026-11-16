@@ -9,13 +9,14 @@ function createMockRequest(url: string) {
 
 describe("GET /api/v1/forum/[id]", () => {
   it("returns 200 and the forum message for an existing post", async () => {
-    const req = createMockRequest("/api/v1/forum/fm-1");
-    const res = await GET(req, { params: Promise.resolve({ id: "fm-1" }) });
+    const req = createMockRequest("/api/v1/forum/1");
+    const res = await GET(req, { params: Promise.resolve({ id: "1" }) });
     const json = await res.json();
 
     expect(res.status).toBe(200);
     expect(json.message).toBeDefined();
-    expect(json.message.id).toBe("fm-1");
+    expect(json.message.id).toBe("1");
+    expect(json.message.number).toBe(1);
     expect(json.message.title).toBeDefined();
   });
 
