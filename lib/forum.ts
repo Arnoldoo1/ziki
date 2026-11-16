@@ -137,6 +137,7 @@ function mapPrismaPostToMessage(post: ForumPostWithRelations): ForumMessage {
 }
 
 export interface ListForumOptions {
+  q?: string;
   category?: ForumCategory;
   issueNumber?: number;
   status?: "open" | "resolved";
@@ -150,6 +151,14 @@ export interface ListForumOptions {
 export async function listForumMessages(options?: ListForumOptions): Promise<ForumMessage[]> {
   try {
     const where: Prisma.ForumPostWhereInput = {};
+
+    if (options?.q) {
+      const query = options.q.trim();
+      where.OR = [
+        { title: { contains: query, mode: "insensitive" } },
+        { body: { contains: query, mode: "insensitive" } },
+      ];
+    }
 
     if (options?.scope) {
       where.scope = options.scope as PrismaForumScope;
@@ -209,6 +218,15 @@ export async function listForumMessages(options?: ListForumOptions): Promise<For
 
   // In-memory fallback
   return memoryForumStore.filter((msg) => {
+    if (options?.q) {
+      const query = options.q.toLowerCase();
+      const match =
+        msg.title.toLowerCase().includes(query) ||
+        msg.content.toLowerCase().includes(query) ||
+        msg.author.name.toLowerCase().includes(query) ||
+        msg.tags.some((t) => t.toLowerCase().includes(query));
+      if (!match) return false;
+    }
     if (options?.category && options.category !== "all" && msg.category !== options.category) {
       return false;
     }

@@ -24,6 +24,7 @@ export const runtime = "nodejs";
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
+  const q = searchParams.get("q") || undefined;
   const category = (searchParams.get("category") || "all") as ForumCategory;
   const rawIssue = searchParams.get("issueNumber");
   const issueNumber = rawIssue ? parseInt(rawIssue, 10) : undefined;
@@ -39,6 +40,7 @@ export async function GET(request: NextRequest) {
   const projectId = searchParams.get("projectId") || undefined;
 
   const messages = await listForumMessages({
+    q,
     category,
     issueNumber,
     status,
