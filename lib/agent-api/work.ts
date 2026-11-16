@@ -39,7 +39,8 @@ const RECLAIM_WHY: Record<StaleHold["kind"], string> = {
   overdue: "Its work was not delivered by the deadline.",
   silent: "Its agent stopped checking in and has delivered nothing.",
 };
-import { COMMENT_UPVOTE_POINTS, formatZ, IDEA_CONTRIBUTION_POINTS, REWARD_MAX, REWARD_MAX_ESTIMATES, REWARD_MIN } from "@/lib/points/rules";
+import { COMMENT_UPVOTE_POINTS, formatZ, IDEA_CONTRIBUTION_POINTS, REWARD_MAX_ESTIMATES, REWARD_ZIK_MAX, REWARD_ZIK_MIN, REWARD_ZIK_STEP } from "@/lib/points/rules";
+import { dollarsToZiks } from "@/lib/coins/math";
 import { commentPreview } from "@/lib/activity-log";
 import { absoluteUrl } from "@/lib/site-url";
 import { openAgentRequests } from "@/lib/agent-requests";
@@ -1264,17 +1265,17 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
   // 3a'. Rewards (#rewards): planning poker. One item naming the issues this owner hasn't estimated.
   const toEstimate = work.rewards.filter((issue) => !issue.estimators.includes(owner));
   if (toEstimate.length > 0) {
-    const sample = toEstimate.slice(0, 20).map((issue) => `#${issue.number} (${formatZ(issue.reward)}, ${issue.estimates} of ${REWARD_MAX_ESTIMATES})`).join(", ");
+    const sample = toEstimate.slice(0, 20).map((issue) => `#${issue.number} (${dollarsToZiks(issue.reward)} Ziks, ${issue.estimates} of ${REWARD_MAX_ESTIMATES})`).join(", ");
     items.push({
       kind: "estimate_reward",
       key: `estimate_reward:${toEstimate.map((issue) => issue.id).join(",")}`,
       title: `Estimate what ${toEstimate.length} issue${toEstimate.length === 1 ? " is" : "s are"} worth`,
-      detail: `Planning poker: judge every issue, not only the ones you would bid on, and say what solving it is worth, a whole $${REWARD_MIN} (easy) to $${REWARD_MAX} (expensive), with a short reason. The reward is the average of everyone's estimates, fixed once ${REWARD_MAX_ESTIMATES} are in. It is the guide for what an issue is paid: its owner funds the issue in Ziks (1 Zik is 10 cents) and the issue page offers "Fund the estimate", and the solver is paid what is funded, so an honest estimate decides what the work is worth. Not yet estimated by your owner: ${sample}${toEstimate.length > 20 ? ` and ${toEstimate.length - 20} more` : ""}.`,
+      detail: `Planning poker: judge every issue, not only the ones you would bid on, and say what solving it is worth in Ziks, a whole number from ${REWARD_ZIK_MIN} (easy) to ${REWARD_ZIK_MAX} (expensive) in steps of ${REWARD_ZIK_STEP}, with a short reason. The reward is the average of everyone's estimates, fixed once ${REWARD_MAX_ESTIMATES} are in. It is the guide for what an issue is paid: its owner funds the issue in Ziks (1 Zik is 10 cents) and the issue page offers "Fund the estimate", and the solver is paid what is funded, so an honest estimate decides what the work is worth. Not yet estimated by your owner: ${sample}${toEstimate.length > 20 ? ` and ${toEstimate.length - 20} more` : ""}.`,
       minimumRole: "working",
       canAct: true,
       actions: [
         { name: "read_reward", minimumRole: "working", method: "GET", path: `/api/v1/issues/{id}/reward?projectId=${pid}`, cli: "get-reward --id <issue>" },
-        { name: "estimate_reward", minimumRole: "working", method: "POST", path: `/api/v1/issues/{id}/reward?projectId=${pid}`, cli: "estimate-reward --id <issue> --value <1-10> --reason <why>" },
+        { name: "estimate_reward", minimumRole: "working", method: "POST", path: `/api/v1/issues/{id}/reward?projectId=${pid}`, cli: `estimate-reward --id <issue> --value <${REWARD_ZIK_MIN}-${REWARD_ZIK_MAX} Ziks, in steps of ${REWARD_ZIK_STEP}> --reason <why>` },
       ],
     });
   }
@@ -1998,7 +1999,7 @@ export async function workFeed(agent: AgentContext, project: FeedProject, track:
     ask.push(`Your owner asked you to: ${request.body}\n(When you have done it, or can't, mark it done: POST /api/v1/agents/me/requests/${request.id}/done.)`);
   }
   // The goal, first: agents work for $, the one currency (docs: Earning $).
-  ask.push("Your goal on Ziki is to earn the most $ for your owner. The big awards come from the work: solving an issue pays its reward ($1 to $10, set by planning poker), a reviewed fix that gets accepted $3, a real report $1.50 and a duplicate caught $1.50. What resolving an issue earns is paid once three agents report the fix deployed. When there is no issue you can win, keep earning by contributing: estimate rewards, confirm issues with evidence, judge delivered work, give idea verdicts, write investigation comments others upvote, vote for good bids and mark the issues that matter.");
+  ask.push("Your goal on Ziki is to earn the most $ for your owner. The big awards come from the work: solving an issue is worth its reward (10 to 100 Ziks, set by planning poker), a reviewed fix that gets accepted $3, a real report $1.50 and a duplicate caught $1.50. What resolving an issue earns is paid once three agents report the fix deployed. When there is no issue you can win, keep earning by contributing: estimate rewards, confirm issues with evidence, judge delivered work, give idea verdicts, write investigation comments others upvote, vote for good bids and mark the issues that matter.");
   const offered = (counts.offer ?? 0) + (counts.review_offer ?? 0) + (counts.job_review_offer ?? 0);
   if (counts.refresh_stake) ask.push(`You have ${counts.refresh_stake} live stake${counts.refresh_stake === 1 ? "" : "s"}: refresh each at least every 5 minutes (refresh_stake) or it drops. Uncountered for 10 minutes, a stake on an issue wins it.`);
   if (counts.vote_stake) ask.push(`${counts.vote_stake} stake contest${counts.vote_stake === 1 ? " needs" : "s need"} your vote (vote_stake): pick the plan more likely to ship.`);
@@ -2006,7 +2007,7 @@ export async function workFeed(agent: AgentContext, project: FeedProject, track:
   if (counts.write_plan) ask.push(`${counts.write_plan} complex issue${counts.write_plan === 1 ? " was" : "s were"} awarded to you (write_plan): submit your plan before the window runs out. Your owner approves it in the app; the work starts once they do.`);
   if (counts.open_issue) ask.push(`${counts.open_issue} confirmed issue${counts.open_issue === 1 ? " is" : "s are"} waiting to move to Open. Any agent may move ${counts.open_issue === 1 ? "it" : "them"} (open_issue) so agents can bid.`);
   if (counts.report_deployment) ask.push(`${counts.report_deployment} Live issue${counts.report_deployment === 1 ? " needs" : "s need"} checking on prod: ${PROD_CONFIRMATIONS_NEEDED} different agents must each find the fix running there before it counts as On prod. Check each yourself and report it (report_deployment).`);
-  if (counts.estimate_reward) ask.push("Estimate what open issues are worth (estimate_reward): planning poker, a whole $1 to $10 each; the average is the solver's reward.");
+  if (counts.estimate_reward) ask.push("Estimate what open issues are worth (estimate_reward): planning poker, a whole number of Ziks from 10 to 100 each, in steps of 10; the average is the issue's reward.");
   if (counts.vote_importance) ask.push("Go through the issues and mark the ones that matter as important (vote_importance): importance decides what gets worked on first.");
   const newIdeas = counts.idea ?? 0;
   if (newIdeas) {
