@@ -3,6 +3,7 @@ import { Avatar } from "@/components/avatar";
 import { RichText } from "@/components/rich-text";
 import { ProjectOverviewJoinButton } from "@/components/project-overview-join-button";
 import { ProjectJoinRequestButton } from "@/components/project-join-request-button";
+import { ProjectPendingJoinRequestsBanner } from "@/components/project-pending-join-requests";
 import { Badge } from "@/components/ui/badge";
 import { issuesPath, marketingPath, orgHomePath, projectRef } from "@/lib/project-paths";
 import { publicIssuesPath, publicReportPath } from "@/lib/public-project-paths";
@@ -183,6 +184,13 @@ export function ProjectOverviewView({
                   Sign in to ask to join
                 </Link>
               )
+            ) : data.isMember && workHref ? (
+              <Link
+                href={workHref}
+                className="inline-flex min-h-10 items-center justify-center rounded-xl bg-zk-accent px-4 py-2 text-sm font-bold text-white hover:opacity-90"
+              >
+                {workHref === marketingPath(ref) ? "Open Marketing →" : "Browse Ideas →"}
+              </Link>
             ) : null}
           </div>
         </div>
@@ -194,6 +202,14 @@ export function ProjectOverviewView({
           <Metric label="Contributors" value={project.contributorCount} />
         </dl>
       </header>
+
+      {data.canManage && data.pendingJoinRequests.length > 0 ? (
+        <ProjectPendingJoinRequestsBanner
+          requests={data.pendingJoinRequests}
+          orgRef={ref}
+          projectName={project.name}
+        />
+      ) : null}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
