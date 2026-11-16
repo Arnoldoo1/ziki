@@ -141,7 +141,7 @@ export function SiteChatPanel() {
       <div ref={panel} className="site-chat-drawer__inner" inert={!shown}>
         {opened ? (
           <div className="site-chat-drawer__card">
-            <SiteChatBox checkId={checkId} site={site} />
+            <SiteChatBox checkId={checkId} site={site} active={shown} />
           </div>
         ) : null}
       </div>
@@ -155,26 +155,39 @@ export function SiteChatPanel() {
  * a refresh or on another device. Just the messages and the box; loads when the
  * result opens.
  */
-export function SiteChatBox({ checkId, site }: { checkId: string; site: string }) {
+export function SiteChatBox({ checkId, site, active = true }: { checkId: string; site: string; active?: boolean }) {
   const [messages, setMessages] = useState<Message[] | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const log = useRef<HTMLOListElement>(null);
 
+  // The saved chat is the record (16 Nov): read it each time the chat opens and
+  // whenever the page comes back into view, so what was said in the Assets chat shows here.
   useEffect(() => {
+    if (!active) return;
     let live = true;
-    siteChat(checkId)
-      .then((answer) => {
-        if (!live) return;
-        if (answer.ok) setMessages(answer.messages);
-        else setError(answer.error);
-      })
-      .catch(() => live && setError("This chat couldn't load just now."));
+    const load = () => {
+      siteChat(checkId)
+        .then((answer) => {
+          if (!live) return;
+          if (answer.ok) setMessages(answer.messages);
+          else setError(answer.error);
+        })
+        .catch(() => live && setError("This chat couldn't load just now."));
+    };
+    load();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") load();
+    };
+    window.addEventListener("focus", load);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       live = false;
+      window.removeEventListener("focus", load);
+      document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [checkId]);
+  }, [checkId, active]);
 
   useEffect(() => {
     log.current?.lastElementChild?.scrollIntoView({ block: "nearest" });
