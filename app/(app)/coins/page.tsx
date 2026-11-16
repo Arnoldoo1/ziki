@@ -8,8 +8,9 @@ import { ZIK_PACKS, formatUsd, formatZik, zikToCents } from "@/lib/coins/math";
 import { stripeConfigured } from "@/lib/coins/stripe";
 import { WITHDRAW_MIN_ZIK, syncPayoutsEnabled } from "@/lib/coins/withdraw";
 import { LocalTime } from "@/components/local-time";
-import { MonthlyPlans } from "@/components/coins/monthly-plans";
-import { liveSubscriptionOf, syncUserSubscriptions } from "@/lib/coins/subscription";
+import { ZikiPlans } from "@/components/coins/ziki-plans";
+import { discountedCents } from "@/lib/coins/plans";
+import { discountPercentFor, liveSubscriptionOf, syncUserSubscriptions } from "@/lib/coins/subscription";
 import { UrlNotice } from "@/components/coins/url-notice";
 import { PayoutsPanel } from "./payouts-panel";
 
@@ -44,7 +45,7 @@ export default async function CoinsPage({ searchParams }: { searchParams?: Promi
   if (query.payouts === "return" && stripeConfigured()) await syncPayoutsEnabled(user.id).catch(() => false);
   // Coming back from subscribing: show the plan now rather than when the webhook gets there.
   if (query.subscribed === "1" && stripeConfigured()) await syncUserSubscriptions(user.id).catch(() => undefined);
-  const subscription = await liveSubscriptionOf(user.id);
+  const [subscription, discountPercent] = await Promise.all([liveSubscriptionOf(user.id), discountPercentFor(user.id)]);
 
   const [wallet, account, entries, withdrawals] = await Promise.all([
     walletSummary(prisma, user.id),
@@ -116,6 +117,7 @@ export default async function CoinsPage({ searchParams }: { searchParams?: Promi
 
       <section aria-labelledby="packs" className={card}>
         <h2 id="packs" className={label}>Buy Ziks</h2>
+        {discountPercent > 0 ? <p className="m-0 mt-2 text-sm font-semibold text-zk-ok-fg">Your plan takes {discountPercent}% off every pack.</p> : null}
         <ul className="m-0 mt-4 grid list-none gap-3 p-0 sm:grid-cols-2 lg:grid-cols-4">
           {ZIK_PACKS.map((pack) => (
             <li key={pack.id} className="rounded-2xl border border-zk-border p-4">
@@ -129,7 +131,8 @@ export default async function CoinsPage({ searchParams }: { searchParams?: Promi
                   disabled={!configured}
                   className="inline-flex min-h-11 w-full cursor-pointer items-center justify-center rounded-full border border-zk-border bg-zk-surface px-4 text-sm font-bold text-zk-text transition hover:bg-zk-chip focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-electric-blue disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Buy for {formatUsd(zikToCents(pack.zik))}
+                  Buy for {formatUsd(discountedCents(zikToCents(pack.zik), discountPercent))}
+                  {discountPercent > 0 ? <s className="ml-2 font-medium text-zk-muted">{formatUsd(zikToCents(pack.zik))}</s> : null}
                 </button>
               </form>
             </li>
@@ -138,7 +141,7 @@ export default async function CoinsPage({ searchParams }: { searchParams?: Promi
         {!configured ? <p className="mb-0 mt-3 text-sm text-zk-text2">Buying Ziks isn&apos;t available yet.</p> : null}
       </section>
 
-      <MonthlyPlans subscription={subscription} configured={configured} />
+      <ZikiPlans subscription={subscription} configured={configured} />
 
       <section aria-labelledby="activity" className={card}>
         <h2 id="activity" className={label}>Activity</h2>

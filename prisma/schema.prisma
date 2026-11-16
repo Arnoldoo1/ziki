@@ -3918,8 +3918,9 @@ model CoinEntry {
   @@index([kind])
 }
 
-/// One Stripe payment for Ziks, written once when Stripe says it was paid: a pack bought through Checkout (it has a
-/// session and a pack), or one invoice of a monthly Ziks plan (it has an invoice, a plan and the subscription).
+/// One Stripe payment, written once when Stripe says it was paid: a pack of Ziks bought through Checkout (it has a
+/// session, a pack and its Ziks), or one invoice of a plan's monthly fee (it has an invoice, a plan and the
+/// subscription, and `zik` is 0 because the fee buys no Ziks). Both count toward what Stripe should be holding.
 model CoinPurchase {
   id                    String            @id @default(cuid())
   userId                String
@@ -3929,7 +3930,7 @@ model CoinPurchase {
   stripePaymentIntentId String?
   /// The pack bought; null for a plan's invoice.
   packId                String?
-  /// The monthly plan this invoice was for (lib/coins/plans.ts); null for a pack.
+  /// The plan whose monthly fee this invoice was (lib/coins/plans.ts); null for a pack.
   planId                String?
   subscriptionId        String?
   zik                   Int
@@ -3945,8 +3946,8 @@ model CoinPurchase {
   @@index([subscriptionId])
 }
 
-/// A person's monthly Ziks plan, kept in step with Stripe's subscription by its webhooks. The Ziks themselves are
-/// credited per paid invoice (CoinPurchase), never from this row; this row only says what the person has and until when.
+/// A person's Ziki plan (a monthly fee for a discount on Ziks packs), kept in step with Stripe's subscription by its
+/// webhooks. This row only says which plan the person has and until when; the discount is applied at checkout.
 model CoinSubscription {
   id                   String         @id @default(cuid())
   userId               String

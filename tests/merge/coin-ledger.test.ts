@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+﻿import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type Row = { account: string; userId?: string | null; bugId?: string | null; kind: string; amount: number; sourceKey: string };
 type Where = Record<string, unknown>;
@@ -169,8 +169,8 @@ import { refundEscrow, releaseEscrow } from "@/lib/coins/escrow";
 import { escrowBalance, walletBalance, walletSummary } from "@/lib/coins/ledger";
 import { estimateToZik, feeOf, planRelease, splitByWeight } from "@/lib/coins/math";
 import { ledgerBalances } from "@/lib/coins/money";
-import { recordPurchase } from "@/lib/coins/purchase";
-import { planPriceCents, planSavingCents, ZIK_PLANS } from "@/lib/coins/plans";
+import { createPackCheckout, recordPurchase } from "@/lib/coins/purchase";
+import { discountedCents, planBreakEvenCents, ZIK_PLANS } from "@/lib/coins/plans";
 import { createSubscriptionCheckout, recordSubscriptionPayment, setSubscriptionEnding } from "@/lib/coins/subscription";
 import Stripe from "stripe";
 import { failWithdrawal, retryPendingWithdrawals } from "@/lib/coins/withdraw";
@@ -309,66 +309,107 @@ describe("Stripe webhook purchases", () => {
   });
 });
 
-describe("monthly Ziks plans", () => {
+describe("Ziki plans (a discount on Ziks packs)", () => {
   const invoice = (over: Record<string, unknown> = {}) =>
     ({
       id: "in_1",
       status: "paid",
       billing_reason: "subscription_create",
-      amount_paid: 900,
+      amount_paid: 500,
       currency: "usd",
       parent: { subscription_details: { subscription: "sub_1", metadata: { userId: "owner", planId: "plus" } } },
       ...over,
     }) as never;
+  const live = (status = "active", planId = "pro") =>
+    world.subscriptions.push({ id: "csub-9", userId: "owner", stripeSubscriptionId: "sub_1", planId, status, cancelAtPeriodEnd: false });
+  const lastCheckout = () => world.stripeCalls.at(-1)?.args[0] as { mode: string; line_items: Array<{ price_data: { unit_amount: number; recurring?: { interval: string } } }>; metadata: Record<string, string>; subscription_data?: { metadata: unknown } };
 
-  it("prices a plan as its Ziks' value less the discount, to the cent", () => {
-    expect(ZIK_PLANS.map((plan) => [plan.id, planPriceCents(plan), planSavingCents(plan)])).toEqual([
-      ["plus", 900, 100],
-      ["pro", 4250, 750],
-      ["team", 16000, 4000],
+  it("takes the plan's discount off a pack's price, to the cent", () => {
+    expect(discountedCents(500, 0)).toBe(500);
+    expect(discountedCents(500, 10)).toBe(450);
+    expect(discountedCents(500, 15)).toBe(425);
+    expect(discountedCents(15000, 20)).toBe(12000);
+    expect(ZIK_PLANS.map((plan) => [plan.id, plan.monthlyCents, plan.discountPercent, planBreakEvenCents(plan)])).toEqual([
+      ["plus", 500, 10, 5000],
+      ["pro", 1500, 15, 10000],
+      ["team", 4000, 20, 20000],
     ]);
   });
 
-  it("credits a month's Ziks once per paid invoice, however often Stripe says so, and again for the next month's", async () => {
+  it("records a paid month's fee once as income, and gives no Ziks for it", async () => {
     expect(await recordSubscriptionPayment(invoice())).toBe("recorded");
     expect(await recordSubscriptionPayment(invoice())).toBe("duplicate");
-    expect(await walletBalance(db as never, "owner")).toBe(100);
     expect(world.purchases).toHaveLength(1);
+    expect(world.purchases[0]).toMatchObject({ stripeInvoiceId: "in_1", planId: "plus", zik: 0, amountCents: 500 });
+    // The fee buys no Ziks: nothing reaches the wallet or the ledger.
+    expect(await walletBalance(db as never, "owner")).toBe(0);
+    expect(world.rows).toHaveLength(0);
     // The purchase points at our mirror of the subscription, made from Stripe's own record of it.
     expect(world.subscriptions).toHaveLength(1);
     expect(world.purchases[0].subscriptionId).toBe(world.subscriptions[0].id);
 
+    // The next month's invoice is a separate payment.
     expect(await recordSubscriptionPayment(invoice({ id: "in_2", billing_reason: "subscription_cycle" }))).toBe("recorded");
-    expect(await walletBalance(db as never, "owner")).toBe(200);
+    expect(world.purchases).toHaveLength(2);
   });
 
-  it("credits nothing for an unpaid invoice, a different amount, an unknown plan or one that isn't a plan's month", async () => {
+  it("records nothing for an unpaid invoice, a different amount, an unknown plan or one that isn't a plan's month", async () => {
     expect(await recordSubscriptionPayment(invoice({ status: "open" }))).toBe("ignored");
-    expect(await recordSubscriptionPayment(invoice({ id: "in_2", amount_paid: 800 }))).toBe("ignored");
+    expect(await recordSubscriptionPayment(invoice({ id: "in_2", amount_paid: 400 }))).toBe("ignored");
     expect(await recordSubscriptionPayment(invoice({ id: "in_3", parent: { subscription_details: { subscription: "sub_1", metadata: { userId: "owner", planId: "gold" } } } }))).toBe("ignored");
     expect(await recordSubscriptionPayment(invoice({ id: "in_4", billing_reason: "manual" }))).toBe("ignored");
     expect(await recordSubscriptionPayment(invoice({ id: "in_5", parent: null }))).toBe("ignored");
-    expect(await walletBalance(db as never, "owner")).toBe(0);
+    expect(world.purchases).toHaveLength(0);
   });
 
-  it("sends a person to Stripe for a plan at its price, and only lets them have one at a time", async () => {
-    const url = await createSubscriptionCheckout("owner", "owner@ziki.test", "pro");
-    expect(url).toBe("https://checkout.stripe.test/c_1");
-    const params = world.stripeCalls[0].args[0] as { mode: string; line_items: Array<{ price_data: { unit_amount: number; recurring: { interval: string } } }>; subscription_data: { metadata: unknown } };
-    expect(params.mode).toBe("subscription");
-    expect(params.line_items[0].price_data).toMatchObject({ unit_amount: 4250, recurring: { interval: "month" } });
-    expect(params.subscription_data.metadata).toEqual({ userId: "owner", planId: "pro" });
+  it("sends a person to Stripe for a plan at its monthly fee, and only lets them have one at a time", async () => {
+    expect(await createSubscriptionCheckout("owner", "owner@ziki.test", "pro")).toBe("https://checkout.stripe.test/c_1");
+    expect(lastCheckout().mode).toBe("subscription");
+    expect(lastCheckout().line_items[0].price_data).toMatchObject({ unit_amount: 1500, recurring: { interval: "month" } });
+    expect(lastCheckout().subscription_data?.metadata).toEqual({ userId: "owner", planId: "pro" });
 
     await expect(createSubscriptionCheckout("owner", undefined, "gold")).rejects.toMatchObject({ code: "invalid_amount" });
 
-    world.subscriptions.push({ id: "csub-9", userId: "owner", stripeSubscriptionId: "sub_1", planId: "plus", status: "active", cancelAtPeriodEnd: false });
-    await expect(createSubscriptionCheckout("owner", undefined, "pro")).rejects.toMatchObject({ code: "not_allowed" });
+    live();
+    await expect(createSubscriptionCheckout("owner", undefined, "plus")).rejects.toMatchObject({ code: "not_allowed" });
+  });
+
+  it("charges a subscriber the discounted price for a pack while the plan is paid up, and the full price otherwise", async () => {
+    await createPackCheckout("owner", undefined, "starter");
+    expect(lastCheckout().line_items[0].price_data.unit_amount).toBe(500);
+    expect(lastCheckout().metadata.discountPercent).toBe("0");
+
+    live("active", "pro");
+    await createPackCheckout("owner", undefined, "starter");
+    expect(lastCheckout().line_items[0].price_data.unit_amount).toBe(425);
+    expect(lastCheckout().metadata).toMatchObject({ packId: "starter", zik: "50", discountPercent: "15" });
+
+    // A plan whose payment failed gives no discount until it is paid.
+    world.subscriptions[0].status = "past_due";
+    await createPackCheckout("owner", undefined, "starter");
+    expect(lastCheckout().line_items[0].price_data.unit_amount).toBe(500);
+  });
+
+  it("credits a discounted pack's full Ziks, but only for a price a plan really gives", async () => {
+    const discounted = (over: Record<string, unknown> = {}) =>
+      ({ id: "cs_9", mode: "payment", payment_status: "paid", amount_total: 425, currency: "usd", payment_intent: "pi_9", metadata: { userId: "owner", packId: "starter", discountPercent: "15" }, ...over }) as never;
+
+    expect(await recordPurchase(discounted())).toBe("recorded");
+    expect(await walletBalance(db as never, "owner")).toBe(50);
+    expect(world.purchases.at(-1)).toMatchObject({ zik: 50, amountCents: 425 });
+
+    // Paid less than the pack costs and claims no discount, or less than the discount it claims allows, or a
+    // discount no plan gives: nothing is credited.
+    expect(await recordPurchase(discounted({ id: "cs_10", metadata: { userId: "owner", packId: "starter" } }))).toBe("ignored");
+    expect(await recordPurchase(discounted({ id: "cs_11", amount_total: 400 }))).toBe("ignored");
+    expect(await recordPurchase(discounted({ id: "cs_12", amount_total: 450, metadata: { userId: "owner", packId: "starter", discountPercent: "12" } }))).toBe("ignored");
+    expect(await walletBalance(db as never, "owner")).toBe(50);
   });
 
   it("ends and keeps only the person's own plan, at the end of the month they paid for", async () => {
     await expect(setSubscriptionEnding("stranger", true)).rejects.toMatchObject({ code: "not_found" });
 
-    world.subscriptions.push({ id: "csub-9", userId: "owner", stripeSubscriptionId: "sub_1", planId: "plus", status: "active", cancelAtPeriodEnd: false });
+    live("active", "plus");
     await setSubscriptionEnding("owner", true);
     expect(world.stripeCalls.at(-1)).toEqual({ name: "subscriptions.update", args: ["sub_1", { cancel_at_period_end: true }] });
     expect(world.subscriptions[0].cancelAtPeriodEnd).toBe(true);

@@ -1,6 +1,7 @@
--- Monthly Ziks plans (#ziki-coins). A person subscribes to buy Ziks every month at a discount; each paid invoice is
--- one CoinPurchase and one `purchase` ledger row. CoinPurchase used to come only from a Checkout session and a pack,
--- so both are now optional, and an invoice and a plan are added beside them.
+-- Ziki plans (#ziki-coins). An owner subscribes and, while the plan is paid up, pays less for Ziks packs. The monthly
+-- fee buys no Ziks, so each paid invoice is a CoinPurchase of zero Ziks (cash Stripe holds) and no ledger row.
+-- CoinPurchase used to come only from a Checkout session and a pack, so both are now optional, and an invoice and a
+-- plan are added beside them.
 
 -- AlterTable
 ALTER TABLE "User" ADD COLUMN     "stripeCustomerId" TEXT;

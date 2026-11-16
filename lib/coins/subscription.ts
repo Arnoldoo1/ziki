@@ -1,24 +1,35 @@
 import type Stripe from "stripe";
 import { prisma } from "@/lib/prisma";
 import { absoluteUrl } from "@/lib/site-url";
-import { CoinError, appendRows, lockUser } from "./ledger";
-import { LIVE_SUBSCRIPTION_STATUSES, findPlan, planPriceCents } from "./plans";
+import { CoinError, lockUser } from "./ledger";
+import { DISCOUNT_SUBSCRIPTION_STATUSES, LIVE_SUBSCRIPTION_STATUSES, findPlan } from "./plans";
 import { getStripe } from "./stripe";
 
 /**
- * Monthly Ziks plans (#ziki-coins). A person subscribes through Stripe Checkout and Stripe charges them every month.
- * Like a pack, the Ziks are credited only by Stripe's webhook, here `invoice.paid`, once per invoice: the first
- * month and every renewal are the same code, and a retried or repeated event changes nothing. The subscription row
- * is only a mirror of Stripe's (status, renewal date, whether it is set to end), refreshed from Stripe each time an
- * event names it, so an old event arriving late can't put it back.
+ * Ziki plans (#ziki-coins). An owner subscribes through Stripe Checkout and Stripe charges the monthly fee. While the
+ * plan is paid up, the Ziks packs they buy are cheaper by the plan's discount (lib/coins/purchase.ts reads
+ * `discountPercentFor`). The fee buys no Ziks, so a paid invoice only records the income (a CoinPurchase of zero
+ * Ziks, which the money page's check against Stripe counts) and writes nothing to the ledger. The subscription row is
+ * only a mirror of Stripe's (status, renewal date, whether it is set to end), refreshed from Stripe each time an event
+ * names it, so an old event arriving late can't put it back.
  */
 
-/** The person's plan that still gives Ziks (paid up, or late and being retried), if they have one. */
+/** The person's plan that is still in force (paid up, or late and being retried), if they have one. */
 export async function liveSubscriptionOf(userId: string) {
   return prisma.coinSubscription.findFirst({
     where: { userId, status: { in: [...LIVE_SUBSCRIPTION_STATUSES] } },
     orderBy: { createdAt: "desc" },
   });
+}
+
+/** The discount on Ziks packs the person has right now: their plan's, while it is paid up; otherwise none. */
+export async function discountPercentFor(userId: string): Promise<number> {
+  const subscription = await prisma.coinSubscription.findFirst({
+    where: { userId, status: { in: [...DISCOUNT_SUBSCRIPTION_STATUSES] } },
+    orderBy: { createdAt: "desc" },
+    select: { planId: true },
+  });
+  return findPlan(subscription?.planId)?.discountPercent ?? 0;
 }
 
 /** The person's Stripe customer, made once so their card is reused for the next plan or a later payment. */
@@ -49,9 +60,9 @@ export async function createSubscriptionCheckout(userId: string, email: string |
         quantity: 1,
         price_data: {
           currency: "usd",
-          unit_amount: planPriceCents(plan),
+          unit_amount: plan.monthlyCents,
           recurring: { interval: "month" },
-          product_data: { name: `Ziki ${plan.label}`, description: `${plan.zik.toLocaleString("en-US")} Ziks every month, ${plan.discountPercent}% below the pack price` },
+          product_data: { name: `Ziki ${plan.label}`, description: `${plan.discountPercent}% off every Ziks pack while you are subscribed` },
         },
       },
     ],
@@ -85,9 +96,10 @@ async function stripeFeeForInvoice(invoiceId: string): Promise<number | null> {
 }
 
 /**
- * One paid invoice of a monthly plan: the purchase row and the wallet credit, together, once. Only the plan's two
- * ordinary reasons count (the first invoice, and each monthly renewal), and only when the amount paid is the plan's
- * price, so nothing is credited for a free invoice, a changed price or a manual one.
+ * One paid invoice of a plan's monthly fee: recorded once as income (a purchase of zero Ziks, so the money page's check
+ * against Stripe counts the cash), with nothing written to the Ziks ledger because the fee buys no Ziks. Only the plan's
+ * two ordinary reasons count (the first invoice, and each monthly renewal), and only when the amount paid is the plan's
+ * fee, so a free invoice, a changed price or a manual one is left alone.
  */
 export async function recordSubscriptionPayment(invoice: Stripe.Invoice): Promise<"recorded" | "duplicate" | "ignored"> {
   if (invoice.status !== "paid") return "ignored";
@@ -97,7 +109,7 @@ export async function recordSubscriptionPayment(invoice: Stripe.Invoice): Promis
   const userId = details.metadata?.userId;
   const plan = findPlan(details.metadata?.planId);
   if (!userId || !plan || !invoice.id) return "ignored";
-  if (invoice.amount_paid !== planPriceCents(plan)) return "ignored";
+  if (invoice.amount_paid !== plan.monthlyCents) return "ignored";
   const subscriptionId = typeof details.subscription === "string" ? details.subscription : details.subscription.id;
 
   const feeCents = await stripeFeeForInvoice(invoice.id);
@@ -109,19 +121,18 @@ export async function recordSubscriptionPayment(invoice: Stripe.Invoice): Promis
     await lockUser(tx, userId);
     if (await tx.coinPurchase.findUnique({ where: { stripeInvoiceId: invoice.id! }, select: { id: true } })) return "duplicate";
     const subscription = await tx.coinSubscription.findUnique({ where: { stripeSubscriptionId: subscriptionId }, select: { id: true } });
-    const purchase = await tx.coinPurchase.create({
+    await tx.coinPurchase.create({
       data: {
         userId,
         stripeInvoiceId: invoice.id!,
         planId: plan.id,
         subscriptionId: subscription?.id ?? null,
-        zik: plan.zik,
+        zik: 0,
         amountCents: invoice.amount_paid,
         stripeFeeCents: feeCents,
         currency: invoice.currency ?? "usd",
       },
     });
-    await appendRows(tx, [{ account: "wallet", userId, kind: "purchase", amount: plan.zik, sourceKey: `purchase:${invoice.id}`, purchaseId: purchase.id }]);
     return "recorded";
   });
 }

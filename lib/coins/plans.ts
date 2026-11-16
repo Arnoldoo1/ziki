@@ -1,15 +1,13 @@
-import { zikToCents } from "./math";
-
 /**
- * The monthly Ziks plans (#ziki-coins): the one place the plans, their Ziks and their discounts are set. A plan is a
- * monthly purchase of Ziks at a discount, so its price is the Ziks' value (zikToCents) less the discount, and the Ziks
- * are credited each time Stripe says the month's invoice was paid. Change a number here and the Ziks page, the
- * checkout and the amount the webhook accepts all follow.
+ * The Ziki plans (#ziki-coins): the one place the plans, their monthly fee and their discount are set. Subscribing to a
+ * plan is a membership: the owner pays the monthly fee through Stripe, and while the plan is paid up every Ziks pack
+ * they buy costs less by the plan's discount. They still get the pack's full Ziks. Change a number here and the Ziks
+ * page, the checkouts and the amounts the webhook accepts all follow.
  */
 export const ZIK_PLANS = [
-  { id: "plus", label: "Plus", zik: 100, discountPercent: 10 },
-  { id: "pro", label: "Pro", zik: 500, discountPercent: 15 },
-  { id: "team", label: "Team", zik: 2000, discountPercent: 20 },
+  { id: "plus", label: "Plus", monthlyCents: 500, discountPercent: 10 },
+  { id: "pro", label: "Pro", monthlyCents: 1500, discountPercent: 15 },
+  { id: "team", label: "Team", monthlyCents: 4000, discountPercent: 20 },
 ] as const;
 
 export type ZikPlan = (typeof ZIK_PLANS)[number];
@@ -19,19 +17,27 @@ export function findPlan(id: unknown): ZikPlan | null {
   return ZIK_PLANS.find((plan) => plan.id === id) ?? null;
 }
 
-/** What the plan costs a month, in cents: the Ziks' full value less the discount, to the cent. */
-export function planPriceCents(plan: Pick<ZikPlan, "zik" | "discountPercent">): number {
-  return Math.round((zikToCents(plan.zik) * (100 - plan.discountPercent)) / 100);
+/** A price in cents with a discount taken off, to the cent. 0 means full price. */
+export function discountedCents(fullCents: number, discountPercent: number): number {
+  return Math.round((fullCents * (100 - discountPercent)) / 100);
 }
 
-/** What a month's Ziks would cost bought at full price, and what the plan saves on that. */
-export function planSavingCents(plan: Pick<ZikPlan, "zik" | "discountPercent">): number {
-  return zikToCents(plan.zik) - planPriceCents(plan);
+/** Whether a discount is one a plan gives (or none): the only ones the webhook accepts on a pack's price. */
+export function isKnownDiscount(discountPercent: number): boolean {
+  return discountPercent === 0 || ZIK_PLANS.some((plan) => plan.discountPercent === discountPercent);
 }
 
-/** A subscription that still gives its Ziks: paid up, or late and being retried. Anything else can't be added to. */
+/** How many dollars of Ziks a month the plan pays for itself at: its fee equals the discount on that much. */
+export function planBreakEvenCents(plan: Pick<ZikPlan, "monthlyCents" | "discountPercent">): number {
+  return Math.round((plan.monthlyCents * 100) / plan.discountPercent);
+}
+
+/** A subscription that is still in force: paid up, or late and being retried. Another plan can't be added to it. */
 export const LIVE_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due"] as const;
 
 export function isLiveSubscription(status: string): boolean {
   return (LIVE_SUBSCRIPTION_STATUSES as readonly string[]).includes(status);
 }
+
+/** A subscription that gives its discount: paid up. A late one doesn't until it is paid. */
+export const DISCOUNT_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
