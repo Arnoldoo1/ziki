@@ -23,6 +23,11 @@ export function addAssetPath(target: string): string {
   return `/security?target=${encodeURIComponent(target)}`;
 }
 
+/** Try now: the site goes into the person's scans and its page opens, where the agents' progress shows. */
+export function tryNowPath(target: string): string {
+  return `${addAssetPath(target)}&progress=1`;
+}
+
 /**
  * The box on the public Ziki Security page (#security-checks, part C2): one
  * field, no AI. Dave's quick scan looks at the site and the result shows the
@@ -96,33 +101,38 @@ export function PublicScan({ signedIn }: { signedIn: boolean }) {
   function addToScans() {
     if (!site || adding) return;
     setAdding(true);
-    router.push(addAssetPath(site));
+    router.push(tryNowPath(site));
   }
 
+  // After the result, the way on to the agents' full check, written like other scanners' "Advanced: … Try now"
+  // (SecurityHeaders). Signed out, Try now signs up first; signed in, it opens the scan's page with agents checking.
   const next = site ? (
-    signedIn ? (
-      <div className="flex flex-wrap items-center gap-3 border-t border-zk-divider pt-3">
-        <p className="m-0 min-w-[12rem] flex-1 text-[13px] leading-snug text-zk-muted">
-          Add {site} to your scans and agents check it properly.
-        </p>
-        <button type="button" onClick={addToScans} disabled={adding} className="inline-flex h-10 shrink-0 items-center rounded-full bg-electric-blue-strong px-5 text-sm font-bold text-white hover:brightness-105 disabled:opacity-60">
-          {adding ? "Adding…" : "Add to your scans"}
-        </button>
+    <div className="rounded-xl bg-zk-tint px-5 py-4">
+      <p className="m-0 text-xs font-bold uppercase tracking-wide text-zk-accent">Advanced</p>
+      <p className="m-0 mt-1 text-[15px] font-semibold text-zk-text">Want a deeper check?</p>
+      <p className="m-0 mt-1 max-w-xl text-[13px] leading-relaxed text-zk-text2">
+        Ziki&apos;s agents test {site}&apos;s login, forms, code and server, and say how to fix each problem.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
+        {signedIn ? (
+          <button type="button" onClick={addToScans} disabled={adding} className="inline-flex h-10 items-center rounded-full bg-electric-blue-strong px-6 text-sm font-bold text-white hover:brightness-105 disabled:opacity-60">
+            {adding ? "Adding…" : "Add to your scans"}
+          </button>
+        ) : (
+          <>
+            <Link href={`/signup?callbackUrl=${encodeURIComponent(tryNowPath(site))}`} className="inline-flex h-10 items-center rounded-full bg-electric-blue-strong px-6 text-sm font-bold text-white hover:brightness-105">
+              Try now
+            </Link>
+            <p className="m-0 text-[13px] text-zk-text2">
+              Already have an account?{" "}
+              <Link href={`/login?callbackUrl=${encodeURIComponent(tryNowPath(site))}`} className="font-semibold text-zk-accent hover:underline">
+                Log in
+              </Link>
+            </p>
+          </>
+        )}
       </div>
-    ) : (
-      <div className="flex flex-col items-center gap-2 rounded-xl bg-zk-tint px-4 py-4 text-center">
-        <p className="m-0 text-base font-bold text-zk-text">Sign up to see your report</p>
-        <p className="m-0 max-w-sm text-[13px] text-zk-text2">{site} comes with you to your Security page, where agents check it properly and you can unlock each fix.</p>
-        <div className="mt-1 flex flex-wrap items-center justify-center gap-3">
-          <Link href={`/signup?callbackUrl=${encodeURIComponent(addAssetPath(site))}`} className="inline-flex h-10 items-center rounded-full bg-electric-blue-strong px-6 text-sm font-bold text-white hover:brightness-105">
-            Sign up
-          </Link>
-          <Link href={`/login?callbackUrl=${encodeURIComponent(addAssetPath(site))}`} className="text-sm font-semibold text-zk-accent hover:underline">
-            I have an account
-          </Link>
-        </div>
-      </div>
-    )
+    </div>
   ) : null;
 
   return (

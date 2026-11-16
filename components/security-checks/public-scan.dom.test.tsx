@@ -47,7 +47,7 @@ async function scanSite(user: ReturnType<typeof userEvent.setup>) {
   });
 }
 
-it("signed in, Add to your scans goes through the Security page, which asks which workspace it goes in (15 Nov call)", async () => {
+it("signed in, Add to your scans goes through the Security page (which asks which workspace it goes in, 15 Nov call), then opens the scan's progress", async () => {
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
   render(<PublicScan signedIn />);
   await scanSite(user);
@@ -56,15 +56,15 @@ it("signed in, Add to your scans goes through the Security page, which asks whic
 
   // The same road a new sign-up takes: never added to whichever workspace happens to be open, unasked.
   expect(push).toHaveBeenCalledTimes(1);
-  expect(push).toHaveBeenCalledWith("/security?target=settle.ng");
+  expect(push).toHaveBeenCalledWith("/security?target=settle.ng&progress=1");
 });
 
-it("signed out, the site comes along through sign-up to that same Security page", async () => {
+it("signed out, Try now takes the site through sign-up to that same Security page", async () => {
   const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
   render(<PublicScan signedIn={false} />);
   await scanSite(user);
 
-  const signUp = await screen.findByRole("link", { name: "Sign up" });
-  expect(signUp).toHaveAttribute("href", `/signup?callbackUrl=${encodeURIComponent("/security?target=settle.ng")}`);
+  const signUp = await screen.findByRole("link", { name: "Try now" });
+  expect(signUp).toHaveAttribute("href", `/signup?callbackUrl=${encodeURIComponent("/security?target=settle.ng&progress=1")}`);
   expect(push).not.toHaveBeenCalled();
 });
