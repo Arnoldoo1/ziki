@@ -12,9 +12,13 @@ const mocks = vi.hoisted(() => ({
   removeOwnScan: vi.fn(),
   findOwnScan: vi.fn(),
   scansNote: vi.fn(),
+  kick: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+// `after` runs its job once the action answers; here, at once, so a test can see what it starts.
+vi.mock("next/server", () => ({ after: (job: () => unknown) => void job() }));
+vi.mock("@/lib/security-checks/engine", () => ({ kickCheck: mocks.kick }));
 vi.mock("@/lib/auth-helpers", () => ({ requireUser: vi.fn().mockResolvedValue({ id: "u1", role: "member" }) }));
 vi.mock("@/lib/organisation-access", () => ({ currentOrganisationAccess: mocks.access }));
 vi.mock("@/lib/rate-limit", () => ({ checkRateLimit: mocks.rate, RATE_LIMIT_MESSAGE: "Slow down." }));
@@ -89,6 +93,9 @@ describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
     // No proof step: added straight away (14 Nov plan).
     expect(mocks.addTargetAndCheck).toHaveBeenCalledWith("org1", "u1", expect.objectContaining({ kind: "website", value: "settle.ng" }));
     expect(mocks.saveQuickScan).toHaveBeenCalledWith("t1", expect.objectContaining({ total: 2, risk: "high" }));
+    // Started as soon as it is added, not left for the one-minute sweep (which kept a scan waiting for minutes, 15 Nov).
+    expect(mocks.kick).toHaveBeenCalledTimes(1);
+    expect(mocks.kick).toHaveBeenCalledWith(expect.anything(), "c1");
     expect(answer).toMatchObject({ kind: "scan", target: "settle.ng", checkId: "c1", summary: { total: 2, risk: "high" } });
     // What any browser sees is shown as titles; the detail never leaves the server.
     expect(JSON.stringify(answer)).toContain("No HSTS header");
