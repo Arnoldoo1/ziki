@@ -60,17 +60,6 @@ export function PublicScan({ signedIn }: { signedIn: boolean }) {
     return () => clearInterval(timer);
   }, [pending]);
 
-  // A shared result's address (?site=…) runs that scan again when it's opened, the way SecurityHeaders' "?q=" and
-  // SSL Labs' "?d=" links do. Read once on load, after the first render, so it matches the server's.
-  useEffect(() => {
-    const shared = new URLSearchParams(window.location.search).get("site");
-    if (shared) {
-      setText(shared);
-      start(shared);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   function scan(event: React.FormEvent) {
     event.preventDefault();
     if (pending) return;
@@ -107,6 +96,19 @@ export function PublicScan({ signedIn }: { signedIn: boolean }) {
     });
   }
 
+
+  // A shared result's address (?site=…) runs that scan again when it's opened, the way SecurityHeaders' "?q=" and
+  // SSL Labs' "?d=" links do. Read once on load, after the first render, so it matches the server's.
+  useEffect(() => {
+    const shared = new URLSearchParams(window.location.search).get("site");
+    if (!shared) return;
+    const timer = setTimeout(() => {
+      setText(shared);
+      start(shared);
+    }, 0);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // The summary's last row, the way other scanners end their result: SecurityHeaders' "Advanced: … Try Now" row and
   // Sucuri's "sign up for a complete scan" line. Signed out, Try now signs up first, then the Security page; signed
