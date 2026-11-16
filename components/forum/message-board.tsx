@@ -231,23 +231,29 @@ export function PublicMessageBoard({
   );
 
   // Synchronize with external changes
-  React.useEffect(() => {
+  const [prevInitialPostId, setPrevInitialPostId] = useState(initialPostId);
+  if (initialPostId !== prevInitialPostId) {
+    setPrevInitialPostId(initialPostId);
     if (initialPostId) {
       setSelectedPostId(initialPostId);
     }
-  }, [initialPostId]);
+  }
 
-  React.useEffect(() => {
+  const [prevInitialView, setPrevInitialView] = useState(initialView);
+  if (initialView !== prevInitialView) {
+    setPrevInitialView(initialView);
     if (initialView) {
       setView(initialView);
     }
-  }, [initialView]);
+  }
 
-  React.useEffect(() => {
+  const [prevInitialMessages, setPrevInitialMessages] = useState(initialMessages);
+  if (initialMessages !== prevInitialMessages) {
+    setPrevInitialMessages(initialMessages);
     if (initialMessages) {
       setMessages(initialMessages);
     }
-  }, [initialMessages]);
+  }
 
   // Filters & Menus
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -289,9 +295,11 @@ export function PublicMessageBoard({
     name: string;
   }>(initialScopeConfig);
 
-  React.useEffect(() => {
+  const [prevScopeConfig, setPrevScopeConfig] = useState(initialScopeConfig);
+  if (initialScopeConfig !== prevScopeConfig) {
+    setPrevScopeConfig(initialScopeConfig);
     setSelectedScope(initialScopeConfig);
-  }, [initialScopeConfig]);
+  }
 
   const [expandedOrgs, setExpandedOrgs] = useState<Record<string, boolean>>({
     zedu: true,
@@ -1042,7 +1050,7 @@ export function PublicMessageBoard({
             External Projects
           </span>
           {effectiveExternalProjects.map((ext) => {
-            const extOrgSlug = ext.organisationSlug || (ext as any).orgSlug;
+            const extOrgSlug = ext.organisationSlug;
             const extProjSlug = ext.slug || ext.id;
             const isExtSelected =
               (selectedScope.type === "external" || selectedScope.type === "project") &&
@@ -1058,7 +1066,7 @@ export function PublicMessageBoard({
                     type: "external",
                     orgId: extOrgSlug,
                     projectId: extProjSlug,
-                    name: `${ext.name} (${ext.organisationName || (ext as any).orgName || extOrgSlug})`,
+                    name: `${ext.name} (${ext.organisationName || extOrgSlug})`,
                   });
                   setView("list");
                   if (router) {
@@ -1080,7 +1088,7 @@ export function PublicMessageBoard({
                   </span>
                 </div>
                 <span className="text-[11px] text-zk-muted truncate font-mono">
-                  {ext.organisationName || (ext as any).orgName}
+                  {ext.organisationName}
                 </span>
               </button>
             );

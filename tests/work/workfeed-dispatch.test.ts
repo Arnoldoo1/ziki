@@ -3,7 +3,7 @@ import type { AgentContext } from "@/lib/agents/require-agent";
 
 type RecordedQuery = { model: string; method: string; args: { where?: Record<string, unknown> } | undefined };
 const queries = vi.hoisted(() => [] as RecordedQuery[]);
-const customResolvers = vi.hoisted(() => ({} as Record<string, (args: any) => Promise<unknown>>));
+const customResolvers = vi.hoisted(() => ({} as Record<string, (args: unknown) => Promise<unknown>>));
 vi.mock("@/lib/prisma", () => {
   const delegate = (model: string) =>
     new Proxy({}, {

@@ -1,12 +1,11 @@
 import { prisma } from "@/lib/prisma";
-import type { Prisma, ForumScope as PrismaForumScope, ForumPostKind, ForumResolution, ForumReplyKind, ForumVerificationOutcome } from "@prisma/client";
+import type { Prisma, ForumScope as PrismaForumScope, ForumPostKind, ForumResolution, ForumReplyKind } from "@prisma/client";
 import {
   type ForumCategory,
   type ForumMessage,
   type ForumReplyItem,
   type ForumScope,
   type CreateForumMessageInput,
-  type CreateForumReplyInput,
   type AccessibleOrganisation,
   type ExternalProject,
   INITIAL_FORUM_MESSAGES,
@@ -211,7 +210,7 @@ export async function listForumMessages(options?: ListForumOptions): Promise<For
     });
 
     return posts.map(mapPrismaPostToMessage);
-  } catch (error) {
+  } catch {
     // If database is not ready or during tests, fall through to in-memory store
   }
 
@@ -380,7 +379,7 @@ export async function createForumMessage(
       memoryForumStore.unshift(mapped);
       return mapped;
     }
-  } catch (error) {
+  } catch {
     // If DB fails, proceed with memory fallback
   }
 
@@ -606,7 +605,7 @@ export async function toggleForumVote(params: {
     const helpfulCount = allVotes.reduce((acc, v) => acc + v.value, 0);
 
     return { helpfulCount, userVote };
-  } catch (error) {
+  } catch {
     // Memory fallback
     const post = memoryForumStore.find((m) => {
       if (m.id === params.postId || m.id === cleaned) return true;
