@@ -356,16 +356,26 @@ export function ScansArea({
   show,
   page,
   startWith,
+  thenProgress,
 }: {
   checks: WorkspaceCheckRow[];
   highlightId?: string;
   show?: string;
   page?: number;
   startWith?: string;
+  thenProgress?: boolean;
 }) {
   const router = useRouter();
   // Open when arriving with a site, or when it was left open (back from a scan's page).
   const [adding, setAdding] = useState(() => Boolean(startWith) || chatLeftOpen());
+  // A site can arrive after the page is already showing (picking a workspace comes back to this same page
+  // with ?picked=1): open the chat then too, so the site goes in and its result shows.
+  // (React's "adjust state when a prop changes" pattern, during render rather than in an effect.)
+  const [arrived, setArrived] = useState(startWith);
+  if (startWith !== arrived) {
+    setArrived(startWith);
+    if (startWith) setAdding(true);
+  }
   useEffect(() => {
     keepChatOpen(adding);
   }, [adding]);
@@ -378,6 +388,7 @@ export function ScansArea({
       id="security-chat"
       focusOnOpen
       startWith={startWith}
+      thenProgress={thenProgress}
       onScanned={setInChat}
       // Straight to the scan's page; the chat stays open for when they come back.
       onSeeProgress={(checkId) => router.push(`/security/checks/${checkId}`)}

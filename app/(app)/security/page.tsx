@@ -55,6 +55,8 @@ type SearchParams = Promise<{
   show?: string | string[];
   target?: string | string[];
   picked?: string | string[];
+  /** "1" from Try now on the public page: once the site is in, open its page. */
+  progress?: string | string[];
   page?: string | string[];
 }>;
 
@@ -97,7 +99,7 @@ export default async function SecurityPage(props: {
       select: { organisation: { select: { id: true, name: true } } },
     });
     if (owned.length > 1) {
-      const pickedBack = `/security?target=${encodeURIComponent(brought)}&picked=1`;
+      const pickedBack = `/security?target=${encodeURIComponent(brought)}&picked=1${params.progress === "1" ? "&progress=1" : ""}`;
       picker = (
         <WorkspacePickerModal
           site={brought}
@@ -174,7 +176,7 @@ export default async function SecurityPage(props: {
         <SecurityTabs selected="checks" checks={checks.filter((check) => check.status !== "cancelled").length} jobs={jobs} />
         {picker}
         {/* While the pop-up asks where it goes, nothing is scanned yet. */}
-        <SecurityChecksPanel checks={checks} highlight={highlight} startWith={picker ? undefined : (brought ?? undefined)} show={typeof params.show === "string" ? params.show : undefined} page={Number(params.page) > 0 ? Math.floor(Number(params.page)) : 1} />
+        <SecurityChecksPanel checks={checks} highlight={highlight} startWith={picker ? undefined : (brought ?? undefined)} thenProgress={params.progress === "1"} show={typeof params.show === "string" ? params.show : undefined} page={Number(params.page) > 0 ? Math.floor(Number(params.page)) : 1} />
       </div>
     );
   }

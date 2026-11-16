@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("next-auth", () => ({ default: () => ({ auth: (handler: unknown) => handler }) }));
 vi.mock("@/auth.config", () => ({ default: {} }));
 vi.mock("@/app/actions/security-preview", () => ({ runPublicScan: vi.fn() }));
-vi.mock("@/app/actions/security-assistant", () => ({ addSecurityAsset: vi.fn() }));
+vi.mock("@/app/actions/security-assistant", () => ({}));
 import { isPublicPath } from "@/middleware";
 import { isReservedProjectSlug } from "@/lib/project-slug";
 import { addAssetPath } from "@/components/security-checks/public-scan";
@@ -30,6 +30,14 @@ describe("Ziki Security's public page (#security-checks, C2)", () => {
 
   it("can't be taken by an organisation's name", () => {
     expect(isReservedProjectSlug("security-check")).toBe(true);
+  });
+
+  it("opens the plans page to anyone, and keeps its name and the Ziks page's from being taken by a workspace", () => {
+    expect(isPublicPath("/pricing")).toBe(true);
+    // The Ziks page is for people signed in.
+    expect(isPublicPath("/coins")).toBe(false);
+    expect(isReservedProjectSlug("pricing")).toBe(true);
+    expect(isReservedProjectSlug("coins")).toBe(true);
   });
 
   it("brings the scanned address through sign-up to the Security page, where its scan starts", () => {

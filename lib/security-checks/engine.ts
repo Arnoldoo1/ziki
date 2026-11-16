@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger";
 import { ON_CALL_QUIET_AFTER_MS, SEVERITY_PRICE, ZIKI_SECURITY_AGENT_USERNAME, agentsMayWork, fallbackWindowMs, ownershipProofRequired, provenTargetWhere } from "@/lib/security-checks";
 import { cleanParts, planParts, writeSummary, type PageReader, type PlannedPart, type SecurityAi } from "./ai";
 import { pickAgentFor, type CandidateAgent } from "./assign";
+import { quickScanForAgents, type QuickScanLine } from "./preview-summary";
 import { realNetwork } from "./ownership";
 
 /**
@@ -118,24 +119,32 @@ export async function startCheck(db: EngineDb, checkId: string, now = new Date()
   });
   if (count !== 1) return false;
 
-  const check = await db.securityCheck.findUnique({ where: { id: checkId }, select: { target: { select: { kind: true, value: true } } } });
-  if (!check) return false;
-  const { parts } = await planParts(check.target, {
-    ai: deps.ai,
-    readPage: deps.readPage === undefined ? readPublicPage : deps.readPage,
-  });
+  let saved: boolean;
+  try {
+    const check = await db.securityCheck.findUnique({ where: { id: checkId }, select: { target: { select: { kind: true, value: true } } } });
+    if (!check) return false;
+    const { parts } = await planParts(check.target, {
+      ai: deps.ai,
+      readPage: deps.readPage === undefined ? readPublicPage : deps.readPage,
+    });
 
-  const saved = await db.$transaction(async (tx) => {
-    const { count: still } = await tx.securityCheck.updateMany({
-      where: { id: checkId, status: "splitting", startedAt: now, items: { none: { kind: "check" } } },
-      data: { status: "checking" },
+    saved = await db.$transaction(async (tx) => {
+      const { count: still } = await tx.securityCheck.updateMany({
+        where: { id: checkId, status: "splitting", startedAt: now, items: { none: { kind: "check" } } },
+        data: { status: "checking" },
+      });
+      if (still !== 1) return false;
+      await tx.securityCheckItem.createMany({
+        data: parts.map((part) => ({ checkId, kind: "check" as const, title: part.title, instructions: part.instructions })),
+      });
+      return true;
     });
-    if (still !== 1) return false;
-    await tx.securityCheckItem.createMany({
-      data: parts.map((part) => ({ checkId, kind: "check" as const, title: part.title, instructions: part.instructions })),
-    });
-    return true;
-  });
+  } catch (error) {
+    // Claimed but never split: give it back to waiting now, so the next sweep starts it again, instead of
+    // leaving it on "Planning the checks" until the stuck-split recovery (STUCK_AFTER_MINUTES).
+    await db.securityCheck.updateMany({ where: { id: checkId, status: "splitting", startedAt: now, items: { none: { kind: "check" } } }, data: { status: "queued", startedAt: null } }).catch(() => undefined);
+    throw error;
+  }
   if (saved) await assignWaitingJobs(db, new Date());
   return saved;
 }
@@ -282,7 +291,8 @@ export type SecurityJob = {
   instructions: string | null;
   assignedAt: Date | null;
   reportBy: Date | null;
-  check: { id: string; target: { kind: string; value: string } };
+  /** `quickScan`: what the quick browser scan already saw on this site (short titles only), so your report agrees with it where you look at the same thing. */
+  check: { id: string; target: { kind: string; value: string; quickScan: QuickScanLine[] } };
 };
 
 /** The parts this agent holds now. It is given waiting parts first if it has room. */
@@ -296,11 +306,12 @@ export async function listAgentJobs(db: Db, agentId: string, now = new Date()): 
       title: true,
       instructions: true,
       assignedAt: true,
-      check: { select: { id: true, target: { select: { kind: true, value: true } } } },
+      check: { select: { id: true, target: { select: { kind: true, value: true, previewSummary: true } } } },
     },
   });
-  return items.map((item) => ({
+  return items.map(({ check, ...item }) => ({
     ...item,
+    check: { id: check.id, target: { kind: check.target.kind, value: check.target.value, quickScan: quickScanForAgents(check.target.previewSummary) } },
     kind: "check" as const,
     reportBy: item.assignedAt ? new Date(item.assignedAt.getTime() + JOB_TIMEOUT_MINUTES * 60_000) : null,
   }));

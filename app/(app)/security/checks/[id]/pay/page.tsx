@@ -60,9 +60,8 @@ export default async function UnlockFixesPage({
         Assets
       </Link>
 
-      <p className="mb-0 mt-8 text-sm text-zk-muted">Step 3 of 3 · Fix</p>
       {/* The site breaks only when it can't fit a line, not mid-word on every phone. */}
-      <h1 className="mb-0 mt-1 text-2xl font-bold leading-tight tracking-tight text-zk-text sm:text-[28px]">
+      <h1 className="mb-0 mt-8 text-2xl font-bold leading-tight tracking-tight text-zk-text sm:text-[28px]">
         Unlock fixes for <span className="wrap-break-word">{site}</span>
       </h1>
       <p className="mb-0 mt-2 text-[15px] leading-relaxed text-zk-text2">
