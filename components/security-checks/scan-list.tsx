@@ -356,12 +356,14 @@ export function ScansArea({
   show,
   page,
   startWith,
+  thenProgress,
 }: {
   checks: WorkspaceCheckRow[];
   highlightId?: string;
   show?: string;
   page?: number;
   startWith?: string;
+  thenProgress?: boolean;
 }) {
   const router = useRouter();
   // Open when arriving with a site, or when it was left open (back from a scan's page).
@@ -386,6 +388,7 @@ export function ScansArea({
       id="security-chat"
       focusOnOpen
       startWith={startWith}
+      thenProgress={thenProgress}
       onScanned={setInChat}
       // Straight to the scan's page; the chat stays open for when they come back.
       onSeeProgress={(checkId) => router.push(`/security/checks/${checkId}`)}
