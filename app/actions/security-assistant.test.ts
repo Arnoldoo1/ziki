@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   saveSiteMessage: vi.fn(),
   removeOwnScan: vi.fn(),
   findOwnScan: vi.fn(),
+  scansNote: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -33,6 +34,7 @@ vi.mock("@/lib/prisma", () => ({ prisma: {} }));
 vi.mock("@/lib/security-checks/site-chat", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/security-checks/site-chat")>()),
   saveSiteMessage: mocks.saveSiteMessage,
+  scansContextNote: mocks.scansNote,
 }));
 vi.mock("@/lib/security-checks/preview", () => ({ previewScan: mocks.preview }));
 
@@ -61,6 +63,7 @@ describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
     mocks.addTargetAndCheck.mockResolvedValue({ targetId: "t1", checkId: "c1", verified: false, reused: false });
     mocks.preview.mockResolvedValue(SCAN);
     mocks.findScannedCheck.mockResolvedValue(null);
+    mocks.scansNote.mockResolvedValue("");
   });
 
   it("doesn't scan a site again that this person already scanned; it says so and shows its saved result", async () => {
@@ -149,6 +152,16 @@ describe("talkToSecurityAssistant (#security-checks, plan C3)", () => {
     const answer = await talkToSecurityAssistant(say("It's settle dot ng, the website"));
     expect(answer).toMatchObject({ kind: "scan", reply: "Here's a quick look.", target: "settle.ng", checkId: "c1" });
     expect(mocks.addTargetAndCheck).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers follow-ups about the person's own scans: the AI gets their scans, read on the server for this workspace and person", async () => {
+    mocks.scansNote.mockResolvedValue("- settle.ng: Quick browser scan: 2 problems (1 medium, 1 low). Agents' report: not ready yet. Status: Checking, 2 of 6 parts done.");
+    mocks.ask.mockResolvedValue({ reply: "settle.ng is being checked: 2 of 6 parts are done.", target: null });
+    const answer = await talkToSecurityAssistant(say("what's happening with my site?"));
+    expect(mocks.scansNote).toHaveBeenCalledWith("org1", "u1");
+    expect(mocks.ask).toHaveBeenCalledWith(expect.any(Array), expect.stringContaining("2 of 6 parts done"));
+    expect(answer).toEqual({ kind: "reply", reply: "settle.ng is being checked: 2 of 6 parts are done." });
+    expect(mocks.addTargetAndCheck).not.toHaveBeenCalled();
   });
 
   it("never adds a private address the AI picks out", async () => {
