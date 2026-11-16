@@ -30,9 +30,10 @@ export function PreviewResult({ summary, children }: { summary: PreviewSummary; 
     .join(", ");
 
   return (
-    <section aria-label="Quick scan" className="w-full overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface text-left">
+    <section aria-label="Scan summary" className="w-full overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface text-left">
       <div className="px-4 pt-4 sm:px-6 sm:pt-5">
-        <h3 className="m-0 text-base font-semibold text-zk-text">Quick scan</h3>
+        {/* Named after the site, like other scanners' results ("SSL Report: go.dev", "Website test: go.dev"). */}
+        <h3 className="m-0 wrap-break-word text-base font-semibold text-zk-text">Scan summary: {summary.target}</h3>
         <p className="m-0 text-xs text-zk-muted">What any browser can see. The agents check much more, and their report replaces this.</p>
 
         {/* One summary: how many problems, whether HTTPS is set up, and the risk on a meter. */}
@@ -107,7 +108,7 @@ export function QuickScanList({ summary }: { summary: PreviewSummary }) {
     <section aria-labelledby="quick-scan-heading" className="overflow-hidden rounded-[20px] border border-zk-border bg-zk-surface">
       <div className="flex flex-wrap items-start justify-between gap-3 px-4 pt-4 sm:px-6 sm:pt-5">
         <div className="min-w-0">
-          <h2 id="quick-scan-heading" className="text-base font-semibold text-zk-text">Quick scan</h2>
+          <h2 id="quick-scan-heading" className="text-base font-semibold text-zk-text">Scan summary</h2>
           <p className="text-xs text-zk-muted">What any browser can see, worst first. The agents&apos; report replaces this.</p>
         </div>
         <ul aria-label="Results by severity" className="m-0 flex list-none flex-wrap gap-1.5 p-0">
