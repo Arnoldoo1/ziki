@@ -167,7 +167,7 @@ vi.mock("@/lib/site-url", () => ({ absoluteUrl: (path: string) => `https://ziki.
 import { fundIssue } from "@/lib/coins/fund";
 import { refundEscrow, releaseEscrow } from "@/lib/coins/escrow";
 import { escrowBalance, walletBalance, walletSummary } from "@/lib/coins/ledger";
-import { estimateToZik, feeOf, planRelease, splitByWeight } from "@/lib/coins/math";
+import { dollarsToZiks, estimateToZik, feeOf, planRelease, splitByWeight, ziksToDollars } from "@/lib/coins/math";
 import { ledgerBalances } from "@/lib/coins/money";
 import { createPackCheckout, recordPurchase } from "@/lib/coins/purchase";
 import { discountedCents, planBreakEvenCents, ZIK_PLANS } from "@/lib/coins/plans";
@@ -208,6 +208,13 @@ describe("Ziks arithmetic", () => {
     expect(estimateToZik(3.67)).toBe(37);
     expect(estimateToZik(10)).toBe(100);
     expect(estimateToZik(0.01)).toBe(1);
+  });
+
+  it("converts between the dollars an estimate is stored in and the Ziks it is shown in, at 10 Ziks to the dollar", () => {
+    expect(dollarsToZiks(6.33)).toBe(63);
+    expect(dollarsToZiks(10)).toBe(100);
+    expect(ziksToDollars(60)).toBe(6);
+    for (const dollars of [1, 4, 7, 10]) expect(ziksToDollars(dollarsToZiks(dollars))).toBe(dollars);
   });
 
   it("releases nothing when nobody earned anything", () => {
