@@ -327,8 +327,11 @@ model User {
   /// Ziki Coins (#ziki-coins): the Stripe Connect Express account Ziks are withdrawn to, and whether Stripe says it can receive transfers.
   stripeAccountId           String?                 @unique
   payoutsEnabled            Boolean                 @default(false)
+  /// The person's Stripe customer, made when they first subscribe to a monthly Ziks plan, so their card is reused.
+  stripeCustomerId          String?                 @unique
   coinEntries               CoinEntry[]
   coinPurchases             CoinPurchase[]
+  coinSubscriptions         CoinSubscription[]
   withdrawals               Withdrawal[]
   /// #earnings: what the person wants to earn each week, set on Your earnings. Null: the default goal.
   weeklyEarningsGoal        Decimal?                @db.Decimal(10, 2)
@@ -4041,20 +4044,53 @@ model CoinEntry {
   @@index([kind])
 }
 
-/// One Stripe Checkout payment for a pack of Ziks, written once when Stripe says it was paid.
+/// One Stripe payment, written once when Stripe says it was paid: a pack of Ziks bought through Checkout (it has a
+/// session, a pack and its Ziks), or one invoice of a plan's monthly fee (it has an invoice, a plan and the
+/// subscription, and `zik` is 0 because the fee buys no Ziks). Both count toward what Stripe should be holding.
 model CoinPurchase {
-  id                    String   @id @default(cuid())
+  id                    String            @id @default(cuid())
   userId                String
-  stripeSessionId       String   @unique
+  stripeSessionId       String?           @unique
+  /// The paid invoice of a monthly plan; null for a pack.
+  stripeInvoiceId       String?           @unique
   stripePaymentIntentId String?
-  packId                String
+  /// The pack bought; null for a plan's invoice.
+  packId                String?
+  /// The plan whose monthly fee this invoice was (lib/coins/plans.ts); null for a pack.
+  planId                String?
+  subscriptionId        String?
   zik                   Int
   amountCents           Int
   /// Stripe's processing fee on the charge, when it was read.
   stripeFeeCents        Int?
-  currency              String   @default("usd")
-  createdAt             DateTime @default(now())
-  user                  User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  currency              String            @default("usd")
+  createdAt             DateTime          @default(now())
+  user                  User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  subscription          CoinSubscription? @relation(fields: [subscriptionId], references: [id], onDelete: Restrict)
+
+  @@index([userId])
+  @@index([subscriptionId])
+}
+
+/// A person's Ziki plan (a monthly fee for a discount on Ziks packs), kept in step with Stripe's subscription by its
+/// webhooks. This row only says which plan the person has and until when; the discount is applied at checkout.
+model CoinSubscription {
+  id                   String         @id @default(cuid())
+  userId               String
+  stripeSubscriptionId String         @unique
+  planId               String
+  /// Stripe's status: active, past_due, canceled, incomplete, unpaid, trialing.
+  status               String
+  /// When the current month ends, and so when the next payment is due.
+  currentPeriodEnd     DateTime?
+  /// True once the person asked to stop: the plan runs to the end of the period it is paid for.
+  cancelAtPeriodEnd    Boolean        @default(false)
+  /// Where to pay a failed invoice, while there is one.
+  payUrl               String?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  purchases            CoinPurchase[]
 
   @@index([userId])
 }

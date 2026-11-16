@@ -367,6 +367,10 @@ export function AppHeader({
                     </span>
                   </span>
                 </MenuLink>
+                {/* The plans page (#ziki-coins): what Ziki costs, and the plans that make Ziks cheaper. */}
+                <MenuLink href="/pricing" active={pathname === "/pricing"}>
+                  Pricing
+                </MenuLink>
                 <MenuLink href="/settings" active={isNavItemActive(pathname, "/settings")}>
                   Settings
                 </MenuLink>
