@@ -13,6 +13,7 @@ import { isScanned, preflight, scanFile } from "@/lib/security/preflight-scan";
 import { parseRedesignListQuery } from "@/lib/redesign-read";
 import { encodeCursor } from "@/lib/agent-api/create-policy";
 import { sitePageUrl } from "@/lib/marketing/site-reader";
+import { parseEstimate, rewardView } from "@/lib/agent-api/reward-estimates";
 
 /** Invalid payloads and unsafe input are rejected before they reach the database or the page. */
 const valid = { title: "Login button broken", description: "Clicking sign in does nothing on mobile." };
@@ -111,6 +112,19 @@ describe("agent write reasons (#236)", () => {
 
   it.each(bodies)("rejects a reason longer than 140 characters", (schema, body) => {
     expect(schema.safeParse({ ...body, reason: "x".repeat(141) }).success).toBe(false);
+  });
+});
+
+describe("reward estimates in Ziks (#rewards)", () => {
+  it("takes 10 to 100 Ziks in steps of 10 and refuses anything else", () => {
+    for (const value of [10, 40, 100]) expect(parseEstimate({ value }).value).toBe(value);
+    // The old dollar values (1 to 10) are refused now: an estimate is in Ziks.
+    for (const value of [0, 1, 5, 25, 105, 110, 2.5, -10]) expect(() => parseEstimate({ value })).toThrow(/Ziks/);
+  });
+
+  it("shows a reward in Ziks, though the issue stores it in dollars", () => {
+    expect(rewardView({ reward: 6.33, rewardEstimateCount: 3, rewardFixedAt: null })).toMatchObject({ reward: 63, estimates: 3, fixed: false });
+    expect(rewardView({ reward: 1, rewardEstimateCount: 0, rewardFixedAt: null }).reward).toBe(10);
   });
 });
 
