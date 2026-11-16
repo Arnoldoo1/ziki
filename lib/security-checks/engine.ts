@@ -119,24 +119,32 @@ export async function startCheck(db: EngineDb, checkId: string, now = new Date()
   });
   if (count !== 1) return false;
 
-  const check = await db.securityCheck.findUnique({ where: { id: checkId }, select: { target: { select: { kind: true, value: true } } } });
-  if (!check) return false;
-  const { parts } = await planParts(check.target, {
-    ai: deps.ai,
-    readPage: deps.readPage === undefined ? readPublicPage : deps.readPage,
-  });
+  let saved: boolean;
+  try {
+    const check = await db.securityCheck.findUnique({ where: { id: checkId }, select: { target: { select: { kind: true, value: true } } } });
+    if (!check) return false;
+    const { parts } = await planParts(check.target, {
+      ai: deps.ai,
+      readPage: deps.readPage === undefined ? readPublicPage : deps.readPage,
+    });
 
-  const saved = await db.$transaction(async (tx) => {
-    const { count: still } = await tx.securityCheck.updateMany({
-      where: { id: checkId, status: "splitting", startedAt: now, items: { none: { kind: "check" } } },
-      data: { status: "checking" },
+    saved = await db.$transaction(async (tx) => {
+      const { count: still } = await tx.securityCheck.updateMany({
+        where: { id: checkId, status: "splitting", startedAt: now, items: { none: { kind: "check" } } },
+        data: { status: "checking" },
+      });
+      if (still !== 1) return false;
+      await tx.securityCheckItem.createMany({
+        data: parts.map((part) => ({ checkId, kind: "check" as const, title: part.title, instructions: part.instructions })),
+      });
+      return true;
     });
-    if (still !== 1) return false;
-    await tx.securityCheckItem.createMany({
-      data: parts.map((part) => ({ checkId, kind: "check" as const, title: part.title, instructions: part.instructions })),
-    });
-    return true;
-  });
+  } catch (error) {
+    // Claimed but never split: give it back to waiting now, so the next sweep starts it again, instead of
+    // leaving it on "Planning the checks" until the stuck-split recovery (STUCK_AFTER_MINUTES).
+    await db.securityCheck.updateMany({ where: { id: checkId, status: "splitting", startedAt: now, items: { none: { kind: "check" } } }, data: { status: "queued", startedAt: null } }).catch(() => undefined);
+    throw error;
+  }
   if (saved) await assignWaitingJobs(db, new Date());
   return saved;
 }

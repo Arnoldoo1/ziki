@@ -18,6 +18,9 @@ import {
   type AssistantTurn,
 } from "@/lib/security-checks/assistant";
 import { loadSiteChat, saveSiteMessage, scansContextNote, SITE_CHAT_MESSAGE_MAX, siteChatScan, siteContextNote } from "@/lib/security-checks/site-chat";
+import { after } from "next/server";
+import { kickCheck } from "@/lib/security-checks/engine";
+import { prisma } from "@/lib/prisma";
 
 /**
  * Ziki's security chat, signed in (#security-checks, plan part C3). A plain
@@ -175,6 +178,9 @@ async function scanAndAdd(organisationId: string, userId: string, target: Parsed
   if (!addable) return { kind: "scan", reply: "", target: address, summary: null, note: result.ok ? null : result.reason, checkId: null };
   const added = await addTargetAndCheck(organisationId, userId, target);
   if ("refused" in added) return { kind: "reply", reply: refusedMessage(added.refused, target.value) };
+  // Start it as soon as this answers. Waiting for the one-minute sweep left a new scan on "Waiting to start" for minutes
+  // (the sweep can be busy for a long time), and once for ten (15 Nov test); kickCheck never throws, and the sweep still catches a miss.
+  after(() => kickCheck(prisma, added.checkId));
   if (summary) await saveQuickScan(added.targetId, summary);
   // The conversation that led to this scan becomes the start of the site's saved chat,
   // so "See result" later carries on from it (14 Nov call).
