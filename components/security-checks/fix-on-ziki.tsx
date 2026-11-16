@@ -133,7 +133,7 @@ function FixPicker({ checkId, results, standalone }: Props) {
               <div role="status" className="flex items-center justify-between gap-3 border-t border-zk-divider pt-4">
                 <div className="text-sm text-zk-text2">
                   <p>{selected.length} selected</p>
-                  <p className="text-xs text-zk-muted">Simulated payment</p>
+                  <p className="text-xs text-zk-muted">Paid from your Ziks wallet</p>
                 </div>
                 <span className="font-semibold tabular-nums text-zk-text">{total} {total === 1 ? "Zik" : "Ziks"}</span>
               </div>
@@ -148,7 +148,7 @@ function FixPicker({ checkId, results, standalone }: Props) {
       {outcome && !outcome.ok ? <p role="alert">{outcome.error}</p> : null}
       {outcome?.ok ? (
         <div role="status" className="space-y-2 rounded-2xl border border-zk-border bg-zk-surface p-4 text-sm text-zk-ok-fg">
-          <p>{outcome.created} moved. {outcome.reused} already moved. {standalone ? `${outcome.coins} ${outcome.coins === 1 ? "Zik" : "Ziks"} simulated.` : null}</p>
+          <p>{outcome.created} moved. {outcome.reused} already moved. {standalone ? `${outcome.coins} ${outcome.coins === 1 ? "Zik" : "Ziks"} paid.` : null}</p>
           {outcome.issues.length ? <ul>
             {outcome.issues.map((issue) => <li key={issue.number}>
               <Link className="underline" href={issue.href}>Issue #{issue.number}</Link>
