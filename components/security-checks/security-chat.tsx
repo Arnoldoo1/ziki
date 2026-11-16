@@ -28,7 +28,7 @@ const WORKING_STEPS = [
  * nothing typed or said is lost. It lives only in this browser tab's memory:
  * a refresh starts afresh.
  */
-const kept: { turns: ChatItem[]; text: string; started?: string; open?: boolean; focus?: ChatFocus; thread: SavedMessage[] } = { turns: [], text: "", thread: [] };
+const kept: { turns: ChatItem[]; text: string; started?: string; open?: boolean; focus?: ChatFocus; thread: SavedMessage[]; finished?: boolean } = { turns: [], text: "", thread: [] };
 
 /**
  * The site this chat is about once one is scanned (16 Nov, Tolu): from then on
@@ -70,6 +70,7 @@ export function startNewChat() {
   kept.text = "";
   kept.focus = undefined;
   kept.thread = [];
+  kept.finished = false;
 }
 
 /** A message in the chat; a reply can carry a quick scan of the site. */
@@ -95,8 +96,9 @@ export function SecurityChat({
   /** An address brought from the public page after sign-up: sent once, so its quick scan starts on arrival. */
   startWith?: string;
   /**
-   * Once a scan is in, a blue "See progress" sits beside Send (it stays while typing), which opens the scan's page:
-   * the chat stays open for when they come back. Without it, the chat just carries on.
+   * Once a scan is in, a blue button sits beside Send (it stays while typing), which opens the scan's page:
+   * "See progress" while the agents are checking, "See results" once their report is posted.
+   * The chat stays open for when they come back. Without it, the chat just carries on.
    */
   onSeeProgress?: (checkId: string) => void;
   /** A scan just came in and is in the person's scans; its card can wait until "See progress". */
@@ -110,6 +112,8 @@ export function SecurityChat({
   /** The scanned site the chat is now about, and its saved messages since the scan (read from the database). */
   const [focus, setFocus] = useState<ChatFocus | undefined>(() => kept.focus);
   const [thread, setThread] = useState<SavedMessage[]>(() => kept.thread);
+  /** The focused scan's agents' report is posted: the button beside Send says "See results", not "See progress". */
+  const [finished, setFinished] = useState(() => kept.finished ?? false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   /** A site was sent: think first, like the Ideas chat, then show the scan's progress. */
@@ -137,7 +141,8 @@ export function SecurityChat({
     kept.text = text;
     kept.focus = focus;
     kept.thread = thread;
-  }, [turns, text, focus, thread]);
+    kept.finished = finished;
+  }, [turns, text, focus, thread, finished]);
   // The site's saved chat is the record: read it when the chat opens, when the
   // focus changes, and whenever the page comes back into view, so anything said
   // on the scan's page shows here too.
@@ -147,7 +152,10 @@ export function SecurityChat({
     const load = () => {
       siteChat(focus.checkId)
         .then((answer) => {
-          if (live && answer.ok) setThread(since(answer.messages, focus.after));
+          if (!live || !answer.ok) return;
+          setThread(since(answer.messages, focus.after));
+          // A scan can finish while the chat is open: read again with the messages, so the button keeps up.
+          setFinished(answer.finished);
         })
         .catch(() => {});
     };
@@ -222,6 +230,7 @@ export function SecurityChat({
             const checkId = answer.checkId;
             const saved = answer.already ? null : await siteChat(checkId).catch(() => null);
             setThread([]);
+            setFinished(answer.finished ?? false);
             setFocus({ checkId, site: answer.target, after: saved?.ok ? (saved.messages.at(-1)?.id ?? null) : null });
           }
           // Added to the person's scans: the list below picks it up.
@@ -250,8 +259,10 @@ export function SecurityChat({
     startTransition(async () => {
       try {
         const answer = await askSite(about.checkId, question);
-        if (answer.ok) setThread(since(answer.messages, about.after));
-        else setError(answer.error);
+        if (answer.ok) {
+          setThread(since(answer.messages, about.after));
+          setFinished(answer.finished);
+        } else setError(answer.error);
       } catch {
         setError("Ziki couldn't answer just now. Try again.");
       }
@@ -389,7 +400,7 @@ export function SecurityChat({
                 <span className="text-zk-bad-fg">That&apos;s a private address</span>
               ) : null}
             </p>
-            {/* See progress and Send side by side (16 Nov): typing never hides the way to the scan's page. */}
+            {/* See progress (or See results once the report is posted) and Send side by side (16 Nov): typing never hides the way to the scan's page. */}
             <div className="flex shrink-0 items-center gap-2">
               {onSeeProgress && finishedCheckId ? (
                 <button
@@ -398,7 +409,7 @@ export function SecurityChat({
                   onClick={() => onSeeProgress(finishedCheckId)}
                   className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-electric-blue-strong px-4 text-sm font-bold text-white transition hover:brightness-105 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-electric-blue"
                 >
-                  See progress
+                  {finished ? "See results" : "See progress"}
                   <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
                 </button>
               ) : null}
