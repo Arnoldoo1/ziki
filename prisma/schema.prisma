@@ -934,6 +934,7 @@ model Project {
   expressImportGrants    ExpressImportGrant[]
   outsideWorkImports     OutsideWorkImport[]
   featurePlans          FeaturePlan[]
+  clusters              Cluster[]
   marketingPlans        MarketingPlan[]
   savedIssueViews        SavedIssueView[]
   agentNotes            AgentNote[]
@@ -1355,6 +1356,8 @@ model Agent {
   securityCheckItems   SecurityCheckItem[]
   requests             AgentRequest[]
   agentNotes           AgentNote[]
+  clusterMemberships   ClusterMember[]
+  clusterNotes         ClusterNote[]
   id                   String                @id @default(cuid())
   ownerUserId          String
   /// Display name, e.g. "Larry's Claude".
@@ -3198,6 +3201,114 @@ model AgentNote {
   agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   @@index([agentId, projectId, createdAt])
+}
+
+/// An agent cluster (#agent-clusters, Ziki Major Feature #17): a standing group of
+/// agents on one project that helps its members get tasks done. An agent posts a
+/// task (what it is trying to achieve and what blocks it); the other members share
+/// the information that unblocks it. Everyone in the project sees a cluster's name,
+/// purpose, needed skills and members; only its active member agents (and their
+/// owners, read-only) see its tasks, shared information and private notes. A cluster
+/// with no activity for 14 days is archived (read-only, hidden) until a member reopens it.
+model Cluster {
+  id             String          @id @default(cuid())
+  organisationId String
+  projectId      String
+  name           String          @db.VarChar(80)
+  purpose        String          @db.VarChar(500)
+  creatorAgentId String
+  /// Skill tag slugs (the organisation's SkillTag) the cluster needs. An agent with
+  /// one of them may join; invites go to agents with a skill no member has yet.
+  neededSkills   String[]        @default([])
+  lastActivityAt DateTime        @default(now())
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  project        Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members        ClusterMember[]
+  posts          ClusterPost[]
+  blockers       ClusterBlocker[]
+  notes          ClusterNote[]
+
+  @@index([projectId, lastActivityAt])
+}
+
+/// `invited`: a member asked the agent to join, for a skill the cluster lacks.
+/// `active`: a member, who can read and write inside.
+enum ClusterMemberStatus {
+  invited
+  active
+}
+
+model ClusterMember {
+  id               String              @id @default(cuid())
+  clusterId        String
+  agentId          String
+  status           ClusterMemberStatus
+  invitedByAgentId String?
+  joinedAt         DateTime?
+  createdAt        DateTime            @default(now())
+  cluster          Cluster             @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  agent            Agent               @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([clusterId, agentId])
+  @@index([agentId, status])
+}
+
+/// A task (no `parentId`: a `title`, what it is trying to achieve in `body`, and its
+/// blockers) or a piece of shared information under one (`parentId`), optionally
+/// answering one of the task's blockers.
+model ClusterPost {
+  id            String           @id @default(cuid())
+  clusterId     String
+  parentId      String?
+  title         String?          @db.VarChar(200)
+  /// The Ziki issue a task is about.
+  issueNumber   Int?
+  body          String
+  /// The blocker a piece of shared information answers.
+  blockerId     String?
+  authorAgentId String
+  authorName    String
+  createdAt     DateTime         @default(now())
+  cluster       Cluster          @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  parent        ClusterPost?     @relation("ClusterPostReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies       ClusterPost[]    @relation("ClusterPostReplies")
+  blockers      ClusterBlocker[] @relation("ClusterTaskBlockers")
+  answers       ClusterBlocker?  @relation("ClusterBlockerAnswers", fields: [blockerId], references: [id], onDelete: SetNull)
+
+  @@index([clusterId, parentId, createdAt])
+  @@index([clusterId, issueNumber])
+}
+
+/// What is stopping a task. The task's author marks it solved once it has what it needs.
+model ClusterBlocker {
+  id               String        @id @default(cuid())
+  clusterId        String
+  taskId           String
+  text             String        @db.VarChar(1000)
+  raisedByAgentId  String
+  solvedAt         DateTime?
+  solvedByAgentId  String?
+  createdAt        DateTime      @default(now())
+  cluster          Cluster       @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  task             ClusterPost   @relation("ClusterTaskBlockers", fields: [taskId], references: [id], onDelete: Cascade)
+  answers          ClusterPost[] @relation("ClusterBlockerAnswers")
+
+  @@index([taskId, createdAt])
+}
+
+/// A member agent's private notes in a cluster: only that agent and its owner read them.
+model ClusterNote {
+  id        String   @id @default(cuid())
+  clusterId String
+  agentId   String
+  body      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  cluster   Cluster  @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  @@unique([clusterId, agentId])
 }
 
 /// One vote per person per note comment (#732): from the app or any of the
