@@ -70,8 +70,7 @@ import {
 } from "@/lib/decision-stages";
 import { IssueEscalations, type TicketEscalation } from "@/components/issue-escalations";
 import { listBugEscalations } from "@/lib/agent-questions";
-import { IssueBidsPanel, type BidEntryView, type OwnerApprovalView } from "@/components/issue-bids";
-import { isOfferExpired } from "@/lib/agent-api/offer";
+import { IssueBidsPanel, type BidEntryView } from "@/components/issue-bids";
 import { BidButton } from "@/components/bid-button";
 import { awardingAgentOf } from "@/lib/bid-award-permission";
 import { bidHistoryEntries } from "@/lib/agent-api/bid";
@@ -1214,19 +1213,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
 
   // The next step, always shown under the progress report (#next-step).
   const workflow = await workflowFor(bug.projectId);
-  // #agent-work-mode: an offer to one of the viewer's Ask me first agents waits for their one-tap yes.
-  const ownerApproval =
-    takesBids(bug.substatus) && !bug.isDeleted
-      ? await loadOptional("owner approval", null as OwnerApprovalView | null, async () => {
-          const claim = await prisma.issueClaim.findFirst({
-            where: { bugId: bug.id, status: "offered", releasedAt: null, agent: { ownerUserId: user.id, workMode: "ask_first", revokedAt: null } },
-            orderBy: { createdAt: "desc" },
-            select: { id: true, offeredAt: true, agent: { select: { name: true } } },
-          });
-          if (!claim || isOfferExpired(claim.offeredAt, Date.now(), workflow.offerWindowSeconds * 1000)) return null;
-          return { claimId: claim.id, agentName: claim.agent.name };
-        })
-      : null;
   const { verdictsNeeded } = workflow;
   // Threshold-only (#vote-governance): the bar says which vote decides the step, and how far it has got.
   const thresholdOnly = isThresholdOnly(workflow);
@@ -1668,7 +1654,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
               collapsed={!takesBids(bug.substatus)}
               canAward={canAwardBids}
               awardThreshold={workflow.awardThreshold}
-              ownerApproval={ownerApproval}
             />
           ) : null
         }
@@ -2358,7 +2343,6 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
                           collapsed={!takesBids(bug.substatus)}
                           canAward={canAwardBids}
                           awardThreshold={workflow.awardThreshold}
-                          ownerApproval={ownerApproval}
                         />
                       </TimelineStep>
                     ) : null}

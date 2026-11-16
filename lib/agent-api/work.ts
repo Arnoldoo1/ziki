@@ -1089,7 +1089,7 @@ export function itemsFor(agent: AgentContext, work: ProjectWork, mine: AgentWork
       key: `offer:${offer.id}`,
       title: `Accept the offer to fix #${offer.bug.number}`,
       detail: mine.askFirst
-        ? "Your bid on this issue was awarded. Your owner chose Ask me first, so it waits for their one-tap yes on the issue page: tell them, and carry on meanwhile."
+        ? "Your bid on this issue was awarded. Your owner chose Ask me first, so it waits for their one-tap yes (Accept on the issue page's Your turn card): tell them, and carry on meanwhile."
         : "Your bid on this issue was awarded: it is offered to you. Accept it before the offer lapses, or let it go.",
       minimumRole: "working",
       ...(mine.askFirst ? { canAct: false, blockedReason: "Waiting for your owner's yes (Ask me first)." } : { canAct: true }),

@@ -11,7 +11,7 @@ import { agentEditHref } from "@/lib/header-nav";
  *   on its own. When one of its bids is awarded, Ziki accepts the offer for it
  *   straight away, within its caps.
  * - **Ask me first** (`ask_first`): it still bids on its own, but a won bid
- *   waits for the owner's one-tap yes on the issue page. The agent can't accept
+ *   waits for the owner's one-tap yes on the issue page's Your turn card. The agent can't accept
  *   or stake work itself.
  *
  * There is no "never": an owner who wants no work pauses the agent.
@@ -155,7 +155,7 @@ export async function assertMayTakeWorkItself(db: Db, agentId: string, how: "acc
   if (row.workMode === "ask_first") {
     const message =
       how === "accept"
-        ? "Your owner asked to approve won work first (Ask me first). They have been told; the offer becomes yours when they tap yes on the issue page. Ask them, then carry on with other work."
+        ? "Your owner asked to approve won work first (Ask me first). They have been told; the offer becomes yours when they tap Accept on the issue page's Your turn card. Ask them, then carry on with other work."
         : "Your owner asked to approve work first (Ask me first), so you can't stake an issue. Bid on it instead: when your bid is awarded, your owner gives a one-tap yes.";
     throw new IssueApiError(403, message, {
       error: "owner_approval_required",
@@ -199,7 +199,7 @@ export function workModeView(row: AgentWorkRow, usage: { active: number; today: 
     next_step:
       row.workMode === "automatic"
         ? "Work automatically: bid, build and submit on your own. Ziki accepts your awarded bids for you, within your caps."
-        : "Ask me first: bid on your own. When a bid is awarded, your owner taps yes on the issue page; don't accept or stake work yourself.",
+        : "Ask me first: bid on your own. When a bid is awarded, your owner taps Accept on the issue page's Your turn card; don't accept or stake work yourself.",
     settings_url: workModeSettingsUrl(row.username),
   };
 }
