@@ -6,7 +6,11 @@ type Where = Record<string, unknown>;
 /** The ledger tables in memory, so the real ledger code runs against them. */
 const world = vi.hoisted(() => ({
   rows: [] as Array<{ account: string; userId?: string | null; bugId?: string | null; kind: string; amount: number; sourceKey: string }>,
-  purchases: [] as Array<{ stripeSessionId: string }>,
+  purchases: [] as Array<{ stripeSessionId?: string; stripeInvoiceId?: string; subscriptionId?: string | null; userId?: string; zik?: number }>,
+  /** Monthly plans (#ziki-coins): our mirror of Stripe's subscriptions, and what Stripe says each one is. */
+  subscriptions: [] as Array<{ id: string; userId: string; stripeSubscriptionId: string; planId: string; status: string; cancelAtPeriodEnd: boolean }>,
+  stripeSubscription: { id: "sub_1", status: "active", cancelAtPeriodEnd: false, userId: "owner", planId: "plus" },
+  stripeCalls: [] as Array<{ name: string; args: unknown[] }>,
   withdrawals: [] as Array<{
     id: string;
     userId: string;
@@ -69,12 +73,29 @@ const db = vi.hoisted(() => {
     },
     rewardEstimate: { count: async () => world.estimates },
     membership: { findUnique: async () => null },
-    user: { findUnique: async ({ where }: { where: { id: string } }) => ({ id: where.id }) },
+    user: {
+      findUnique: async ({ where }: { where: { id: string } }) => ({ id: where.id, stripeCustomerId: "cus_1" }),
+      findUniqueOrThrow: async ({ where }: { where: { id: string } }) => ({ id: where.id, stripeCustomerId: "cus_1" }),
+      updateMany: async () => ({ count: 0 }),
+    },
     coinPurchase: {
-      findUnique: async ({ where }: { where: { stripeSessionId: string } }) => world.purchases.find((p) => p.stripeSessionId === where.stripeSessionId) ?? null,
-      create: async ({ data }: { data: { stripeSessionId: string } }) => {
+      findUnique: async ({ where }: { where: { stripeSessionId?: string; stripeInvoiceId?: string } }) =>
+        world.purchases.find((p) => (where.stripeSessionId && p.stripeSessionId === where.stripeSessionId) || (where.stripeInvoiceId && p.stripeInvoiceId === where.stripeInvoiceId)) ?? null,
+      create: async ({ data }: { data: { stripeSessionId?: string; stripeInvoiceId?: string } }) => {
         world.purchases.push(data);
         return { id: `purchase-${world.purchases.length}`, ...data };
+      },
+    },
+    coinSubscription: {
+      findUnique: async ({ where }: { where: { stripeSubscriptionId: string } }) => world.subscriptions.find((s) => s.stripeSubscriptionId === where.stripeSubscriptionId) ?? null,
+      findFirst: async ({ where }: { where: { userId: string; status: { in: string[] } } }) =>
+        world.subscriptions.find((s) => s.userId === where.userId && where.status.in.includes(s.status)) ?? null,
+      upsert: async ({ where, create, update }: { where: { stripeSubscriptionId: string }; create: Record<string, unknown>; update: Record<string, unknown> }) => {
+        const found = world.subscriptions.find((s) => s.stripeSubscriptionId === where.stripeSubscriptionId);
+        if (found) return Object.assign(found, update);
+        const made = { id: `csub-${world.subscriptions.length + 1}`, ...create } as (typeof world.subscriptions)[number];
+        world.subscriptions.push(made);
+        return made;
       },
     },
     withdrawal: {
@@ -103,13 +124,45 @@ const db = vi.hoisted(() => {
 });
 
 vi.mock("@/lib/prisma", () => ({ prisma: db }));
-vi.mock("@/lib/coins/stripe", () => ({
+vi.mock("@/lib/coins/stripe", () => {
+  /** A Stripe subscription as the API returns it, from what a test says it is. */
+  const stripeSubscriptionNow = () => ({
+    id: world.stripeSubscription.id,
+    status: world.stripeSubscription.status,
+    metadata: { userId: world.stripeSubscription.userId, planId: world.stripeSubscription.planId },
+    cancel_at_period_end: world.stripeSubscription.cancelAtPeriodEnd,
+    cancel_at: null,
+    latest_invoice: "in_1",
+    items: { data: [{ current_period_end: 1_800_000_000 }] },
+  });
+  return {
   getStripe: () => ({
     paymentIntents: { retrieve: async () => Promise.reject(new Error("offline")) },
     transfers: { create: (params: unknown, options: { idempotencyKey: string }) => world.transfer.create(params, options) },
+    invoicePayments: { list: async () => Promise.reject(new Error("offline")) },
+    invoices: { retrieve: async () => ({ hosted_invoice_url: "https://pay.stripe.test/in_1" }) },
+    customers: { create: async () => ({ id: "cus_1" }) },
+    subscriptions: {
+      retrieve: async () => stripeSubscriptionNow(),
+      update: async (id: string, params: { cancel_at_period_end: boolean }) => {
+        world.stripeCalls.push({ name: "subscriptions.update", args: [id, params] });
+        world.stripeSubscription.cancelAtPeriodEnd = params.cancel_at_period_end;
+        return stripeSubscriptionNow();
+      },
+    },
+    checkout: {
+      sessions: {
+        create: async (params: unknown) => {
+          world.stripeCalls.push({ name: "checkout.sessions.create", args: [params] });
+          return { url: "https://checkout.stripe.test/c_1" };
+        },
+      },
+    },
   }),
   stripeConfigured: () => true,
-}));
+  };
+});
+vi.mock("@/lib/site-url", () => ({ absoluteUrl: (path: string) => `https://ziki.test${path}` }));
 
 import { fundIssue } from "@/lib/coins/fund";
 import { refundEscrow, releaseEscrow } from "@/lib/coins/escrow";
@@ -117,6 +170,8 @@ import { escrowBalance, walletBalance, walletSummary } from "@/lib/coins/ledger"
 import { estimateToZik, feeOf, planRelease, splitByWeight } from "@/lib/coins/math";
 import { ledgerBalances } from "@/lib/coins/money";
 import { recordPurchase } from "@/lib/coins/purchase";
+import { planPriceCents, planSavingCents, ZIK_PLANS } from "@/lib/coins/plans";
+import { createSubscriptionCheckout, recordSubscriptionPayment, setSubscriptionEnding } from "@/lib/coins/subscription";
 import Stripe from "stripe";
 import { failWithdrawal, retryPendingWithdrawals } from "@/lib/coins/withdraw";
 
@@ -127,6 +182,9 @@ const total = () => world.rows.reduce((sum, row) => sum + row.amount, 0);
 beforeEach(() => {
   world.rows.length = 0;
   world.purchases.length = 0;
+  world.subscriptions.length = 0;
+  world.stripeCalls.length = 0;
+  Object.assign(world.stripeSubscription, { id: "sub_1", status: "active", cancelAtPeriodEnd: false, userId: "owner", planId: "plus" });
   world.withdrawals.length = 0;
   world.transfer.create = async () => ({ id: "tr_default" });
   world.estimates = 0;
@@ -248,6 +306,75 @@ describe("Stripe webhook purchases", () => {
     expect(await recordPurchase(session({ payment_status: "unpaid" }))).toBe("ignored");
     expect(await recordPurchase(session({ id: "cs_2", amount_total: 100 }))).toBe("ignored");
     expect(await walletBalance(db as never, "owner")).toBe(0);
+  });
+});
+
+describe("monthly Ziks plans", () => {
+  const invoice = (over: Record<string, unknown> = {}) =>
+    ({
+      id: "in_1",
+      status: "paid",
+      billing_reason: "subscription_create",
+      amount_paid: 900,
+      currency: "usd",
+      parent: { subscription_details: { subscription: "sub_1", metadata: { userId: "owner", planId: "plus" } } },
+      ...over,
+    }) as never;
+
+  it("prices a plan as its Ziks' value less the discount, to the cent", () => {
+    expect(ZIK_PLANS.map((plan) => [plan.id, planPriceCents(plan), planSavingCents(plan)])).toEqual([
+      ["plus", 900, 100],
+      ["pro", 4250, 750],
+      ["team", 16000, 4000],
+    ]);
+  });
+
+  it("credits a month's Ziks once per paid invoice, however often Stripe says so, and again for the next month's", async () => {
+    expect(await recordSubscriptionPayment(invoice())).toBe("recorded");
+    expect(await recordSubscriptionPayment(invoice())).toBe("duplicate");
+    expect(await walletBalance(db as never, "owner")).toBe(100);
+    expect(world.purchases).toHaveLength(1);
+    // The purchase points at our mirror of the subscription, made from Stripe's own record of it.
+    expect(world.subscriptions).toHaveLength(1);
+    expect(world.purchases[0].subscriptionId).toBe(world.subscriptions[0].id);
+
+    expect(await recordSubscriptionPayment(invoice({ id: "in_2", billing_reason: "subscription_cycle" }))).toBe("recorded");
+    expect(await walletBalance(db as never, "owner")).toBe(200);
+  });
+
+  it("credits nothing for an unpaid invoice, a different amount, an unknown plan or one that isn't a plan's month", async () => {
+    expect(await recordSubscriptionPayment(invoice({ status: "open" }))).toBe("ignored");
+    expect(await recordSubscriptionPayment(invoice({ id: "in_2", amount_paid: 800 }))).toBe("ignored");
+    expect(await recordSubscriptionPayment(invoice({ id: "in_3", parent: { subscription_details: { subscription: "sub_1", metadata: { userId: "owner", planId: "gold" } } } }))).toBe("ignored");
+    expect(await recordSubscriptionPayment(invoice({ id: "in_4", billing_reason: "manual" }))).toBe("ignored");
+    expect(await recordSubscriptionPayment(invoice({ id: "in_5", parent: null }))).toBe("ignored");
+    expect(await walletBalance(db as never, "owner")).toBe(0);
+  });
+
+  it("sends a person to Stripe for a plan at its price, and only lets them have one at a time", async () => {
+    const url = await createSubscriptionCheckout("owner", "owner@ziki.test", "pro");
+    expect(url).toBe("https://checkout.stripe.test/c_1");
+    const params = world.stripeCalls[0].args[0] as { mode: string; line_items: Array<{ price_data: { unit_amount: number; recurring: { interval: string } } }>; subscription_data: { metadata: unknown } };
+    expect(params.mode).toBe("subscription");
+    expect(params.line_items[0].price_data).toMatchObject({ unit_amount: 4250, recurring: { interval: "month" } });
+    expect(params.subscription_data.metadata).toEqual({ userId: "owner", planId: "pro" });
+
+    await expect(createSubscriptionCheckout("owner", undefined, "gold")).rejects.toMatchObject({ code: "invalid_amount" });
+
+    world.subscriptions.push({ id: "csub-9", userId: "owner", stripeSubscriptionId: "sub_1", planId: "plus", status: "active", cancelAtPeriodEnd: false });
+    await expect(createSubscriptionCheckout("owner", undefined, "pro")).rejects.toMatchObject({ code: "not_allowed" });
+  });
+
+  it("ends and keeps only the person's own plan, at the end of the month they paid for", async () => {
+    await expect(setSubscriptionEnding("stranger", true)).rejects.toMatchObject({ code: "not_found" });
+
+    world.subscriptions.push({ id: "csub-9", userId: "owner", stripeSubscriptionId: "sub_1", planId: "plus", status: "active", cancelAtPeriodEnd: false });
+    await setSubscriptionEnding("owner", true);
+    expect(world.stripeCalls.at(-1)).toEqual({ name: "subscriptions.update", args: ["sub_1", { cancel_at_period_end: true }] });
+    expect(world.subscriptions[0].cancelAtPeriodEnd).toBe(true);
+
+    await setSubscriptionEnding("owner", false);
+    expect(world.subscriptions[0].cancelAtPeriodEnd).toBe(false);
   });
 });
 

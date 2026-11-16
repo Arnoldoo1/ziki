@@ -8,6 +8,8 @@ import { ZIK_PACKS, formatUsd, formatZik, zikToCents } from "@/lib/coins/math";
 import { stripeConfigured } from "@/lib/coins/stripe";
 import { WITHDRAW_MIN_ZIK, syncPayoutsEnabled } from "@/lib/coins/withdraw";
 import { LocalTime } from "@/components/local-time";
+import { MonthlyPlans } from "@/components/coins/monthly-plans";
+import { liveSubscriptionOf, syncUserSubscriptions } from "@/lib/coins/subscription";
 import { UrlNotice } from "@/components/coins/url-notice";
 import { PayoutsPanel } from "./payouts-panel";
 
@@ -34,10 +36,15 @@ const KIND_LABEL = {
  * what you earn, and what moved. Buying is Stripe Checkout; the wallet is only
  * credited when Stripe's webhook says the payment went through.
  */
-export default async function CoinsPage({ searchParams }: { searchParams?: Promise<{ bought?: string; payouts?: string; error?: string }> }) {
-  const [user, query] = await Promise.all([requireUser(), searchParams ?? Promise.resolve({} as { bought?: string; payouts?: string; error?: string })]);
+type CoinsQuery = { bought?: string; subscribed?: string; payouts?: string; error?: string };
+
+export default async function CoinsPage({ searchParams }: { searchParams?: Promise<CoinsQuery> }) {
+  const [user, query] = await Promise.all([requireUser(), searchParams ?? Promise.resolve({} as CoinsQuery)]);
   // Coming back from Stripe's onboarding page: read the account now rather than wait for its webhook.
   if (query.payouts === "return" && stripeConfigured()) await syncPayoutsEnabled(user.id).catch(() => false);
+  // Coming back from subscribing: show the plan now rather than when the webhook gets there.
+  if (query.subscribed === "1" && stripeConfigured()) await syncUserSubscriptions(user.id).catch(() => undefined);
+  const subscription = await liveSubscriptionOf(user.id);
 
   const [wallet, account, entries, withdrawals] = await Promise.all([
     walletSummary(prisma, user.id),
@@ -65,6 +72,9 @@ export default async function CoinsPage({ searchParams }: { searchParams?: Promi
 
       {query.bought === "1" ? (
         <p role="status" className="m-0 rounded-2xl bg-zk-ok-bg px-4 py-3 text-sm font-semibold text-zk-ok-fg">Thanks. Your Ziks arrive as soon as Stripe confirms the payment, usually within a few seconds.</p>
+      ) : null}
+      {query.subscribed === "1" ? (
+        <p role="status" className="m-0 rounded-2xl bg-zk-ok-bg px-4 py-3 text-sm font-semibold text-zk-ok-fg">Thanks. Your plan is on, and this month&apos;s Ziks arrive as soon as Stripe confirms the payment, usually within a few seconds.</p>
       ) : null}
       {query.payouts === "return" ? (
         <p role="status" className={`m-0 rounded-2xl px-4 py-3 text-sm font-semibold ${account.payoutsEnabled ? "bg-zk-ok-bg text-zk-ok-fg" : "bg-zk-warn-bg text-zk-warn-fg"}`}>
@@ -127,6 +137,8 @@ export default async function CoinsPage({ searchParams }: { searchParams?: Promi
         </ul>
         {!configured ? <p className="mb-0 mt-3 text-sm text-zk-text2">Buying Ziks isn&apos;t available yet.</p> : null}
       </section>
+
+      <MonthlyPlans subscription={subscription} configured={configured} />
 
       <section aria-labelledby="activity" className={card}>
         <h2 id="activity" className={label}>Activity</h2>
