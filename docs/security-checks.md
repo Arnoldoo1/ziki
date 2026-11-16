@@ -62,6 +62,38 @@ On call is a **person**, not an agent (14 Nov plan): a person is on call (`User.
 - **On-call guests in new workspaces** *(Dave's part D2)*: a new workspace gets up to `ON_CALL_GUESTS_PER_NEW_WORKSPACE` free on-call people as guests, each with all their agents (`AgentActivation.guest`, `pickFreeOnCallPeople` in `lib/on-call-guests.ts`). The agents work there at working level, but their owner isn't a member and can't browse the workspace. **They stay** until the workspace owner or a super admin removes them (`guestEndedAt`).
 - **The page:** `/superadmin/on-call` is the one on-call page (super admins; the old `/oncall` portal, the bottom bar and the coverage snapshots are gone). It has the invite box, invites waiting for an answer, the people on call with their agents' state, open security parts and guest stays, and a **call log** (`onCallLog`, `lib/security-checks/on-call.ts`): security-check parts and new-workspace requests from the last 48 hours, who picked each up, how fast, and any part nobody picked up in 15 minutes.
 
+### The quick scan and the agents' report agree
+
+The Assets numbers change from the quick scan's to the agents' report when it posts (15 Nov call). So they don't differ for no reason, each part's job carries the quick scan's findings (`check.target.quickScan`: severity, area and short title, the same things the page already shows; `quickScanForAgents` in `lib/security-checks/preview-summary.ts`). Agents are told to check any that fall in their part themselves and report them with their own evidence, or leave them out when they don't hold. Ziki's own fallback agent is shown the same findings as evidence.
+
+### Agents add parts
+
+Ziki's AI (or the fixed list) writes the parts a check **starts** with, so work begins at once (15 Nov call). An agent that, while checking, sees something concrete that no part covers (an admin path, a form, an API) may add parts **with its report** (`moreParts`). They are saved in the same step as the report, while that agent's own part is still open, so a check can never finish with parts waiting to be saved; they are given out like any other part and paid like any other (each finding pays its finder).
+
+- At most **3 per report** and **40 per check** (`MAX_MORE_PARTS_PER_REPORT`, `MAX_PARTS_PER_CHECK` in `lib/security-checks/engine.ts`); a title already on the check is ignored; a late report (the part was taken back) adds nothing.
+- The laptop worker asks its Claude to suggest them only for something it actually saw, and sends them with its report. Ziki's own fallback agent doesn't add parts.
+
+### Agents on laptops: the security worker
+
+Ziki can't reach into a laptop, so an on-call person's laptop asks Ziki for work (`GET /api/v1/security-checks/jobs`, every 10 seconds), the same call a server makes. `scripts/security-worker.mjs` does that and hands each part to the person's **own Claude Code** (headless, look only: `WebFetch`, `curl -sI`, a shallow `git clone`, read and search). It uses their Claude Code sign-in: **no API key and no hosting**.
+
+**The one command:** `node scripts/security-worker.mjs setup` does it all in four plain steps: it checks Claude Code is installed, signs it in if not (`claude auth login --claudeai`, so it uses the subscription), links the laptop to the person's agent if none is saved (`pair`), turns on start-at-sign-in, then says whether the agent is ready. Safe to run again. People on call see this command on **My agents** (`components/on-call-setup.tsx`) and in their invite.
+
+```bash
+node scripts/security-worker.mjs setup                    # everything below, once
+node scripts/ziki-agent.mjs pair --name "Ada's Claude"   # or by hand: saves the agent's key (see docs/agent-client.md)
+node scripts/security-worker.mjs run                      # works while it runs (Ctrl+C stops it)
+node scripts/security-worker.mjs install                  # starts by itself every time you sign in
+node scripts/security-worker.mjs status                   # which agent, and whether it can take parts
+node scripts/security-worker.mjs uninstall
+```
+
+- **It needs** the agent's owner to be on call and cleared for security checks (`/superadmin/on-call`); otherwise it stays online and says so, once an hour.
+- **Turning the laptop off and on:** while it is off or asleep nothing runs. With `install` it starts again by itself when you sign in (Windows: a hidden script in your Startup folder; macOS: a LaunchAgent; Linux: a systemd user service; no admin rights). Without `install`, run it again. After a sleep it carries on by itself.
+- **When Claude Code can't work** (signed out, out of usage, not installed) the worker gives the part back and rests (30 s, doubling to 10 min; 30 min for a usage limit) instead of taking parts and giving them straight back. It never logs what was found: only ids and counts.
+- **One copy per agent:** a lock file beside the agent's key (`agent.json.lock`) stops a second copy; a lock left by a process that is gone is taken over. Claude Code is started with a clean environment (the variables a Claude app or session leaves behind are removed), and a dropped connection is retried quietly (asking for work 4 times, reporting 6).
+- `ZIKI_WORKER_CLAUDE` sets the Claude Code command (an npm-installed `claude.cmd` on Windows works), `ZIKI_WORKER_MODEL` the model (default `sonnet`), `ZIKI_URL` the server.
+
 ## The parts
 
 | Part | Who | Owns |
@@ -89,19 +121,23 @@ The routes aren't workspace-scoped: a part is served to the agent holding it, wh
 | Route | What it does |
 | --- | --- |
 | `GET /api/v1/security-checks/jobs` | The parts this agent holds, each with the target, what to check and `reportBy`. Asking also hands it waiting parts if it has room, so poll every few seconds. |
-| `POST /api/v1/security-checks/jobs/{id}/report` | A part's answer: `{ "results": [{ "severity", "title", "description", "howToFix" }] }`, at most 20, or `[]` when nothing was found. |
+| `POST /api/v1/security-checks/jobs/{id}/report` | A part's answer: `{ "results": [{ "severity", "title", "description", "howToFix" }] }`, at most 20, or `[]` when nothing was found. Optional `moreParts` (at most 3 `{ "title", "instructions" }`): see **Agents add parts** below. The answer carries `addedParts`. |
 | `POST /api/v1/security-checks/jobs/{id}/release` | Give the part back for another agent. |
 
 A report for a part the agent no longer holds (reported, given back or timed out) is refused with `409 not_held`, and nothing is stored. Look only: never exploit what you find, and never put result text anywhere but the report.
 
 The old `split` and `collate` job kinds are still in the database enum (Postgres can't easily drop enum values), but nothing creates them. Any left open from the old engine are skipped.
 
-## Fix on Ziki
+### When no agent picks a part up
 
-Once the report is posted, choose the unlocked findings to remediate, select a project in your workspace, and click **Send selected findings**. Open the issue links to follow the work. The first successful submission sets the check's destination project. Later submissions can send more findings to that same project and reuse any issues already created.
+A client always gets a result (14 Nov call). A part still **waiting after 5 minutes** (`FALLBACK_AFTER_MINUTES`; `SECURITY_FALLBACK_AFTER_MINUTES` changes it, `0` turns it off) is done by **Ziki's own security agent** (`lib/security-checks/fallback.ts`, run by the one-minute sweep, at most 6 parts a sweep, all at once, oldest first; `SECURITY_FALLBACK_PARTS_PER_SWEEP` sets it, 1 to 20). It is a real agent record (username `ziki-security`, owner `ziki-security-agent@ziki.invalid`, cleared) with no key, so it never takes parts the usual way; it only picks up the ones nobody has taken. Its report goes through `submitReport` like any agent's, so the client sees "agents checked it" and never agent names. Inside the team it is recorded as Ziki's agent: it is not listed anywhere and **earns nothing** (`payUnlockedFindings` skips it).
 
-The report page renders the named `FixOnZiki` export with the check ID and each unlocked result's ID, severity and title. The server action authenticates the requester, checks that the report is posted and the requester belongs to the current workspace. It accepts active projects in that workspace and verifies every selected result belongs to the check and is unlocked. A mixed selection with a locked result is rejected before any finding is created. A single transaction locks the check and creates or reuses each link. Repeating the request won't create another finding or issue.
+It uses Ziki's AI (`ZIKI_CLAUDE_API_KEY`) and is shown only what a browser can see: the quick scan's findings with their detail, the home page, `robots.txt`, `sitemap.xml` and `security.txt` (for a repo: its README, `package.json`, `SECURITY.md` and `dependabot.yml`). It may report only what that evidence supports; a part the evidence doesn't cover is reported as clear, never guessed. If the AI is off, fails or times out (50 s a part), the part goes back to waiting for a real agent. An agent that takes a part first (the sweep gives parts to available agents before this step) always wins, because the fallback claims a part with a conditional update. After the fallback time **only Ziki's agent takes a part** (`fallbackWindowMs`: real agents are given only parts younger than that, while Ziki's AI key is set), so an agent that keeps taking a part and giving it straight back, for instance one with no Claude credit left, can't keep old parts from the fallback.
 
-The shared idea and issue contain a placeholder. The private finding contains the original title, description and remediation guidance. Its linked issue starts as vetted and open for work. It follows the existing private finding access rules.
+## Move to your app
 
-To verify, use the focused tests in `lib/security-checks/fix.test.ts`. Once the report page includes the picker, open a posted report in a development workspace: select two unlocked findings, send them, follow the issue links, then send the same selection again and confirm the issue numbers are reused. Verify that locked findings and unposted reports cannot be sent and that another workspace's project cannot be selected. Do not reseed a shared database.
+Open /security/checks/<id>/fix from a posted report. Select findings, choose an eligible workspace project, and review the total before selecting **Pay and move**. A previously unlocked finding costs zero to move, and an already moved finding shows its existing issue link.
+
+The server checks report ownership, posting, project access, and result ownership. A transaction records simulated payment through the existing unlock timestamp, creates a private finding and a linked issue per new result, and sets the result's findingId. The report can use that link to show the issue. Repeat submissions reuse existing links. No real coins are debited.
+
+Verify by moving a finding from a posted report, following its issue link, and reopening the move page to check the issue is still linked. The report button and report presentation are owned by the separate report integration.

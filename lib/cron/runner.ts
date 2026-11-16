@@ -15,6 +15,8 @@ import { processSearchOutbox, pruneProcessedSearchOutbox } from "@/lib/search-in
 import { refreshMergeQueue } from "@/lib/github/sync";
 import { followPreviewBuilds } from "@/lib/previews/builds";
 import { sweepSecurityChecks } from "@/lib/security-checks/engine";
+import { retryPendingWithdrawals } from "@/lib/coins/withdraw";
+import { sweepFallback } from "@/lib/security-checks/fallback";
 import { sweepTesting } from "@/lib/agent-api/testing-sweep";
 
 export const FAILURE_ALERT_THRESHOLD = 3;
@@ -64,6 +66,7 @@ export type PlatformSweepsResult = {
       assigned?: number;
       posted?: number;
       paid?: number;
+      fallback?: number;
       error?: string;
     };
     orphanedIssues: { status: "ok" | "error"; reopened?: number; error?: string };
@@ -78,6 +81,7 @@ export type PlatformSweepsResult = {
     };
     githubStatus: { status: "ok" | "error"; checked?: number; moved?: number; failed?: number; error?: string };
     previews: { status: "ok" | "error"; checked?: number; failed?: number; error?: string };
+    withdrawals: { status: "ok" | "error"; checked?: number; sent?: number; waiting?: number; returned?: number; error?: string };
     deliveries: { status: "ok" | "error"; processed?: number; error?: string };
     retention: {
       status: "ok" | "error";
@@ -124,6 +128,7 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
         draftStructuring: { status: "ok" },
         githubStatus: { status: "ok" },
         previews: { status: "ok" },
+        withdrawals: { status: "ok" },
         deliveries: { status: "ok" },
         retention: { status: "ok" },
         searchIndex: { status: "ok" },
@@ -201,8 +206,10 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
     // reports (Ziki AI summary) and pay the finders of unlocked findings.
     try {
       const res = await sweepSecurityChecks(prisma);
+      // Parts no agent picked up in time are done by Ziki's own security agent, so a check always finishes.
+      const fallback = await sweepFallback(prisma);
       recordSweepSuccess("securityChecks");
-      result.sweeps.securityChecks = { status: "ok", ...res };
+      result.sweeps.securityChecks = { status: "ok", ...res, fallback: fallback.worked };
     } catch (err) {
       recordSweepFailure("securityChecks", err);
       result.sweeps.securityChecks = { status: "error", error: err instanceof Error ? err.message : String(err) };
@@ -265,6 +272,16 @@ export async function runPlatformSweeps(): Promise<PlatformSweepsResult | { skip
     } catch (err) {
       recordSweepFailure("previews", err);
       result.sweeps.previews = { status: "error", error: err instanceof Error ? err.message : String(err) };
+    }
+
+    // 3b. Ziks withdrawals (#ziki-coins): send again the ones Stripe wasn't ready to pay yet.
+    try {
+      const res = await retryPendingWithdrawals();
+      recordSweepSuccess("withdrawals");
+      result.sweeps.withdrawals = { status: "ok", ...res };
+    } catch (err) {
+      recordSweepFailure("withdrawals", err);
+      result.sweeps.withdrawals = { status: "error", error: err instanceof Error ? err.message : String(err) };
     }
 
     // 4. Webhook Deliveries

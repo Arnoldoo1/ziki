@@ -14,7 +14,6 @@ import { newIssuePath, type ProjectRef } from "@/lib/project-paths";
 import { SeverityChip } from "@/components/security-finding-panel";
 import { AgentClearanceToggle } from "@/components/security-finding-controls";
 import { PipelineSteps } from "@/components/pipeline-steps";
-import { SecuritySettingsLink } from "@/components/security/security-settings-link";
 import {
   filterSecurityFindingsByStage,
   parseSecurityStageFilter,
@@ -24,8 +23,9 @@ import {
 import { LocalTime } from "@/components/local-time";
 import { SecurityChecksPanel } from "@/components/security-checks/entry-panel";
 import { SecurityTabs } from "@/components/security-checks/security-tabs";
+import { WorkspacePickerModal } from "@/components/security-checks/workspace-picker";
 import { listWorkspaceChecks } from "@/lib/security-checks/entry";
-import { parseSecurityTarget } from "@/lib/security-checks/target";
+import { parseSecurityTarget, targetAddress } from "@/lib/security-checks/target";
 import { countAgentJobs } from "@/lib/security-checks/your-work";
 import { OrgPageHeader, ReadOnlyNote, orgCard, orgListCard } from "../[org]/[project]/org/org-ui";
 
@@ -54,6 +54,8 @@ type SearchParams = Promise<{
   view?: string | string[];
   show?: string | string[];
   target?: string | string[];
+  picked?: string | string[];
+  page?: string | string[];
 }>;
 
 const FINDINGS_PATH = "/security?view=findings";
@@ -81,44 +83,81 @@ export default async function SecurityPage(props: {
   // The page opens on the one box (#security-checks). The findings dashboard is
   // one link away, and any old link that carries a findings filter still lands on it.
   const showFindings = params.view === "findings" || FINDINGS_FILTERS.some((key) => params[key] !== undefined);
-  const brought = typeof params.target === "string" ? parseSecurityTarget(params.target) : null;
-  if (!showFindings && !access.admin) {
-    // Scans live in a workspace the person owns or runs. If the current one isn't theirs,
-    // open one that is (keeping the scanned site); with none, they're asked to create one below.
-    const own = await prisma.membership.findFirst({
+  const parsed = typeof params.target === "string" ? parseSecurityTarget(params.target) : null;
+  // The scanned site as an address the parser reads back: a repo goes as github.com/owner/name.
+  const brought = parsed?.ok ? targetAddress(parsed.target) : null;
+  const back = brought ? `/security?target=${encodeURIComponent(brought)}` : "/security";
+  // Arriving with a scanned site (from the public page) and more than one workspace you own or run:
+  // ask which one it goes in, or to create a new one (14 Nov call). Once picked, `picked=1` comes back.
+  let picker: React.ReactNode = null;
+  if (brought && params.picked !== "1" && !showFindings) {
+    const owned = await prisma.membership.findMany({
       where: { userId: user.id, role: { in: ["owner", "admin"] }, organisation: { archivedAt: null } },
       orderBy: { createdAt: "asc" },
-      select: { organisationId: true },
+      select: { organisation: { select: { id: true, name: true } } },
     });
-    if (own && own.organisationId !== access.organisationId) {
-      const back = brought?.ok ? `/security?target=${encodeURIComponent(brought.target.value)}` : "/security";
-      redirect(`/organisations/open?organisation=${encodeURIComponent(own.organisationId)}&next=${encodeURIComponent(back)}`);
+    if (owned.length > 1) {
+      const pickedBack = `/security?target=${encodeURIComponent(brought)}&picked=1`;
+      picker = (
+        <WorkspacePickerModal
+          site={brought}
+          workspaces={owned.map(({ organisation }) => ({
+            name: organisation.name,
+            current: organisation.id === access.organisationId,
+            href: `/organisations/open?organisation=${encodeURIComponent(organisation.id)}&next=${encodeURIComponent(pickedBack)}`,
+          }))}
+          createHref={`/organisations?next=${encodeURIComponent(pickedBack)}`}
+        />
+      );
     }
   }
-  // From the public page with a scanned site and no workspace of their own: straight to creating one.
-  // They come back here afterwards and the scan starts.
-  if ((!access.organisationId || (!showFindings && !access.admin)) && brought?.ok) {
-    redirect(`/organisations?next=${encodeURIComponent(`/security?target=${encodeURIComponent(brought.target.value)}`)}`);
+  // The pop-up shows over the Security page; when this workspace isn't one you run, over an empty one.
+  if (picker && !(access.admin && access.organisationId)) {
+    return (
+      <div className="flex w-full flex-col pb-10">
+        <h1 className="sr-only">Security</h1>
+        {picker}
+      </div>
+    );
   }
-  if (!access.organisationId || (!showFindings && !access.admin)) {
+  if (!showFindings && !access.admin) {
+    // Arriving with a scanned site (from the public page): scans live in a workspace the person owns or
+    // runs, so if the current one isn't theirs, open one that is, keeping the scanned site.
+    if (brought) {
+      const own = await prisma.membership.findFirst({
+        where: { userId: user.id, role: { in: ["owner", "admin"] }, organisation: { archivedAt: null } },
+        orderBy: { createdAt: "asc" },
+        select: { organisationId: true },
+      });
+      if (own && own.organisationId !== access.organisationId) {
+        redirect(`/organisations/open?organisation=${encodeURIComponent(own.organisationId)}&next=${encodeURIComponent(back)}`);
+      }
+      // Owns none: straight to creating one; they come back here afterwards and the scan starts.
+      if (!own) redirect(`/organisations?next=${encodeURIComponent(back)}`);
+    }
+    // Otherwise a plain member of this workspace stays in it and sees their own work. Without a scanned
+    // site they are never moved to another workspace (15 Nov call): that other workspace is one switch away,
+    // and Your work says so.
+    if (access.organisationId) redirect("/security/work");
+  }
+  if (!access.organisationId) {
     return (
       <div className="space-y-4">
         <OrgPageHeader heading="h1" title="Security" actions={
           <div className="flex items-center gap-2">
             <Link href="/security/activity" className="text-sm font-semibold text-zk-accent hover:underline">Activity</Link>
-            <SecuritySettingsLink />
           </div>
         }>Report and track security findings.</OrgPageHeader>
         {/* No workspace of their own: scans live in one, so make it first, then come straight back with the site. */}
         <ReadOnlyNote>
-          {brought?.ok ? `To scan ${brought.target.value}, first ` : "To secure a website, server or repo, first "}
+          {brought ? `To scan ${brought}, first ` : "To secure a website, server or repo, first "}
           <Link
-            href={`/organisations?next=${encodeURIComponent(brought?.ok ? `/security?target=${encodeURIComponent(brought.target.value)}` : "/security")}`}
+            href={`/organisations?next=${encodeURIComponent(back)}`}
             className="font-semibold text-zk-accent hover:underline"
           >
             create your workspace
           </Link>
-          . You&apos;ll come straight back here{brought?.ok ? " and the scan starts" : ""}.
+          . You&apos;ll come straight back here{brought ? " and the scan starts" : ""}.
         </ReadOnlyNote>
       </div>
     );
@@ -131,8 +170,11 @@ export default async function SecurityPage(props: {
     return (
       <div className="flex w-full flex-col pb-10">
         <h1 className="sr-only">Security</h1>
-        <SecurityTabs selected="checks" checks={checks.length} jobs={jobs} />
-        <SecurityChecksPanel checks={checks} highlight={highlight} startWith={brought?.ok ? brought.target.value : undefined} />
+        {/* Removed (cancelled) scans don't count. */}
+        <SecurityTabs selected="checks" checks={checks.filter((check) => check.status !== "cancelled").length} jobs={jobs} />
+        {picker}
+        {/* While the pop-up asks where it goes, nothing is scanned yet. */}
+        <SecurityChecksPanel checks={checks} highlight={highlight} startWith={picker ? undefined : (brought ?? undefined)} show={typeof params.show === "string" ? params.show : undefined} page={Number(params.page) > 0 ? Math.floor(Number(params.page)) : 1} />
       </div>
     );
   }
@@ -175,7 +217,6 @@ export default async function SecurityPage(props: {
       <OrgPageHeader heading="h1" title="Findings" actions={
         <div className="flex flex-wrap items-center gap-2">
           <Link href="/security/activity" className="text-sm font-semibold text-zk-accent hover:underline">Activity</Link>
-          <SecuritySettingsLink />
           <ReportButton projects={dashboard.projects} />
         </div>
       }>
