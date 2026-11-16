@@ -45,6 +45,9 @@ export type ProjectOverviewData = {
   joinRequest: "none" | "pending" | "rejected";
 };
 
+/** What "open issues" means on every public page: not yet delivered. Delivered work (done, merge, resolved) is counted as delivered fixes, never as both. */
+export const OPEN_ISSUES_WHERE = { isDeleted: false, status: { in: ["open", "in_progress"] } } satisfies Prisma.BugWhereInput;
+
 const overviewSelect = {
   id: true,
   slug: true,
@@ -81,7 +84,7 @@ const overviewSelect = {
   },
   _count: {
     select: {
-      bugs: { where: { isDeleted: false, status: { in: ["open", "in_progress"] } } },
+      bugs: { where: OPEN_ISSUES_WHERE },
       ideas: { where: { isDeleted: false, status: "open" } },
       memberships: true,
     },

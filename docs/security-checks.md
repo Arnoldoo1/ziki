@@ -62,6 +62,38 @@ On call is a **person**, not an agent (14 Nov plan): a person is on call (`User.
 - **On-call guests in new workspaces** *(Dave's part D2)*: a new workspace gets up to `ON_CALL_GUESTS_PER_NEW_WORKSPACE` free on-call people as guests, each with all their agents (`AgentActivation.guest`, `pickFreeOnCallPeople` in `lib/on-call-guests.ts`). The agents work there at working level, but their owner isn't a member and can't browse the workspace. **They stay** until the workspace owner or a super admin removes them (`guestEndedAt`).
 - **The page:** `/superadmin/on-call` is the one on-call page (super admins; the old `/oncall` portal, the bottom bar and the coverage snapshots are gone). It has the invite box, invites waiting for an answer, the people on call with their agents' state, open security parts and guest stays, and a **call log** (`onCallLog`, `lib/security-checks/on-call.ts`): security-check parts and new-workspace requests from the last 48 hours, who picked each up, how fast, and any part nobody picked up in 15 minutes.
 
+### The quick scan and the agents' report agree
+
+The Assets numbers change from the quick scan's to the agents' report when it posts (15 Nov call). So they don't differ for no reason, each part's job carries the quick scan's findings (`check.target.quickScan`: severity, area and short title, the same things the page already shows; `quickScanForAgents` in `lib/security-checks/preview-summary.ts`). Agents are told to check any that fall in their part themselves and report them with their own evidence, or leave them out when they don't hold. Ziki's own fallback agent is shown the same findings as evidence.
+
+### Agents add parts
+
+Ziki's AI (or the fixed list) writes the parts a check **starts** with, so work begins at once (15 Nov call). An agent that, while checking, sees something concrete that no part covers (an admin path, a form, an API) may add parts **with its report** (`moreParts`). They are saved in the same step as the report, while that agent's own part is still open, so a check can never finish with parts waiting to be saved; they are given out like any other part and paid like any other (each finding pays its finder).
+
+- At most **3 per report** and **40 per check** (`MAX_MORE_PARTS_PER_REPORT`, `MAX_PARTS_PER_CHECK` in `lib/security-checks/engine.ts`); a title already on the check is ignored; a late report (the part was taken back) adds nothing.
+- The laptop worker asks its Claude to suggest them only for something it actually saw, and sends them with its report. Ziki's own fallback agent doesn't add parts.
+
+### Agents on laptops: the security worker
+
+Ziki can't reach into a laptop, so an on-call person's laptop asks Ziki for work (`GET /api/v1/security-checks/jobs`, every 10 seconds), the same call a server makes. `scripts/security-worker.mjs` does that and hands each part to the person's **own Claude Code** (headless, look only: `WebFetch`, `curl -sI`, a shallow `git clone`, read and search). It uses their Claude Code sign-in: **no API key and no hosting**.
+
+**The one command:** `node scripts/security-worker.mjs setup` does it all in four plain steps: it checks Claude Code is installed, signs it in if not (`claude auth login --claudeai`, so it uses the subscription), links the laptop to the person's agent if none is saved (`pair`), turns on start-at-sign-in, then says whether the agent is ready. Safe to run again. People on call see this command on **My agents** (`components/on-call-setup.tsx`) and in their invite.
+
+```bash
+node scripts/security-worker.mjs setup                    # everything below, once
+node scripts/ziki-agent.mjs pair --name "Ada's Claude"   # or by hand: saves the agent's key (see docs/agent-client.md)
+node scripts/security-worker.mjs run                      # works while it runs (Ctrl+C stops it)
+node scripts/security-worker.mjs install                  # starts by itself every time you sign in
+node scripts/security-worker.mjs status                   # which agent, and whether it can take parts
+node scripts/security-worker.mjs uninstall
+```
+
+- **It needs** the agent's owner to be on call and cleared for security checks (`/superadmin/on-call`); otherwise it stays online and says so, once an hour.
+- **Turning the laptop off and on:** while it is off or asleep nothing runs. With `install` it starts again by itself when you sign in (Windows: a hidden script in your Startup folder; macOS: a LaunchAgent; Linux: a systemd user service; no admin rights). Without `install`, run it again. After a sleep it carries on by itself.
+- **When Claude Code can't work** (signed out, out of usage, not installed) the worker gives the part back and rests (30 s, doubling to 10 min; 30 min for a usage limit) instead of taking parts and giving them straight back. It never logs what was found: only ids and counts.
+- **One copy per agent:** a lock file beside the agent's key (`agent.json.lock`) stops a second copy; a lock left by a process that is gone is taken over. Claude Code is started with a clean environment (the variables a Claude app or session leaves behind are removed), and a dropped connection is retried quietly (asking for work 4 times, reporting 6).
+- `ZIKI_WORKER_CLAUDE` sets the Claude Code command (an npm-installed `claude.cmd` on Windows works), `ZIKI_WORKER_MODEL` the model (default `sonnet`), `ZIKI_URL` the server.
+
 ## The parts
 
 | Part | Who | Owns |
@@ -76,7 +108,7 @@ Each part owns its own routes, pages and `lib/` files. The shared columns all la
 
 ## The engine and the agent job API
 
-**Starting:** the check starts as soon as it is added (14 Nov plan: while `SECURITY_OWNERSHIP_PROOF_REQUIRED` is off, a check still marked "Show it's yours" starts too, since nothing will prove it; with it on, once ownership is proven). The add step calls `kickCheck(prisma, checkId)` (which runs `startCheck`) from `lib/security-checks/engine.ts`, run after its response with Next's `after()`. The platform cron, every minute, starts any it missed, including checks added before this rule. **Ziki's own AI** (`lib/security-checks/ai.ts`; Claude Sonnet 5.5 through `ZIKI_CLAUDE_API_KEY`, at low effort) splits the target into parts. For a website it reads the public home page through the ownership step's safe network. Without the key, or when the AI fails or declines, a fixed list of look-only parts per kind is used. It never retries, so a broken key costs nothing.
+**Starting:** the check starts as soon as it is added (14 Nov plan: while `SECURITY_OWNERSHIP_PROOF_REQUIRED` is off, a check still marked "Show it's yours" starts too, since nothing will prove it; with it on, once ownership is proven). The add step (`scanAndAdd` in `app/actions/security-assistant.ts`, and the ownership step after proof) calls `kickCheck(prisma, checkId)` (which runs `startCheck`) from `lib/security-checks/engine.ts`, run after its response with Next's `after()`. It is not optional: without it a new scan waits for the platform cron, which can be busy for minutes (a 15 Nov scan sat 10). A start that fails after claiming the check puts it back to waiting at once (`startCheck`), so the next sweep retries it instead of leaving it on "Planning the checks" for `STUCK_AFTER_MINUTES`. The platform cron, every minute, starts any it missed, including checks added before this rule. **Ziki's own AI** (`lib/security-checks/ai.ts`; Claude Sonnet 5.5 through `ZIKI_CLAUDE_API_KEY`, at low effort) splits the target into parts. For a website it reads the public home page through the ownership step's safe network. Without the key, or when the AI fails or declines, a fixed list of look-only parts per kind is used. It never retries, so a broken key costs nothing.
 
 **Who gets parts:** agents of a **security-cleared** person (`User.securityClearedAt`) that are online and not quiet (seen in the last 15 minutes) and not paused. On-call agents go first, then agents in the client's workspace, then the least busy. Each holds at most 2 parts at a time. A part not reported within 60 minutes goes back for another agent.
 
@@ -89,12 +121,18 @@ The routes aren't workspace-scoped: a part is served to the agent holding it, wh
 | Route | What it does |
 | --- | --- |
 | `GET /api/v1/security-checks/jobs` | The parts this agent holds, each with the target, what to check and `reportBy`. Asking also hands it waiting parts if it has room, so poll every few seconds. |
-| `POST /api/v1/security-checks/jobs/{id}/report` | A part's answer: `{ "results": [{ "severity", "title", "description", "howToFix" }] }`, at most 20, or `[]` when nothing was found. |
+| `POST /api/v1/security-checks/jobs/{id}/report` | A part's answer: `{ "results": [{ "severity", "title", "description", "howToFix" }] }`, at most 20, or `[]` when nothing was found. Optional `moreParts` (at most 3 `{ "title", "instructions" }`): see **Agents add parts** below. The answer carries `addedParts`. |
 | `POST /api/v1/security-checks/jobs/{id}/release` | Give the part back for another agent. |
 
 A report for a part the agent no longer holds (reported, given back or timed out) is refused with `409 not_held`, and nothing is stored. Look only: never exploit what you find, and never put result text anywhere but the report.
 
 The old `split` and `collate` job kinds are still in the database enum (Postgres can't easily drop enum values), but nothing creates them. Any left open from the old engine are skipped.
+
+### When no agent picks a part up
+
+A client always gets a result (14 Nov call). A part still **waiting after 5 minutes** (`FALLBACK_AFTER_MINUTES`; `SECURITY_FALLBACK_AFTER_MINUTES` changes it, `0` turns it off) is done by **Ziki's own security agent** (`lib/security-checks/fallback.ts`, run by the one-minute sweep, at most 6 parts a sweep, all at once, oldest first; `SECURITY_FALLBACK_PARTS_PER_SWEEP` sets it, 1 to 20). It is a real agent record (username `ziki-security`, owner `ziki-security-agent@ziki.invalid`, cleared) with no key, so it never takes parts the usual way; it only picks up the ones nobody has taken. Its report goes through `submitReport` like any agent's, so the client sees "agents checked it" and never agent names. Inside the team it is recorded as Ziki's agent: it is not listed anywhere and **earns nothing** (`payUnlockedFindings` skips it).
+
+It uses Ziki's AI (`ZIKI_CLAUDE_API_KEY`) and is shown only what a browser can see: the quick scan's findings with their detail, the home page, `robots.txt`, `sitemap.xml` and `security.txt` (for a repo: its README, `package.json`, `SECURITY.md` and `dependabot.yml`). It may report only what that evidence supports; a part the evidence doesn't cover is reported as clear, never guessed. If the AI is off, fails or times out (50 s a part), the part goes back to waiting for a real agent. An agent that takes a part first (the sweep gives parts to available agents before this step) always wins, because the fallback claims a part with a conditional update. After the fallback time **only Ziki's agent takes a part** (`fallbackWindowMs`: real agents are given only parts younger than that, while Ziki's AI key is set), so an agent that keeps taking a part and giving it straight back, for instance one with no Claude credit left, can't keep old parts from the fallback.
 
 ## Move to your app
 

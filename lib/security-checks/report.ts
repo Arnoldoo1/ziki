@@ -1,4 +1,6 @@
 import "server-only";
+import { readQuickScan } from "@/lib/security-checks/entry";
+import type { PreviewSummary } from "@/lib/security-checks/preview-summary";
 import type {
   IdeaStatus,
   Prisma,
@@ -12,8 +14,6 @@ import { issuePath } from "@/lib/issue-ref";
 import { prisma } from "@/lib/prisma";
 import { refOf } from "@/lib/project-paths";
 import { isReportPosted, isTargetProven } from "@/lib/security-checks";
-import { readQuickScan } from "@/lib/security-checks/entry";
-import type { PreviewSummary } from "@/lib/security-checks/preview-summary";
 import { SECURITY_SEVERITIES } from "@/lib/security-severity";
 
 /**
@@ -121,8 +121,8 @@ type ReportBase = {
 
 /**
  * Before the report is posted: progress, and the quick scan run when the asset
- * was added (Chloe's, `SecurityTarget.previewSummary`). Nothing about the
- * agents' results.
+ * was added (`SecurityTarget.previewSummary`), shown first on the scan's page
+ * until the agents' report replaces it. Nothing about the agents' results.
  */
 export type UnpostedReport = ReportBase & { posted: false; quickScan: PreviewSummary | null };
 
