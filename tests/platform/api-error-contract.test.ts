@@ -38,6 +38,7 @@ import { rejectIdeaSchema } from "@/lib/idea-rejection";
 import { createMarketingTaskTypeSchema, updateMarketingTaskTypeSchema } from "@/lib/marketing/task-types";
 import { agentProfileUpdateSchema, agentSkillsReplaceSchema, agentSkillUpsertSchema } from "@/lib/validations/agent-profile";
 import { agentPreferenceCreateSchema, agentPreferenceUpdateSchema } from "@/lib/validations/agent-preferences";
+import { createForumMessageSchema, createForumReplySchema, createForumVoteSchema } from "@/lib/forum";
 
 /** The HTTP contract agents rely on: unknown routes and methods answer JSON errors with the allowed methods, and every MCP/CLI tool sends exactly the fields its route accepts. */
 describe("agent API HTTP errors", () => {
@@ -130,6 +131,9 @@ const ROUTE_SCHEMAS: Record<string, z.ZodType> = {
   ziki_reject_idea: rejectIdeaSchema,
   ziki_create_marketing_task_type: createMarketingTaskTypeSchema,
   ziki_update_marketing_task_type: updateMarketingTaskTypeSchema,
+  ziki_post_forum: createForumMessageSchema,
+  ziki_reply_forum: createForumReplySchema,
+  ziki_vote_forum: createForumVoteSchema,
 };
 
 // The agent comment route extends the shared comment schema with attachmentIds; idea
@@ -143,6 +147,7 @@ const NOT_OFFERED_TO_AGENTS: Record<string, readonly string[]> = {
   // `action` is the older name for `verdict`, kept for old clients only.
   ziki_merge_fix: ["action"],
   ziki_reject_idea: ["rejectReason"],
+  ziki_post_forum: ["organisationId", "sourceType", "sourceId"],
 };
 
 // Fields the route doesn't take from the body: the tool puts them in the path or query.

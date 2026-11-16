@@ -11,6 +11,7 @@ import {
   JOB_TIMEOUT_MINUTES,
   SecurityJobError,
   assignWaitingJobs,
+  listAgentJobs,
   findingSourceKey,
   payUnlockedFindings,
   postReportIfComplete,
@@ -147,6 +148,21 @@ describe("starting a check: Ziki's AI splits it", () => {
     expect(db.securityCheckItem.createMany.mock.calls[0][0].data[0]).toMatchObject({ checkId: "check1", kind: "check", title: "Part 1" });
   });
 
+  it("puts a check whose split failed back to waiting at once, so the next sweep starts it, instead of leaving it stuck for ten minutes", async () => {
+    const db = fakeDb();
+    db.securityCheck.updateMany.mockResolvedValue({ count: 1 });
+    db.securityCheck.findUnique.mockResolvedValue({ target: { kind: "website", value: "settle.ng" } });
+    db.securityCheckItem.createMany.mockRejectedValue(new Error("database hiccup"));
+    const parts = Array.from({ length: 8 }, (_, i) => ({ title: `Part ${i + 1}`, instructions: "Look at it." }));
+
+    await expect(startCheck(asDb(db), "check1", now, { ai: fakeAi({ parts }).ai, readPage: null })).rejects.toThrow("database hiccup");
+
+    // The last update is the give-back: still ours (splitting since this start), no parts saved, back to queued.
+    const giveBack = db.securityCheck.updateMany.mock.calls.at(-1)![0];
+    expect(giveBack.where).toMatchObject({ id: "check1", status: "splitting", startedAt: now, items: { none: { kind: "check" } } });
+    expect(giveBack.data).toEqual({ status: "queued", startedAt: null });
+  });
+
   it("starts a check still marked as waiting for proof while proof is off, and not when it is required", async () => {
     for (const [required, statuses] of [[false, ["queued", "awaiting_ownership"]], [true, ["queued"]]] as const) {
       vi.stubEnv("SECURITY_OWNERSHIP_PROOF_REQUIRED", required ? "true" : "false");
@@ -226,6 +242,32 @@ describe("reporting a part", () => {
       submitReport(asDb(db), "agentA", "item1", found, now, [{ title: "Extra part", instructions: "Look at the extra path I saw." }]),
     ).rejects.toMatchObject({ status: 409 });
     expect(db.securityCheckItem.createMany).not.toHaveBeenCalled();
+  });
+
+  it("shows an agent what the quick scan already saw on the site with each part, titles only", async () => {
+    const db = fakeDb();
+    db.agent.findMany.mockResolvedValue([]);
+    db.securityCheckItem.findMany.mockResolvedValue([
+      {
+        id: "item1",
+        title: "Cookies",
+        instructions: "Look at Set-Cookie.",
+        assignedAt: now,
+        check: {
+          id: "check1",
+          target: {
+            kind: "website",
+            value: "settle.ng",
+            previewSummary: { rows: [{ severity: "medium", label: "Security headers", title: "No HSTS", price: 2, area: "headers" }] },
+          },
+        },
+      },
+    ]);
+
+    const [job] = await listAgentJobs(asDb(db), "agentA", now);
+
+    expect(job!.check).toEqual({ id: "check1", target: { kind: "website", value: "settle.ng", quickScan: [{ severity: "medium", area: "Security headers", title: "No HSTS" }] } });
+    expect(JSON.stringify(job)).not.toContain("previewSummary");
   });
 
   it("refuses a late report after the part was taken back", async () => {

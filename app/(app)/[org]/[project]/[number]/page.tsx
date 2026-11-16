@@ -55,6 +55,7 @@ import { AgentSteerPanel } from "@/components/agent-steer-panel";
 import { CommentComposer } from "@/components/comment-composer";
 import { AwardBox } from "@/components/award-box";
 import { FundIssueSection } from "@/components/coins/fund-issue-section";
+import { dollarsToZiks } from "@/lib/coins/math";
 import { PlanReviewCard, type PlanCardView } from "@/components/plan-review-card";
 import { currentPlan, planDeadline, type PlanView } from "@/lib/agent-api/plan";
 import { difficultyLabel } from "@/lib/difficulty";
@@ -1874,7 +1875,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
             {rewardRow ? (
               <IssueRewardPanel
                 bugId={bug.id}
-                reward={Number(rewardRow.reward)}
+                reward={dollarsToZiks(Number(rewardRow.reward))}
                 fixed={Boolean(rewardRow.rewardFixedAt)}
                 estimates={rewardEstimates}
                 viewerId={user.id}
@@ -2544,7 +2545,7 @@ export default async function BugDetailPage({ params, searchParams }: BugPagePro
           {rewardRow ? (
             <IssueRewardPanel
               bugId={bug.id}
-              reward={Number(rewardRow.reward)}
+              reward={dollarsToZiks(Number(rewardRow.reward))}
               fixed={Boolean(rewardRow.rewardFixedAt)}
               estimates={rewardEstimates}
               viewerId={user.id}
