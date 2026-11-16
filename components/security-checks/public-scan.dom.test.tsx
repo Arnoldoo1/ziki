@@ -65,3 +65,24 @@ it("signed out, Try now takes the site through sign-up to that same Security pag
   const signUp = await screen.findByRole("link", { name: "Try now" });
   expect(signUp).toHaveAttribute("href", `/signup?callbackUrl=${encodeURIComponent("/security?target=settle.ng&progress=1")}`);
 });
+
+it("gives the result its own address, so it can be shared", async () => {
+  const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  render(<PublicScan signedIn={false} />);
+  await scanSite(user);
+
+  expect(window.location.search).toBe("?site=settle.ng");
+  window.history.replaceState(null, "", "/");
+});
+
+it("opening a shared address runs that scan again", async () => {
+  window.history.replaceState(null, "", "/security-check?site=settle.ng");
+  render(<PublicScan signedIn={false} />);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(6000);
+  });
+
+  expect(runPublicScan).toHaveBeenCalledWith("settle.ng");
+  expect(await screen.findByRole("link", { name: "Try now" })).toBeInTheDocument();
+  window.history.replaceState(null, "", "/");
+});
