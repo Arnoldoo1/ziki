@@ -148,6 +148,21 @@ describe("starting a check: Ziki's AI splits it", () => {
     expect(db.securityCheckItem.createMany.mock.calls[0][0].data[0]).toMatchObject({ checkId: "check1", kind: "check", title: "Part 1" });
   });
 
+  it("puts a check whose split failed back to waiting at once, so the next sweep starts it, instead of leaving it stuck for ten minutes", async () => {
+    const db = fakeDb();
+    db.securityCheck.updateMany.mockResolvedValue({ count: 1 });
+    db.securityCheck.findUnique.mockResolvedValue({ target: { kind: "website", value: "settle.ng" } });
+    db.securityCheckItem.createMany.mockRejectedValue(new Error("database hiccup"));
+    const parts = Array.from({ length: 8 }, (_, i) => ({ title: `Part ${i + 1}`, instructions: "Look at it." }));
+
+    await expect(startCheck(asDb(db), "check1", now, { ai: fakeAi({ parts }).ai, readPage: null })).rejects.toThrow("database hiccup");
+
+    // The last update is the give-back: still ours (splitting since this start), no parts saved, back to queued.
+    const giveBack = db.securityCheck.updateMany.mock.calls.at(-1)![0];
+    expect(giveBack.where).toMatchObject({ id: "check1", status: "splitting", startedAt: now, items: { none: { kind: "check" } } });
+    expect(giveBack.data).toEqual({ status: "queued", startedAt: null });
+  });
+
   it("starts a check still marked as waiting for proof while proof is off, and not when it is required", async () => {
     for (const [required, statuses] of [[false, ["queued", "awaiting_ownership"]], [true, ["queued"]]] as const) {
       vi.stubEnv("SECURITY_OWNERSHIP_PROOF_REQUIRED", required ? "true" : "false");

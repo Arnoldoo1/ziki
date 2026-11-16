@@ -72,7 +72,11 @@ function sectionOf(pathname: string, ref: ProjectRef): Crumb[] {
   }
   // The Design area (#9): its list, and one proposal under it.
   if (first === "design" && second) return [{ label: "Design", href: designPath(ref) }, { label: "Proposal" }];
-  const pages: Record<string, string> = { notes: "Notes", design: "Design", org: "Organisation", workstream: "Workstream", report: "Report an issue", import: "Import delivered work" };
+  if (first === "forum") {
+    if (second) return [{ label: "Forum", href: projectPath(ref, "/forum") }, { label: "Discussion" }];
+    return named("Forum");
+  }
+  const pages: Record<string, string> = { forum: "Forum", notes: "Notes", design: "Design", org: "Organisation", workstream: "Workstream", report: "Report an issue", import: "Import delivered work" };
   return pages[first] ? named(pages[first]) : [];
 }
 
@@ -96,6 +100,9 @@ const crumb = "rounded-md px-1.5 py-0.5 hover:bg-zk-chip hover:text-zk-text focu
  */
 export function ProjectBreadcrumb({ project }: { project: BreadcrumbProject }) {
   const pathname = usePathname() ?? "";
+  if (/(?:^|\/)forum(?:\/|$)/.test(pathname)) {
+    return null;
+  }
   const projectsHref = orgHomePath(project.orgSlug);
   const ref = project.slug ? projectRef(project.orgSlug, project.slug) : null;
   const onProjects = !ref;
